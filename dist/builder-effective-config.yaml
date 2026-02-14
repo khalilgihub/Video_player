@@ -1,0 +1,36 @@
+directories:
+  output: dist
+  buildResources: assets
+appId: com.hybridplayer.app
+productName: Hybrid Player
+files:
+  - filter:
+      - src/**/*
+      - assets/**/*
+extraResources:
+  - from: mpv/
+    to: mpv/
+    filter:
+      - '**/*'
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icons/video.ico
+  signAndEditExecutable: false
+mac:
+  target:
+    - dmg
+  category: public.app-category.entertainment
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Video
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+electronVersion: 35.7.5

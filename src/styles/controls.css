@@ -1,0 +1,443 @@
+/**
+ * Hybrid Player - Control Bar Styles
+ * YouTube-inspired premium control bar
+ */
+
+/* ─── Controls Wrapper ─── */
+.controls-wrapper {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  padding: 0 14px 12px;
+  background: var(--bg-controls);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+body.fs-transition .controls-wrapper {
+  transform: translateY(3px);
+}
+
+.controls-wrapper.hidden {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+}
+
+/* ─── Progress Bar ─── */
+.progress-bar-container {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  background: var(--progress-bg);
+  border-radius: 2px;
+  cursor: pointer;
+  margin-bottom: 10px;
+  transition: height 0.15s ease;
+  -webkit-app-region: no-drag;
+}
+
+.progress-bar-container:hover {
+  height: 6px;
+}
+
+.progress-buffer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--progress-buffer);
+  border-radius: 2px;
+  pointer-events: none;
+  transition: width 0.1s;
+}
+
+.progress-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  pointer-events: none;
+  transition: width 0.05s linear;
+}
+
+.progress-handle {
+  position: absolute;
+  right: -6px;
+  top: 50%;
+  transform: translateY(-50%) scale(0);
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--accent-dim);
+  transition: transform 0.15s ease;
+  pointer-events: none;
+}
+
+.progress-bar-container:hover .progress-handle {
+  transform: translateY(-50%) scale(1);
+}
+
+/* ─── Hover Thumbnail Preview ─── */
+.progress-hover-thumb {
+  position: absolute;
+  bottom: 20px;
+  transform: translateX(-50%);
+  background: var(--bg-glass-heavy);
+  border: var(--glass-border);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+  z-index: 30;
+}
+
+.progress-hover-thumb img {
+  display: block;
+  width: 160px;
+  height: 90px;
+  object-fit: cover;
+  border-radius: 8px 8px 0 0;
+  background: #111;
+}
+
+.progress-hover-thumb span {
+  display: block;
+  text-align: center;
+  padding: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ─── Chapter Markers ─── */
+.chapter-markers {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+  pointer-events: none;
+}
+
+.chapter-marker {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: 1px;
+}
+
+/* ─── Controls Bar ─── */
+.controls-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  -webkit-app-region: no-drag;
+}
+
+.controls-left,
+.controls-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.youtube-quality-control {
+  position: relative;
+}
+
+.quality-dropdown {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  min-width: 160px;
+  max-height: 240px;
+  overflow-y: auto;
+  border-radius: 10px;
+  background: var(--bg-glass-heavy);
+  border: var(--glass-border);
+  box-shadow: var(--shadow-md);
+  padding: 6px;
+  z-index: 40;
+}
+
+.quality-dropdown-list {
+  display: grid;
+  gap: 4px;
+}
+
+.quality-dropdown-item {
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 7px 10px;
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.quality-dropdown-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.quality-dropdown-item.active {
+  color: var(--accent);
+  background: var(--accent-dim);
+  font-weight: 600;
+}
+
+/* ─── Control Buttons ─── */
+.ctrl-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: none;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.ctrl-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.05);
+}
+
+.ctrl-btn:active {
+  transform: scale(0.95);
+}
+
+.ctrl-btn-play {
+  width: 44px;
+  height: 44px;
+}
+
+.ctrl-btn-text {
+  width: auto;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ctrl-btn.active {
+  color: var(--accent);
+}
+
+/* ─── Time Display ─── */
+.time-display {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  margin-left: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.time-separator {
+  opacity: 0.5;
+  margin: 0 2px;
+}
+
+/* ─── Volume Container (YouTube-style horizontal) ─── */
+.volume-container {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  position: relative;
+  margin-left: 2px;
+}
+
+.volume-slider-track {
+  width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.volume-container:hover .volume-slider-track,
+.volume-container.expanded .volume-slider-track {
+  width: 80px;
+  opacity: 1;
+}
+
+.volume-slider-horizontal {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 72px;
+  height: 4px;
+  margin: 0 4px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.volume-slider-horizontal::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+}
+
+.volume-slider-horizontal::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+  margin-top: -5px;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
+  transition: transform 0.1s ease;
+}
+
+.volume-slider-horizontal::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.volume-value {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+  min-width: 0;
+  overflow: hidden;
+  width: 0;
+  opacity: 0;
+  white-space: nowrap;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              margin 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.volume-container:hover .volume-value,
+.volume-container.expanded .volume-value {
+  width: 36px;
+  opacity: 1;
+  margin-left: 2px;
+}
+
+/* ─── Speed Panel ─── */
+.speed-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 16px;
+}
+
+.speed-btn {
+  padding: 8px 14px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.speed-btn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--accent);
+}
+
+.speed-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.speed-custom {
+  padding: 16px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.speed-custom label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* ─── Subtitle Panel ─── */
+.subtitle-panel {
+  max-width: 450px;
+}
+
+.subtitle-options {
+  padding: 16px;
+}
+
+.subtitle-section {
+  margin-bottom: 20px;
+}
+
+.subtitle-section:last-child {
+  margin-bottom: 0;
+}
+
+.subtitle-section h4 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-tertiary);
+  margin-bottom: 10px;
+}
+
+.subtitle-track-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.subtitle-track-btn {
+  padding: 6px 14px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.subtitle-track-btn:hover {
+  border-color: var(--accent);
+}
+
+.subtitle-track-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.subtitle-sync {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.subtitle-sync span {
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 60px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
