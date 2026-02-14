@@ -1,0 +1,40 @@
+{
+  "appId": "com.hybridplayer.app",
+  "productName": "Hybrid Player",
+  "directories": {
+    "buildResources": "assets",
+    "output": "dist"
+  },
+  "files": [
+    "src/**/*",
+    "assets/**/*"
+  ],
+  "extraResources": [
+    {
+      "from": "mpv/",
+      "to": "mpv/",
+      "filter": ["**/*"]
+    }
+  ],
+  "win": {
+    "target": [
+      { "target": "nsis", "arch": ["x64"] }
+    ],
+    "icon": "assets/icons/video.ico",
+    "signAndEditExecutable": false
+  },
+  "mac": {
+    "target": ["dmg"],
+    "category": "public.app-category.entertainment"
+  },
+  "linux": {
+    "target": ["AppImage", "deb"],
+    "category": "Video"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
+  }
+}

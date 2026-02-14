@@ -1,0 +1,123 @@
+/**
+ * Hybrid Player - Theme Engine
+ * CSS Custom Properties for dynamic theming
+ */
+
+/* ─── Dark Theme (Default) ─── */
+[data-theme="dark"] {
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #12121a;
+  --bg-tertiary: #1a1a25;
+  --bg-elevated: #22222f;
+  --bg-glass: rgba(18, 18, 26, 0.85);
+  --bg-glass-heavy: rgba(10, 10, 15, 0.95);
+  --bg-controls: linear-gradient(to top, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.7) 50%, transparent 100%);
+  --bg-titlebar: linear-gradient(to bottom, rgba(0, 0, 0, 0.8) 0%, transparent 100%);
+  
+  --text-primary: #f0f0f5;
+  --text-secondary: #a0a0b0;
+  --text-tertiary: #606070;
+  
+  --border-color: rgba(255, 255, 255, 0.08);
+  --border-focus: rgba(255, 255, 255, 0.2);
+  
+  --accent: #e50914;
+  --accent-hover: #ff1a26;
+  --accent-dim: rgba(229, 9, 20, 0.3);
+  
+  --progress-bg: rgba(255, 255, 255, 0.15);
+  --progress-buffer: rgba(255, 255, 255, 0.25);
+  
+  --scrollbar-bg: transparent;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
+  
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.7);
+  --shadow-glow: 0 0 20px var(--accent-dim);
+  
+  --glass-blur: blur(20px);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ─── OLED Black Theme ─── */
+[data-theme="oled"] {
+  --bg-primary: #000000;
+  --bg-secondary: #050505;
+  --bg-tertiary: #0a0a0a;
+  --bg-elevated: #111111;
+  --bg-glass: rgba(5, 5, 5, 0.9);
+  --bg-glass-heavy: rgba(0, 0, 0, 0.98);
+  --bg-controls: linear-gradient(to top, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.8) 50%, transparent 100%);
+  --bg-titlebar: linear-gradient(to bottom, rgba(0, 0, 0, 0.9) 0%, transparent 100%);
+  
+  --text-primary: #e8e8ed;
+  --text-secondary: #888890;
+  --text-tertiary: #444448;
+  
+  --border-color: rgba(255, 255, 255, 0.05);
+  --border-focus: rgba(255, 255, 255, 0.15);
+  
+  --accent: #e50914;
+  --accent-hover: #ff1a26;
+  --accent-dim: rgba(229, 9, 20, 0.25);
+  
+  --progress-bg: rgba(255, 255, 255, 0.1);
+  --progress-buffer: rgba(255, 255, 255, 0.2);
+  
+  --scrollbar-bg: transparent;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.1);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
+  
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.9);
+  --shadow-glow: 0 0 20px var(--accent-dim);
+  
+  --glass-blur: blur(25px);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+/* ─── Light Theme ─── */
+[data-theme="light"] {
+  --bg-primary: #f5f5fa;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #eaeaf0;
+  --bg-elevated: #ffffff;
+  --bg-glass: rgba(255, 255, 255, 0.85);
+  --bg-glass-heavy: rgba(245, 245, 250, 0.95);
+  --bg-controls: linear-gradient(to top, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.5) 50%, transparent 100%);
+  --bg-titlebar: linear-gradient(to bottom, rgba(255, 255, 255, 0.9) 0%, transparent 100%);
+  
+  --text-primary: #1a1a2e;
+  --text-secondary: #5a5a70;
+  --text-tertiary: #9a9ab0;
+  
+  --border-color: rgba(0, 0, 0, 0.08);
+  --border-focus: rgba(0, 0, 0, 0.2);
+  
+  --accent: #e50914;
+  --accent-hover: #cc0812;
+  --accent-dim: rgba(229, 9, 20, 0.15);
+  
+  --progress-bg: rgba(0, 0, 0, 0.1);
+  --progress-buffer: rgba(0, 0, 0, 0.2);
+  
+  --scrollbar-bg: transparent;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.3);
+  
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.18);
+  --shadow-glow: 0 0 20px var(--accent-dim);
+  
+  --glass-blur: blur(20px);
+  --glass-border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+/* Light theme titlebar text fix */
+[data-theme="light"] .titlebar { color: var(--text-primary); }
+[data-theme="light"] .titlebar-btn { color: var(--text-secondary); }
+[data-theme="light"] .sidebar-playlist { background: var(--bg-secondary); }
