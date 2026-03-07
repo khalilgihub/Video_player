@@ -6,7 +6,7 @@
 const { app, BrowserWindow, ipcMain, dialog, globalShortcut, screen, Menu, protocol, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const { setupIpcHandlers } = require('./ipc-handlers');
 const { MpvProcess } = require('./mpv-process');
 const { setupMpvIpc } = require('./mpv-ipc-bridge');
@@ -23,6 +23,10 @@ const MEDIA_EXTENSIONS = new Set([
   '.m3u8', '.mpd'
 ]);
 
+const PLAYLIST_VIDEO_EXTENSIONS = new Set([
+  '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.m4v', '.wmv', '.ts', '.m2ts', '.mts'
+]);
+
 function createMediaFilters() {
   return [
     {
@@ -37,12 +41,12 @@ function createMediaFilters() {
   ];
 }
 
-function collectFolderMediaFiles(folderPath) {
+async function collectFolderMediaFiles(folderPath) {
   try {
-    const entries = fs.readdirSync(folderPath, { withFileTypes: true });
+    const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
     return entries
       .filter((entry) => entry.isFile())
-      .filter((entry) => MEDIA_EXTENSIONS.has(path.extname(entry.name).toLowerCase()))
+      .filter((entry) => PLAYLIST_VIDEO_EXTENSIONS.has(path.extname(entry.name).toLowerCase()))
       .map((entry) => path.join(folderPath, entry.name))
       .sort((a, b) => path.basename(a).localeCompare(path.basename(b), undefined, { numeric: true, sensitivity: 'base' }));
   } catch {
@@ -85,6 +89,127 @@ function resolveBundledBinaryPath(binaryName) {
     return path.join(process.resourcesPath, 'mpv', binaryName);
   }
   return path.join(__dirname, '../../mpv', binaryName);
+}
+
+function resolveFfmpegBinary() {
+  const candidates = process.platform === 'win32'
+    ? [
+        path.join(process.resourcesPath || '', 'ffmpeg', 'ffmpeg.exe'),
+        path.join(process.resourcesPath || '', 'mpv', 'ffmpeg.exe'),
+        path.join(path.dirname(process.execPath), 'ffmpeg', 'ffmpeg.exe'),
+        path.join(__dirname, '../../ffmpeg/ffmpeg.exe'),
+        'ffmpeg.exe',
+        'ffmpeg',
+      ]
+    : [
+        path.join(process.resourcesPath || '', 'ffmpeg', 'ffmpeg'),
+        path.join(process.resourcesPath || '', 'mpv', 'ffmpeg'),
+        path.join(path.dirname(process.execPath), 'ffmpeg', 'ffmpeg'),
+        path.join(__dirname, '../../ffmpeg/ffmpeg'),
+        'ffmpeg',
+      ];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (candidate === 'ffmpeg' || candidate === 'ffmpeg.exe') {
+      return candidate;
+    }
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+}
+
+function formatFfmpegTimestamp(seconds) {
+  const safeSeconds = Math.max(0, Number(seconds) || 0);
+  return safeSeconds.toFixed(3);
+}
+
+function createClipOutputPath(filePath) {
+  const parsed = path.parse(filePath);
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  const stamp = [
+    now.getFullYear(),
+    pad(now.getMonth() + 1),
+    pad(now.getDate()),
+    '-',
+    pad(now.getHours()),
+    pad(now.getMinutes()),
+    pad(now.getSeconds()),
+  ].join('');
+
+  let candidate = path.join(parsed.dir, `${parsed.name}-clip-${stamp}${parsed.ext}`);
+  let counter = 1;
+
+  while (fs.existsSync(candidate)) {
+    counter += 1;
+    candidate = path.join(parsed.dir, `${parsed.name}-clip-${stamp}-${counter}${parsed.ext}`);
+  }
+
+  return candidate;
+}
+
+async function clipMediaSegment({ filePath, startTime, duration }) {
+  const targetPath = typeof filePath === 'string' ? filePath.trim() : '';
+  const safeStartTime = Math.max(0, Number(startTime) || 0);
+  const safeDuration = Math.max(0, Number(duration) || 0);
+
+  if (!targetPath) {
+    throw new Error('Missing source file path');
+  }
+  if (!fs.existsSync(targetPath)) {
+    throw new Error('Source file not found');
+  }
+  if (!Number.isFinite(safeDuration) || safeDuration <= 0) {
+    throw new Error('Clip duration must be greater than zero');
+  }
+
+  const ffmpegBinary = resolveFfmpegBinary();
+  const outputPath = createClipOutputPath(targetPath);
+  const ffmpegArgs = [
+    '-hide_banner',
+    '-loglevel', 'error',
+    '-ss', formatFfmpegTimestamp(safeStartTime),
+    '-i', targetPath,
+    '-t', formatFfmpegTimestamp(safeDuration),
+    '-map', '0',
+    '-c', 'copy',
+    outputPath,
+  ];
+
+  return new Promise((resolve, reject) => {
+    const ffmpeg = spawn(ffmpegBinary, ffmpegArgs, {
+      windowsHide: true,
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+
+    let stderr = '';
+
+    ffmpeg.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    ffmpeg.on('error', (error) => {
+      reject(new Error(`Failed to start ffmpeg: ${error.message}`));
+    });
+
+    ffmpeg.on('close', (code) => {
+      if (code === 0) {
+        resolve({
+          outputPath,
+          startTime: safeStartTime,
+          duration: safeDuration,
+        });
+        return;
+      }
+
+      const message = stderr.trim() || `ffmpeg exited with code ${code}`;
+      reject(new Error(message));
+    });
+  });
 }
 
 async function getYoutubeQualityHeights(url) {
@@ -196,9 +321,8 @@ function registerSystemDialogHandlers(win) {
     return collectFolderMediaFiles(result.filePaths[0]);
   });
 
-  ipcMain.handle('app:quit', async () => {
-    app.quit();
-    return true;
+  ipcMain.handle('media:clip-segment', async (_, payload) => {
+    return clipMediaSegment(payload || {});
   });
 
   ipcMain.handle('youtube:get-quality-heights', async (_, url) => {
@@ -269,42 +393,41 @@ function setTrackedFullscreen(win, target, source = 'unknown') {
 const DB_PATH = path.join(app.getPath('userData'), 'hybrid-player-db.json');
 
 function loadDatabase() {
-  try {
-    if (fs.existsSync(DB_PATH)) {
-      return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
-    }
-  } catch (e) {
-    console.error('Failed to load database:', e);
-  }
-  return {
+  const defaults = {
     preferences: {
       theme: 'dark',
       accentColor: '#e50914',
-      language: 'en',
       autoResume: true,
-      defaultSpeed: 1.0,
-      hwAccel: true,
       volume: 1.0,
-      subtitleFont: 'Segoe UI',
-      subtitleSize: 28,
-      subtitleColor: '#ffffff',
-      subtitleBg: 'rgba(0,0,0,0.6)',
-      subtitleSyncOffset: 0,
       equalizerPreset: 'flat',
       equalizerBands: [0,0,0,0,0,0,0,0,0,0],
-      shortcuts: {},
-      volumeNormalization: false,
-      cacheSize: 150,
-      debugLogs: false
+      motionProfile: 'balanced',
+      brandFontEnabled: true,
     },
     history: [],
     resumePositions: {},
     playlists: [],
     speedMemory: {},
     subtitleDelayMemory: {},
-    recentFiles: [],
-    libraryPaths: []
+    recentFiles: []
   };
+
+  try {
+    if (fs.existsSync(DB_PATH)) {
+      const parsed = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
+      return {
+        ...defaults,
+        ...parsed,
+        preferences: {
+          ...defaults.preferences,
+          ...(parsed?.preferences || {})
+        }
+      };
+    }
+  } catch (e) {
+    console.error('Failed to load database:', e);
+  }
+  return defaults;
 }
 
 function saveDatabase(db) {
@@ -325,8 +448,9 @@ function createMainWindow() {
     minWidth: 800,
     minHeight: 500,
     frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
+    transparent: false,
+    fullscreenable: true,
+    backgroundColor: '#000000',
     titleBarStyle: 'hidden',
     titleBarOverlay: false,
     icon: path.join(__dirname, '../../assets/icons/icon.png'),
@@ -342,6 +466,7 @@ function createMainWindow() {
     show: false
   });
   mainWindow.__hybridFullscreenState = false;
+  mainWindow.__hybridUiLocked = false;
 
   mpvProcess = new MpvProcess();
   setupMpvIpc(mainWindow, mpvProcess);
@@ -378,8 +503,22 @@ function createMainWindow() {
   // (Global shortcuts below remain the safety net when mpv child has focus.)
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (!mainWindow || mainWindow.isDestroyed() || input.type !== 'keyDown') return;
+    if (mainWindow.__hybridUiLocked) return;
 
     const key = String(input.key || '').toLowerCase();
+    const wantsDevtools =
+      key === 'f12' ||
+      ((input.control || input.meta) && input.shift && key === 'i');
+    if (wantsDevtools) {
+      event.preventDefault();
+      if (mainWindow.webContents.isDevToolsOpened()) {
+        mainWindow.webContents.closeDevTools();
+      } else {
+        mainWindow.webContents.openDevTools({ mode: 'detach' });
+      }
+      return;
+    }
+
     if (key === 'f' || key === 'escape' || key === 'f11') {
       fsdbg('before-input-event', {
         key,
@@ -481,7 +620,8 @@ function setupGlobalShortcuts() {
     !mainWindow.isDestroyed() &&
     mainWindow.isVisible() &&
     !mainWindow.isMinimized() &&
-    mainWindow.isFocused()
+    mainWindow.isFocused() &&
+    !mainWindow.__hybridUiLocked
   );
 
   const toggleFullscreen = () => {
@@ -550,7 +690,7 @@ app.whenReady().then(() => {
   setupGlobalShortcuts();
   Menu.setApplicationMenu(null);
   registerSystemDialogHandlers(win);
-  setupIpcHandlers(ipcMain, win, db, saveDatabase, DB_PATH);
+  setupIpcHandlers(ipcMain, win, db, saveDatabase);
 });
 
 app.on('will-quit', () => {

@@ -34,13 +34,11 @@ class HybridPlayer {
     // A-B loop (UI state – the actual loop runs inside mpv)
     this.abLoop = { a: null, b: null, active: false };
 
-    // Sleep timer
-    this.sleepTimer   = null;
-    this.sleepTimeout = null;
-
     // Resume-save debounce
     this._lastResumeSaveSecond = -1;
     this._resumeSaveInFlight   = false;
+    this._screenshotPreviewHideTimer = null;
+    this._screenshotPreviewRemoveTimer = null;
 
     // ── Callback hooks (same signature as old player) ───
     /** @type {Function|null} */ this.onPlayStateChanged = null;
@@ -228,6 +226,7 @@ class HybridPlayer {
       const settingsModal = document.getElementById('settingsModal');
       if (settingsModal) settingsModal.hidden = true;
       window.HybridApp?._beginVideoLoadSpinner?.();
+      window.HybridApp?.handleMediaSourceChange?.(filePath);
 
       this._lastResumeSaveSecond = -1;
       this._resumeSaveInFlight   = false;
@@ -281,6 +280,7 @@ class HybridPlayer {
     const settingsModal = document.getElementById('settingsModal');
     if (settingsModal) settingsModal.hidden = true;
     window.HybridApp?._beginVideoLoadSpinner?.();
+    window.HybridApp?.handleMediaSourceChange?.(url);
 
     this.currentFilePath = url;
     this.welcomeScreen.classList.add('hidden');
@@ -375,10 +375,10 @@ class HybridPlayer {
   // ── Screenshot ─────────────────────────────────────────
   async takeScreenshot(format = 'png') {
     try {
-      const savedPath = await window.hybridAPI.mpv.screenshot('video');
-      if (savedPath) {
+      const screenshotPayload = await window.hybridAPI.mpv.screenshot('video');
+      if (screenshotPayload) {
         // Show preview overlay in the renderer
-        this._showScreenshotPreview(savedPath);
+        this._showScreenshotPreview(screenshotPayload);
         window.HybridToast?.show('Screenshot saved');
       }
     } catch (err) {
@@ -387,28 +387,58 @@ class HybridPlayer {
     }
   }
 
-  _showScreenshotPreview(filePath) {
-    // Remove previous preview if still visible
-    const old = document.getElementById('screenshotPreview');
-    if (old) old.remove();
+  _showScreenshotPreview(payload) {
+    const screenshot = (payload && typeof payload === 'object') ? payload : {};
+    const mimeType = typeof screenshot.mimeType === 'string' && screenshot.mimeType
+      ? screenshot.mimeType
+      : 'image/png';
+    const rawBase64 = typeof screenshot.base64Data === 'string'
+      ? screenshot.base64Data
+      : (typeof screenshot.base64 === 'string' ? screenshot.base64 : '');
+    const cleanedBase64 = rawBase64.trim().replace(/^data:[^;]+;base64,/, '');
+    const previewDataUrl = typeof screenshot.previewDataUrl === 'string'
+      ? screenshot.previewDataUrl.trim()
+      : '';
+    const imageSource = previewDataUrl.startsWith('data:image/')
+      ? previewDataUrl
+      : (cleanedBase64 ? `data:${mimeType};base64,${cleanedBase64}` : '');
 
-    const preview = document.createElement('div');
-    preview.id = 'screenshotPreview';
-    preview.className = 'screenshot-preview';
-    preview.innerHTML = `
-      <img src="file://${filePath.replace(/\\/g, '/')}" alt="screenshot">
-      <span class="screenshot-preview-label">Screenshot saved – click to open folder</span>
-    `;
-    preview.addEventListener('click', () => {
-      window.hybridAPI.mpv.screenshotOpenFolder();
-    });
+    if (!imageSource) {
+      window.HybridToast?.show('Screenshot preview payload invalid');
+      return;
+    }
 
-    this.videoContainer.appendChild(preview);
+    let preview = document.getElementById('screenshotPreview');
+    if (!preview) {
+      preview = document.createElement('div');
+      preview.id = 'screenshotPreview';
+      preview.className = 'screenshot-preview';
+      preview.innerHTML = `
+        <img alt="screenshot">
+        <span class="screenshot-preview-label">Screenshot saved – click to open folder</span>
+      `;
+      preview.addEventListener('click', () => {
+        window.hybridAPI.mpv.screenshotOpenFolder();
+      });
+      this.videoContainer.appendChild(preview);
+    }
 
-    // Auto-dismiss after 3 seconds
-    setTimeout(() => {
+    const image = preview.querySelector('img');
+    if (image) {
+      image.src = imageSource;
+    }
+
+    preview.classList.remove('hiding');
+
+    clearTimeout(this._screenshotPreviewHideTimer);
+    clearTimeout(this._screenshotPreviewRemoveTimer);
+    this._screenshotPreviewHideTimer = setTimeout(() => {
       preview.classList.add('hiding');
-      setTimeout(() => preview.remove(), 300);
+      this._screenshotPreviewRemoveTimer = setTimeout(() => {
+        if (preview.parentNode) {
+          preview.parentNode.removeChild(preview);
+        }
+      }, 300);
     }, 3000);
   }
 
@@ -447,27 +477,6 @@ class HybridPlayer {
       base.bitrate = vBitrate ? `${(vBitrate / 1000).toFixed(0)} kbps` : '-';
     } catch { /* ignore */ }
     return base;
-  }
-
-  // ── Sleep timer ────────────────────────────────────────
-  setSleepTimer(minutes) {
-    this.clearSleepTimer();
-    if (minutes <= 0) return;
-    this.sleepTimer = minutes;
-    this.sleepTimeout = setTimeout(() => {
-      window.hybridAPI.mpv.pause();
-      window.HybridToast?.show('Sleep timer: playback paused');
-      this.sleepTimer = null;
-    }, minutes * 60 * 1000);
-    window.HybridToast?.show(`Sleep timer: ${minutes} minutes`);
-  }
-
-  clearSleepTimer() {
-    if (this.sleepTimeout) {
-      clearTimeout(this.sleepTimeout);
-      this.sleepTimeout = null;
-      this.sleepTimer = null;
-    }
   }
 
   // ── Audio tracks ───────────────────────────────────────
@@ -531,7 +540,6 @@ class HybridPlayer {
   }
 
   destroy() {
-    this.clearSleepTimer();
     if (this.currentFilePath && this.currentTime > 5) {
       window.hybridAPI.resume.save(this.currentFilePath, this.currentTime);
     }

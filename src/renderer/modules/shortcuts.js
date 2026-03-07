@@ -18,6 +18,7 @@ class HybridShortcuts {
       'ArrowUp': 'volume-up',
       'ArrowDown': 'volume-down',
       'KeyM': 'toggle-mute',
+      'KeyU': 'unlock-ui',
       'KeyF': 'toggle-fullscreen',
       'Escape': 'exit-fullscreen',
       'BracketRight': 'speed-up',
@@ -59,7 +60,8 @@ class HybridShortcuts {
       const anyModalOpen = document.querySelector('.modal-overlay:not([hidden])');
 
       const code = e.code;
-      const action = this.shortcuts[code];
+      const isRecordingToggle = code === 'KeyS' && (e.ctrlKey || e.metaKey);
+      const action = isRecordingToggle ? 'toggle-recording' : this.shortcuts[code];
 
       if (code === 'KeyF' || code === 'Escape') {
         console.log('[FSDBG][renderer-shortcuts] keydown', {
@@ -71,6 +73,12 @@ class HybridShortcuts {
       }
       
       if (!action) return;
+
+      const isLocked = !!window.HybridApp?.isLocked;
+      if (isLocked && action !== 'unlock-ui') {
+        e.preventDefault();
+        return;
+      }
       
       // Some actions should work even in modals
       if (action !== 'toggle-play' && action !== 'exit-fullscreen' && anyModalOpen) return;
@@ -90,8 +98,6 @@ class HybridShortcuts {
   }
 
   _executeAction(action, event) {
-    const vol = document.getElementById('volumeSlider');
-    
     switch (action) {
       case 'toggle-play':
         this.player.togglePlay();
@@ -103,36 +109,30 @@ class HybridShortcuts {
       
       case 'seek-back-5':
         this.player.seekRelative(-5);
-        window.HybridToast?.show('⏪ -5s');
+        this.controls.showSkipIndicator(-5);
         break;
       
       case 'seek-forward-5':
         this.player.seekRelative(5);
-        window.HybridToast?.show('⏩ +5s');
+        this.controls.showSkipIndicator(5);
         break;
       
       case 'seek-back-10':
         this.player.seekRelative(-10);
-        window.HybridToast?.show('⏪ -10s');
+        this.controls.showSkipIndicator(-10);
         break;
       
       case 'seek-forward-10':
         this.player.seekRelative(10);
-        window.HybridToast?.show('⏩ +10s');
+        this.controls.showSkipIndicator(10);
         break;
       
       case 'volume-up':
-        if (vol) {
-          vol.value = Math.min(300, parseInt(vol.value) + 5);
-          vol.dispatchEvent(new Event('input'));
-        }
+        window.hybridAPI.mpv.command('add', 'volume', 5);
         break;
       
       case 'volume-down':
-        if (vol) {
-          vol.value = Math.max(0, parseInt(vol.value) - 5);
-          vol.dispatchEvent(new Event('input'));
-        }
+        window.hybridAPI.mpv.command('add', 'volume', -5);
         break;
       
       case 'toggle-mute':
@@ -200,6 +200,14 @@ class HybridShortcuts {
       
       case 'screenshot':
         this.player.takeScreenshot();
+        break;
+
+      case 'toggle-recording':
+        window.HybridApp?.toggleClipRecording();
+        break;
+
+      case 'unlock-ui':
+        window.HybridApp?.setLocked(false);
         break;
       
       case 'toggle-playlist':

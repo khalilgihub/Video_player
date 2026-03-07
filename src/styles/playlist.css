@@ -55,7 +55,9 @@
   color: var(--text-secondary);
   cursor: pointer;
   border-radius: 8px;
-  transition: all 0.15s;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    color var(--motion-fast) var(--motion-ease-standard);
 }
 
 .sidebar-btn:hover {
@@ -168,7 +170,10 @@
   color: var(--text-tertiary);
   cursor: pointer;
   border-radius: 4px;
-  transition: all 0.15s;
+  transition:
+    opacity var(--motion-fast) var(--motion-ease-standard),
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    color var(--motion-fast) var(--motion-ease-standard);
 }
 
 .playlist-item:hover .playlist-item-remove {

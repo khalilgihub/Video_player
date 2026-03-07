@@ -10,7 +10,7 @@ class HybridThumbnails {
     this.imgEl = document.getElementById('hoverThumbImg');
     this._debounceTimer = null;
     this._lastRequestedTime = -1;
-    this._debounceMs = 120;
+    this._debounceMs = 30;
     this._pending = false;
     this._requestToken = 0;
     this._queuedCapture = null;   // stores latest request while one is in-flight
@@ -24,8 +24,8 @@ class HybridThumbnails {
   generatePreview(time, percent) {
     if (!this.imgEl || !this.player.duration) return;
 
-    // Skip if time hasn't meaningfully changed (within 0.25s of last request)
-    if (Math.abs(time - this._lastRequestedTime) < 0.25) return;
+    // Skip if time hasn't meaningfully changed (within 0.1s of last request)
+    if (Math.abs(time - this._lastRequestedTime) < 0.1) return;
 
     this._lastRequestedTime = time;
 

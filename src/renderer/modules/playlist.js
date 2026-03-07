@@ -43,12 +43,16 @@ class HybridPlaylist {
     });
   }
 
-  addFiles(filePaths) {
-    const newItems = filePaths.map(fp => ({
+  _createItems(filePaths) {
+    return filePaths.map(fp => ({
       path: fp,
       name: fp.split(/[/\\]/).pop(),
       duration: null
     }));
+  }
+
+  addFiles(filePaths) {
+    const newItems = this._createItems(filePaths);
     
     this.items.push(...newItems);
     this._renderList();
@@ -59,6 +63,18 @@ class HybridPlaylist {
     }
     
     window.HybridToast?.show(`Added ${newItems.length} file(s)`);
+  }
+
+  replaceFiles(filePaths, { autoPlay = true } = {}) {
+    this.items = this._createItems(filePaths);
+    this.currentIndex = -1;
+    this._renderList();
+
+    if (autoPlay && this.items.length > 0) {
+      this.playIndex(0);
+    }
+
+    window.HybridToast?.show(`Loaded ${this.items.length} file(s)`);
   }
 
   addFile(filePath) {

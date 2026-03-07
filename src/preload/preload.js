@@ -6,14 +6,6 @@
 
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
-contextBridge.exposeInMainWorld('api', {
-  openFile: () => ipcRenderer.invoke('dialog:openFile'),
-  openMultipleFiles: () => ipcRenderer.invoke('dialog:openMultiple'),
-  openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
-  quitPlayer: () => ipcRenderer.invoke('app:quit'),
-  getYoutubeQualities: (url) => ipcRenderer.invoke('youtube:get-quality-heights', url)
-});
-
 contextBridge.exposeInMainWorld('hybridAPI', {
   // ─── Window Controls ───────────────────────────────────
   window: {
@@ -21,8 +13,8 @@ contextBridge.exposeInMainWorld('hybridAPI', {
     maximize: () => ipcRenderer.invoke('window:maximize'),
     close: () => ipcRenderer.invoke('window:close'),
     fullscreen: (state) => ipcRenderer.invoke('window:fullscreen', state),
-    isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
     isFullScreen: () => ipcRenderer.invoke('window:isFullScreen'),
+    setUiLocked: (state) => ipcRenderer.invoke('window:set-ui-locked', state),
     onStateChanged: (cb) => ipcRenderer.on('window-state-changed', (_, state) => cb(state))
   },
 
@@ -32,7 +24,6 @@ contextBridge.exposeInMainWorld('hybridAPI', {
     command: (...args) => ipcRenderer.invoke('mpv:command', ...args),
     setProperty: (name, value) => ipcRenderer.invoke('mpv:set-property', name, value),
     getProperty: (name) => ipcRenderer.invoke('mpv:get-property', name),
-    observeProperty: (name) => ipcRenderer.invoke('mpv:observe-property', name),
     isReady: () => ipcRenderer.invoke('mpv:is-ready'),
 
     // File loading
@@ -53,20 +44,16 @@ contextBridge.exposeInMainWorld('hybridAPI', {
     setSpeed: (s) => ipcRenderer.invoke('mpv:set-speed', s),
 
     // Subtitles
-    cycleSub: () => ipcRenderer.invoke('mpv:cycle-sub'),
     setSub: (id) => ipcRenderer.invoke('mpv:set-sub', id),
     setSubDelay: (sec) => ipcRenderer.invoke('mpv:set-sub-delay', sec),
     setSubVisibility: (vis) => ipcRenderer.invoke('mpv:set-sub-visibility', vis),
     addSubFile: (path) => ipcRenderer.invoke('mpv:add-sub-file', path),
 
     // Audio
-    cycleAudio: () => ipcRenderer.invoke('mpv:cycle-audio'),
     setAudio: (id) => ipcRenderer.invoke('mpv:set-audio', id),
 
     // Chapters
     setChapter: (idx) => ipcRenderer.invoke('mpv:set-chapter', idx),
-    nextChapter: () => ipcRenderer.invoke('mpv:next-chapter'),
-    prevChapter: () => ipcRenderer.invoke('mpv:prev-chapter'),
 
     // Frame stepping
     frameStep: () => ipcRenderer.invoke('mpv:frame-step'),
@@ -103,10 +90,6 @@ contextBridge.exposeInMainWorld('hybridAPI', {
 
   // ─── File Operations ──────────────────────────────────
   file: {
-    readText: (filePath) => ipcRenderer.invoke('file:readText', filePath),
-    exists: (filePath) => ipcRenderer.invoke('file:exists', filePath),
-    getMediaUrl: (filePath) => ipcRenderer.invoke('file:getMediaUrl', filePath),
-    scanFolder: (folderPath) => ipcRenderer.invoke('file:scanFolder', folderPath),
     getPathForDroppedFile: (file) => {
       try {
         return webUtils.getPathForFile(file) || null;
@@ -118,8 +101,6 @@ contextBridge.exposeInMainWorld('hybridAPI', {
 
   // ─── Database / Preferences ───────────────────────────
   db: {
-    get: (key) => ipcRenderer.invoke('db:get', key),
-    set: (key, value) => ipcRenderer.invoke('db:set', key, value),
     getPreference: (key) => ipcRenderer.invoke('db:getPreference', key),
     setPreference: (key, value) => ipcRenderer.invoke('db:setPreference', key, value),
     getAllPreferences: () => ipcRenderer.invoke('db:getAllPreferences'),
@@ -129,15 +110,12 @@ contextBridge.exposeInMainWorld('hybridAPI', {
   // ─── History & Resume ─────────────────────────────────
   history: {
     add: (entry) => ipcRenderer.invoke('history:add', entry),
-    getAll: () => ipcRenderer.invoke('history:getAll'),
     getRecent: (count) => ipcRenderer.invoke('history:getRecent', count),
-    clear: () => ipcRenderer.invoke('history:clear')
   },
 
   resume: {
     save: (filePath, time) => ipcRenderer.invoke('resume:save', filePath, time),
-    get: (filePath) => ipcRenderer.invoke('resume:get', filePath),
-    clear: (filePath) => ipcRenderer.invoke('resume:clear', filePath)
+    get: (filePath) => ipcRenderer.invoke('resume:get', filePath)
   },
 
   speed: {
@@ -153,36 +131,21 @@ contextBridge.exposeInMainWorld('hybridAPI', {
   // ─── Playlists ────────────────────────────────────────
   playlist: {
     getAll: () => ipcRenderer.invoke('playlist:getAll'),
-    save: (playlist) => ipcRenderer.invoke('playlist:save', playlist),
-    delete: (id) => ipcRenderer.invoke('playlist:delete', id)
-  },
-
-  // ─── Library ──────────────────────────────────────────
-  library: {
-    getPaths: () => ipcRenderer.invoke('library:getPaths'),
-    addPath: (path) => ipcRenderer.invoke('library:addPath', path),
-    removePath: (path) => ipcRenderer.invoke('library:removePath', path)
-  },
-
-  // ─── Screenshot (legacy) ──────────────────────────────
-  screenshot: {
-    save: (dataUrl, format) => ipcRenderer.invoke('screenshot:save', dataUrl, format)
-  },
-
-  // ─── App ──────────────────────────────────────────────
-  app: {
-    getVersion: () => ipcRenderer.invoke('app:getVersion'),
-    getPath: (name) => ipcRenderer.invoke('app:getPath', name)
-  },
-
-  // ─── Shell ────────────────────────────────────────────
-  shell: {
-    openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
-    showInFolder: (filePath) => ipcRenderer.invoke('shell:showInFolder', filePath)
+    save: (playlist) => ipcRenderer.invoke('playlist:save', playlist)
   },
 
   youtube: {
     getQualityHeights: (url) => ipcRenderer.invoke('youtube:get-quality-heights', url)
+  },
+
+  media: {
+    clipSegment: (payload) => ipcRenderer.invoke('media:clip-segment', payload)
+  },
+
+  debug: {
+    appendLog: (scope, payload) => ipcRenderer.invoke('debug:append-log', scope, payload),
+    getLogFilePath: () => ipcRenderer.invoke('debug:get-log-file-path'),
+    tailLog: (lines) => ipcRenderer.invoke('debug:tail-log', lines),
   },
 
   // ─── Event Listeners ─────────────────────────────────
@@ -195,8 +158,4 @@ contextBridge.exposeInMainWorld('hybridAPI', {
       ipcRenderer.on(channel, (_, ...args) => callback(...args));
     }
   },
-
-  removeListener: (channel, callback) => {
-    ipcRenderer.removeListener(channel, callback);
-  }
 });

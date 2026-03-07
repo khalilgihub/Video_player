@@ -47,6 +47,10 @@ function setupMpvIpc(win, mpv) {
     win.__hybridFullscreenState = !!state;
     win.setFullScreen(!!state);
   };
+  const getUiLocked = () => {
+    if (!win || win.isDestroyed()) return false;
+    return !!win.__hybridUiLocked;
+  };
 
   const previewMpv = new MpvProcess({ pipePrefix: 'hybrid-mpv-thumb', observeDefaults: false });
   let previewLoadedPath = null;
@@ -153,6 +157,26 @@ function setupMpvIpc(win, mpv) {
     }
   };
 
+  const waitForFile = async (filePath, timeoutMs = 5000) => {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      try {
+        await fs.promises.access(filePath, fs.constants.F_OK);
+        return true;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
+    }
+    return false;
+  };
+
+  const getImageMimeType = (filePath) => {
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+    if (ext === '.webp') return 'image/webp';
+    return 'image/png';
+  };
+
   // Helper – relay property changes to the renderer
   mpv.on('property-change', (name, value) => {
     if (win && !win.isDestroyed()) {
@@ -210,7 +234,21 @@ function setupMpvIpc(win, mpv) {
     if (!cmd) return;
     fsdbg('client-message received', { cmd, args, fullscreen: getTrackedFullscreen() });
 
+    if (getUiLocked() && cmd !== 'hybrid-unlock-ui') {
+      if (win && !win.isDestroyed()) {
+        win.focus();
+        win.webContents.focus();
+      }
+      return;
+    }
+
     switch (cmd) {
+      case 'hybrid-unlock-ui':
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('mpv:event', 'unlock-request');
+        }
+        break;
+
       /* ── Fullscreen ─────────────────────────────────── */
       case 'hybrid-toggle-fullscreen':
         if (win && !win.isDestroyed()) {
@@ -257,10 +295,32 @@ function setupMpvIpc(win, mpv) {
 
       /* ── Seek ───────────────────────────────────────── */
       case 'hybrid-seek-back-5':
-        if (mpv.ready) mpv.seekRelative(-5);
+        if (mpv.ready) {
+          mpv.seekRelative(-5);
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('mpv:event', 'skip-osd', { seconds: -5 });
+          }
+        }
         break;
       case 'hybrid-seek-forward-5':
-        if (mpv.ready) mpv.seekRelative(5);
+        if (mpv.ready) {
+          mpv.seekRelative(5);
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('mpv:event', 'skip-osd', { seconds: 5 });
+          }
+        }
+        break;
+
+      case 'hybrid-volume-up':
+        if (mpv.ready) {
+          mpv.command('add', 'volume', 5);
+        }
+        break;
+
+      case 'hybrid-volume-down':
+        if (mpv.ready) {
+          mpv.command('add', 'volume', -5);
+        }
         break;
 
       /* ── Mute ───────────────────────────────────────── */
@@ -303,10 +363,6 @@ function setupMpvIpc(win, mpv) {
     }
   });
 
-  ipcMain.handle('mpv:observe-property', async (_, name) => {
-    return withReady(() => mpv.observeProperty(name), false);
-  });
-
   // ── File loading ───────────────────────────────────────
   ipcMain.handle('mpv:load-file', async (_, filePath) => {
     return withReady(() => mpv.loadFile(filePath), false);
@@ -327,20 +383,16 @@ function setupMpvIpc(win, mpv) {
   ipcMain.handle('mpv:set-speed', async (_, s) => withReady(() => mpv.setSpeed(s), false));
 
   // ── Subtitles ──────────────────────────────────────────
-  ipcMain.handle('mpv:cycle-sub', async () => withReady(() => mpv.cycleSubtitles(), false));
   ipcMain.handle('mpv:set-sub', async (_, id) => withReady(() => mpv.setSub(id), false));
   ipcMain.handle('mpv:set-sub-delay', async (_, sec) => withReady(() => mpv.setSubDelay(sec), false));
   ipcMain.handle('mpv:set-sub-visibility', async (_, vis) => withReady(() => mpv.setSubVisibility(vis), false));
   ipcMain.handle('mpv:add-sub-file', async (_, p) => withReady(() => mpv.addSubFile(p), false));
 
   // ── Audio tracks ───────────────────────────────────────
-  ipcMain.handle('mpv:cycle-audio', async () => withReady(() => mpv.cycleAudio(), false));
   ipcMain.handle('mpv:set-audio', async (_, id) => withReady(() => mpv.setAudio(id), false));
 
   // ── Chapters ───────────────────────────────────────────
   ipcMain.handle('mpv:set-chapter', async (_, idx) => withReady(() => mpv.setChapter(idx), false));
-  ipcMain.handle('mpv:next-chapter', async () => withReady(() => mpv.nextChapter(), false));
-  ipcMain.handle('mpv:prev-chapter', async () => withReady(() => mpv.prevChapter(), false));
 
   // ── Frame stepping ─────────────────────────────────────
   ipcMain.handle('mpv:frame-step', async () => withReady(() => mpv.frameStep(), false));
@@ -353,12 +405,39 @@ function setupMpvIpc(win, mpv) {
 
   // ── Screenshot ─────────────────────────────────────────
   ipcMain.handle('mpv:screenshot', async (_, mode) => {
-    return withReady(() => mpv.screenshot(mode || 'video'), false);
+    return withReady(async () => {
+      const filePath = await mpv.screenshot(mode || 'video');
+      if (typeof filePath !== 'string' || !filePath) {
+        throw new Error('Screenshot path is invalid');
+      }
+
+      const fileReady = await waitForFile(filePath);
+      if (!fileReady) {
+        throw new Error('Screenshot file was not created in time');
+      }
+
+      const imageBuffer = await fs.promises.readFile(filePath);
+      const base64Data = imageBuffer.toString('base64');
+      if (!base64Data || typeof base64Data !== 'string') {
+        throw new Error('Screenshot payload is empty');
+      }
+
+      const mimeType = getImageMimeType(filePath);
+      const previewDataUrl = `data:${mimeType};base64,${base64Data}`;
+
+      return {
+        filePath,
+        base64: base64Data,
+        base64Data,
+        mimeType,
+        previewDataUrl,
+      };
+    }, null);
   });
 
   ipcMain.handle('mpv:screenshot-open-folder', async () => {
-    const dir = path.join(__dirname, '../../screenshots');
-    if (fs.existsSync(dir)) {
+    const dir = await withReady(() => mpv.getProperty('screenshot-directory'), null);
+    if (typeof dir === 'string' && dir && fs.existsSync(dir)) {
       shell.openPath(dir);
     }
     return true;
@@ -400,8 +479,8 @@ function setupMpvIpc(win, mpv) {
           previewLoadedPath = mediaPath;
         }
 
-        await previewMpv.command('seek', rounded, 'absolute+exact');
-        await new Promise((resolve) => setTimeout(resolve, 70));
+        await previewMpv.command('seek', rounded, 'absolute+keyframes');
+        await new Promise((resolve) => setTimeout(resolve, 15));
 
         const safeName = crypto.createHash('sha1').update(cacheKey).digest('hex');
         const thumbPath = path.join(previewDir, `${safeName}.jpg`);

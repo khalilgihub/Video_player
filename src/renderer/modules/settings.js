@@ -6,24 +6,22 @@
 class HybridSettings {
   constructor(player) {
     this.player = player;
-    this._bindTabs();
+    this.hasExplicitMotionProfile = false;
+    this.prefersReducedMotion = window.matchMedia
+      ? window.matchMedia('(prefers-reduced-motion: reduce)')
+      : null;
+
     this._bindCloseModals();
     this._bindSettings();
     this.loadPreferences();
-  }
 
-  _bindTabs() {
-    document.querySelectorAll('.settings-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        const target = tab.dataset.tab;
-        // Update tabs
-        document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        // Update panes
-        document.querySelectorAll('.settings-pane').forEach(p => p.classList.remove('active'));
-        document.querySelector(`[data-pane="${target}"]`)?.classList.add('active');
+    if (this.prefersReducedMotion?.addEventListener) {
+      this.prefersReducedMotion.addEventListener('change', () => {
+        if (this.hasExplicitMotionProfile) return;
+        const fallbackProfile = this._resolveMotionProfile(null);
+        this._applyMotionProfile(fallbackProfile, { persist: false });
       });
-    });
+    }
   }
 
   _bindCloseModals() {
@@ -78,48 +76,17 @@ class HybridSettings {
       await window.hybridAPI.db.setPreference('autoResume', e.target.checked);
     });
 
-    // Default Speed
-    document.getElementById('settDefaultSpeed')?.addEventListener('change', async (e) => {
-      await window.hybridAPI.db.setPreference('defaultSpeed', parseFloat(e.target.value));
+    // Motion profile
+    document.getElementById('settMotionProfile')?.addEventListener('change', async (e) => {
+      this.hasExplicitMotionProfile = true;
+      await this._applyMotionProfile(e.target.value, { persist: true });
     });
 
-    // HW Acceleration
-    document.getElementById('settHwAccel')?.addEventListener('change', async (e) => {
-      await window.hybridAPI.db.setPreference('hwAccel', e.target.checked);
+    // Brand fonts
+    document.getElementById('settBrandFontEnabled')?.addEventListener('change', async (e) => {
+      await this._applyBrandFontEnabled(e.target.checked, { persist: true });
     });
 
-    // Subtitle font
-    document.getElementById('settSubFont')?.addEventListener('change', async (e) => {
-      await window.hybridAPI.db.setPreference('subtitleFont', e.target.value);
-    });
-
-    // Subtitle size
-    const settSubSize = document.getElementById('settSubSize');
-    const settSubSizeVal = document.getElementById('settSubSizeVal');
-    settSubSize?.addEventListener('input', async () => {
-      settSubSizeVal.textContent = settSubSize.value + 'px';
-      await window.hybridAPI.db.setPreference('subtitleSize', parseInt(settSubSize.value));
-    });
-
-    // Subtitle color
-    document.getElementById('settSubColor')?.addEventListener('input', async (e) => {
-      await window.hybridAPI.db.setPreference('subtitleColor', e.target.value);
-    });
-
-    // Volume normalization
-    document.getElementById('settVolNorm')?.addEventListener('change', async (e) => {
-      await window.hybridAPI.db.setPreference('volumeNormalization', e.target.checked);
-    });
-
-    // Cache size
-    document.getElementById('settCacheSize')?.addEventListener('change', async (e) => {
-      await window.hybridAPI.db.setPreference('cacheSize', parseInt(e.target.value));
-    });
-
-    // Debug logs
-    document.getElementById('settDebugLogs')?.addEventListener('change', async (e) => {
-      await window.hybridAPI.db.setPreference('debugLogs', e.target.checked);
-    });
   }
 
   async loadPreferences() {
@@ -145,18 +112,20 @@ class HybridSettings {
 
       // Apply other settings to UI
       this._setChecked('settAutoResume', prefs.autoResume);
-      this._setChecked('settHwAccel', prefs.hwAccel);
-      this._setChecked('settVolNorm', prefs.volumeNormalization);
-      this._setChecked('settDebugLogs', prefs.debugLogs);
-      this._setValue('settDefaultSpeed', prefs.defaultSpeed);
-      this._setValue('settSubFont', prefs.subtitleFont);
-      this._setValue('settSubSize', prefs.subtitleSize);
-      this._setValue('settSubColor', prefs.subtitleColor);
-      this._setValue('settCacheSize', prefs.cacheSize);
 
-      if (prefs.subtitleSize) {
-        const sizeVal = document.getElementById('settSubSizeVal');
-        if (sizeVal) sizeVal.textContent = prefs.subtitleSize + 'px';
+      // Motion profile with reduced-motion fallback
+      this.hasExplicitMotionProfile = prefs.motionProfile !== undefined && prefs.motionProfile !== null;
+      const motionProfile = this._resolveMotionProfile(prefs.motionProfile);
+      await this._applyMotionProfile(motionProfile, { persist: false });
+      if (!this.hasExplicitMotionProfile) {
+        await window.hybridAPI.db.setPreference('motionProfile', motionProfile);
+      }
+
+      // Brand fonts
+      const brandFontEnabled = prefs.brandFontEnabled !== false;
+      await this._applyBrandFontEnabled(brandFontEnabled, { persist: false });
+      if (prefs.brandFontEnabled === undefined) {
+        await window.hybridAPI.db.setPreference('brandFontEnabled', true);
       }
 
       // Apply volume
@@ -180,6 +149,50 @@ class HybridSettings {
   _setValue(id, value) {
     const el = document.getElementById(id);
     if (el && value !== undefined) el.value = value;
+  }
+
+  _resolveMotionProfile(value) {
+    if (value === 'reduced' || value === 'balanced' || value === 'showcase') {
+      return value;
+    }
+    if (this.prefersReducedMotion?.matches) {
+      return 'reduced';
+    }
+    return 'balanced';
+  }
+
+  async _applyMotionProfile(profile, { persist = true } = {}) {
+    const resolved = this._resolveMotionProfile(profile);
+    document.body.dataset.motionProfile = resolved;
+    this._setValue('settMotionProfile', resolved);
+    this._emitWelcomeSettings({
+      motionProfile: resolved,
+    });
+
+    if (persist) {
+      await window.hybridAPI.db.setPreference('motionProfile', resolved);
+    }
+  }
+
+  async _applyBrandFontEnabled(enabled, { persist = true } = {}) {
+    const value = !!enabled;
+    document.body.classList.toggle('brand-font-disabled', !value);
+    this._setChecked('settBrandFontEnabled', value);
+    this._emitWelcomeSettings({
+      brandFontEnabled: value,
+    });
+
+    if (persist) {
+      await window.hybridAPI.db.setPreference('brandFontEnabled', value);
+    }
+  }
+
+  _emitWelcomeSettings(detail) {
+    window.__hybridWelcomeEffectsState = {
+      ...(window.__hybridWelcomeEffectsState || {}),
+      ...detail
+    };
+    window.dispatchEvent(new CustomEvent('hybrid:welcome-settings-changed', { detail }));
   }
 
   _lighten(hex, percent) {

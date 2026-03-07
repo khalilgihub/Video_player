@@ -20,6 +20,11 @@ class HybridControls {
     this.volumeSlider      = document.getElementById('volumeSlider');
     this.volumeValue       = document.getElementById('volumeValue');
     this.speedLabel        = document.getElementById('speedLabel');
+    this.skipIndicator     = document.getElementById('skip-indicator');
+    this.lockButton        = document.getElementById('btnLock');
+    this.unlockOverlay     = document.getElementById('unlockOverlay');
+    this.recordingIndicator = document.getElementById('recordingIndicator');
+    this.recordingIndicatorText = document.getElementById('recordingIndicatorText');
 
     // Play/Pause icons
     this.iconPlay  = document.querySelector('.icon-play');
@@ -39,6 +44,8 @@ class HybridControls {
     this.hideTimeout        = null;
     this.controlsVisible    = true;
     this.currentVolume      = 1;
+    this.skipIndicatorTimer = null;
+    this.recordingIndicatorTimer = null;
 
     // Loading spinner
     this.spinner = document.createElement('div');
@@ -102,6 +109,10 @@ class HybridControls {
     // Playlist
     document.getElementById('btnPlaylist').addEventListener('click', () => this.togglePlaylist());
 
+    // Lock / Unlock
+    this.lockButton?.addEventListener('click', () => window.HybridApp?.toggleLock());
+    this.unlockOverlay?.addEventListener('click', () => window.HybridApp?.setLocked(false));
+
     // Speed buttons
     document.querySelectorAll('.speed-btn[data-speed]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -125,21 +136,34 @@ class HybridControls {
       });
     }
 
-    // Sleep timer buttons
-    document.querySelectorAll('[data-sleep]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const minutes = parseInt(btn.dataset.sleep);
-        this.player.setSleepTimer(minutes);
-        this.closeAllModals();
-      });
-    });
-
     // Window controls
-    document.getElementById('btnMinimize').addEventListener('click', () => window.hybridAPI.window.minimize());
-    document.getElementById('btnMaximize').addEventListener('click', () => window.hybridAPI.window.maximize());
-    document.getElementById('btnClose').addEventListener('click', () => {
-      this.player.destroy();
-      window.hybridAPI.window.close();
+    document.getElementById('btnMinimize').addEventListener('click', async () => {
+      console.log('[WINCTRL][renderer] minimize click');
+      try {
+        await window.hybridAPI.window.minimize();
+        console.log('[WINCTRL][renderer] minimize invoke success');
+      } catch (error) {
+        console.error('[WINCTRL][renderer] minimize invoke failed', error);
+      }
+    });
+    document.getElementById('btnMaximize').addEventListener('click', async () => {
+      console.log('[WINCTRL][renderer] maximize/restore click');
+      try {
+        const maximized = await window.hybridAPI.window.maximize();
+        console.log('[WINCTRL][renderer] maximize invoke success', { maximized });
+      } catch (error) {
+        console.error('[WINCTRL][renderer] maximize invoke failed', error);
+      }
+    });
+    document.getElementById('btnClose').addEventListener('click', async () => {
+      console.log('[WINCTRL][renderer] close click');
+      try {
+        this.player?.destroy?.();
+        await window.hybridAPI.window.close();
+        console.log('[WINCTRL][renderer] close invoke success');
+      } catch (error) {
+        console.error('[WINCTRL][renderer] close invoke failed', error);
+      }
     });
 
     // Volume button
@@ -425,6 +449,54 @@ class HybridControls {
   togglePlaylist() {
     const sidebar = document.getElementById('sidebarPlaylist');
     sidebar.classList.toggle('collapsed');
+  }
+
+  showSkipIndicator(seconds) {
+    if (!this.skipIndicator) return;
+
+    const roundedSeconds = Math.abs(Math.round(Number(seconds) || 0));
+    const isForward = Number(seconds) >= 0;
+    const icon = isForward ? '⏩' : '⏪';
+    const label = `${isForward ? '+' : '-'}${roundedSeconds}s`;
+
+    this.skipIndicator.innerHTML = `
+      <span class="skip-indicator-icon" aria-hidden="true">${icon}</span>
+      <span class="skip-indicator-text">${label}</span>
+    `;
+
+    clearTimeout(this.skipIndicatorTimer);
+    this.skipIndicator.classList.remove('osd-hidden', 'osd-animate');
+
+    // Restart the entrance animation without creating a new DOM node.
+    void this.skipIndicator.offsetWidth;
+    this.skipIndicator.classList.add('osd-animate');
+
+    this.skipIndicatorTimer = setTimeout(() => {
+      this.skipIndicator.classList.add('osd-hidden');
+      this.skipIndicator.classList.remove('osd-animate');
+    }, 900);
+  }
+
+  setLockState(locked) {
+    const isLocked = !!locked;
+    this.lockButton?.classList.toggle('active', isLocked);
+    this.unlockOverlay?.classList.toggle('visible', isLocked);
+    this.unlockOverlay?.setAttribute('aria-hidden', isLocked ? 'false' : 'true');
+  }
+
+  setRecordingState(isRecording, text) {
+    if (!this.recordingIndicator || !this.recordingIndicatorText) return;
+
+    clearTimeout(this.recordingIndicatorTimer);
+    this.recordingIndicator.hidden = false;
+    this.recordingIndicator.classList.toggle('active', !!isRecording);
+    this.recordingIndicatorText.textContent = text;
+
+    if (!isRecording) {
+      this.recordingIndicatorTimer = setTimeout(() => {
+        this.recordingIndicator.hidden = true;
+      }, 1600);
+    }
   }
 
   toggleModal(modalId) {

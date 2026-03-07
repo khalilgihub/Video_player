@@ -3,15 +3,53 @@
  * Secure IPC communication between main and renderer
  */
 
-const { dialog, shell, app, screen } = require('electron');
-const path = require('path');
+const { app, dialog } = require('electron');
 const fs = require('fs');
+const path = require('path');
 
-const SUPPORTED_VIDEO = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.m4v', '.wmv', '.ts'];
-const SUPPORTED_AUDIO = ['.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.wma'];
-const SUPPORTED_SUBS = ['.srt', '.vtt', '.ass', '.ssa'];
+function getDebugLogFilePath() {
+  const logDir = path.join(app.getPath('userData'), 'logs');
+  return {
+    logDir,
+    logFile: path.join(logDir, 'hybrid-renderer-debug.log'),
+  };
+}
 
-function setupIpcHandlers(ipcMain, win, db, saveDatabase, DB_PATH) {
+function normalizeScope(scope) {
+  const value = String(scope || 'renderer').trim();
+  if (!value) return 'renderer';
+  return value.replace(/[^a-z0-9:_-]/gi, '').slice(0, 42) || 'renderer';
+}
+
+function formatDebugPayload(payload) {
+  if (payload == null) return '';
+  if (typeof payload === 'string') return payload;
+  try {
+    return JSON.stringify(payload);
+  } catch {
+    return String(payload);
+  }
+}
+
+function appendDebugLog(scope, payload) {
+  const safeScope = normalizeScope(scope);
+  const message = formatDebugPayload(payload);
+  const line = `${new Date().toISOString()} [${safeScope}] ${message}\n`;
+  const { logDir, logFile } = getDebugLogFilePath();
+  fs.mkdirSync(logDir, { recursive: true });
+  fs.appendFileSync(logFile, line, 'utf8');
+  return logFile;
+}
+
+function tailDebugLog(maxLines = 120) {
+  const { logFile } = getDebugLogFilePath();
+  if (!fs.existsSync(logFile)) return '';
+  const text = fs.readFileSync(logFile, 'utf8');
+  const lines = text.split(/\r?\n/);
+  return lines.slice(-Math.max(1, maxLines)).join('\n');
+}
+
+function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
 
   // ─── Window Controls ───────────────────────────────────
   ipcMain.handle('window:minimize', () => win.minimize());
@@ -30,12 +68,15 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, DB_PATH) {
     win.setFullScreen(target);
     return target;
   });
-  ipcMain.handle('window:isMaximized', () => win.isMaximized());
   ipcMain.handle('window:isFullScreen', () => {
     if (typeof win.__hybridFullscreenState === 'boolean') {
       return win.__hybridFullscreenState;
     }
     return win.isFullScreen();
+  });
+  ipcMain.handle('window:set-ui-locked', (_, state) => {
+    win.__hybridUiLocked = !!state;
+    return win.__hybridUiLocked;
   });
 
   // ─── File Operations ───────────────────────────────────
@@ -49,62 +90,6 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, DB_PATH) {
       ]
     });
     return result.canceled ? null : result.filePaths[0];
-  });
-
-  ipcMain.handle('file:readText', async (_, filePath) => {
-    try {
-      return fs.readFileSync(filePath, 'utf-8');
-    } catch (e) {
-      return null;
-    }
-  });
-
-  ipcMain.handle('file:exists', async (_, filePath) => {
-    return fs.existsSync(filePath);
-  });
-
-  ipcMain.handle('file:getMediaUrl', async (_, filePath) => {
-    // Return a file:// URL for the video element
-    return `file://${filePath.replace(/\\/g, '/')}`;
-  });
-
-  ipcMain.handle('file:scanFolder', async (_, folderPath) => {
-    try {
-      const files = [];
-      const entries = fs.readdirSync(folderPath, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isFile()) {
-          const ext = path.extname(entry.name).toLowerCase();
-          if (SUPPORTED_VIDEO.includes(ext) || SUPPORTED_AUDIO.includes(ext)) {
-            const fullPath = path.join(folderPath, entry.name);
-            const stats = fs.statSync(fullPath);
-            files.push({
-              name: entry.name,
-              path: fullPath,
-              ext: ext,
-              size: stats.size,
-              modified: stats.mtimeMs,
-              isVideo: SUPPORTED_VIDEO.includes(ext),
-              isAudio: SUPPORTED_AUDIO.includes(ext)
-            });
-          }
-        }
-      }
-      return files.sort((a, b) => a.name.localeCompare(b.name));
-    } catch (e) {
-      return [];
-    }
-  });
-
-  // ─── Database Operations ───────────────────────────────
-  ipcMain.handle('db:get', async (_, key) => {
-    return db[key];
-  });
-
-  ipcMain.handle('db:set', async (_, key, value) => {
-    db[key] = value;
-    saveDatabase(db);
-    return true;
   });
 
   ipcMain.handle('db:getPreference', async (_, key) => {
@@ -141,9 +126,7 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, DB_PATH) {
     return true;
   });
 
-  ipcMain.handle('history:getAll', async () => db.history);
   ipcMain.handle('history:getRecent', async (_, count) => db.history.slice(0, count || 20));
-  ipcMain.handle('history:clear', async () => { db.history = []; saveDatabase(db); return true; });
 
   ipcMain.handle('resume:save', async (_, filePath, time) => {
     db.resumePositions[filePath] = time;
@@ -153,12 +136,6 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, DB_PATH) {
 
   ipcMain.handle('resume:get', async (_, filePath) => {
     return db.resumePositions[filePath] || 0;
-  });
-
-  ipcMain.handle('resume:clear', async (_, filePath) => {
-    delete db.resumePositions[filePath];
-    saveDatabase(db);
-    return true;
   });
 
   // ─── Speed Memory ──────────────────────────────────────
@@ -192,52 +169,20 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, DB_PATH) {
     saveDatabase(db);
     return true;
   });
-  ipcMain.handle('playlist:delete', async (_, id) => {
-    db.playlists = db.playlists.filter(p => p.id !== id);
-    saveDatabase(db);
-    return true;
+
+  // ─── Debug Logging ─────────────────────────────────────
+  ipcMain.handle('debug:append-log', async (_, scope, payload) => {
+    return appendDebugLog(scope, payload);
   });
 
-  // ─── Library Paths ─────────────────────────────────────
-  ipcMain.handle('library:getPaths', async () => db.libraryPaths);
-  ipcMain.handle('library:addPath', async (_, folderPath) => {
-    if (!db.libraryPaths.includes(folderPath)) {
-      db.libraryPaths.push(folderPath);
-      saveDatabase(db);
-    }
-    return db.libraryPaths;
-  });
-  ipcMain.handle('library:removePath', async (_, folderPath) => {
-    db.libraryPaths = db.libraryPaths.filter(p => p !== folderPath);
-    saveDatabase(db);
-    return db.libraryPaths;
+  ipcMain.handle('debug:get-log-file-path', async () => {
+    return getDebugLogFilePath().logFile;
   });
 
-  // ─── Screenshot ────────────────────────────────────────
-  ipcMain.handle('screenshot:save', async (_, dataUrl, format) => {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const ext = format === 'jpg' ? 'jpg' : 'png';
-    const result = await dialog.showSaveDialog(win, {
-      title: 'Save Screenshot',
-      defaultPath: `hybrid-player-${timestamp}.${ext}`,
-      filters: [
-        { name: 'PNG Image', extensions: ['png'] },
-        { name: 'JPEG Image', extensions: ['jpg', 'jpeg'] }
-      ]
-    });
-    if (result.canceled) return null;
-    const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
-    fs.writeFileSync(result.filePath, Buffer.from(base64Data, 'base64'));
-    return result.filePath;
+  ipcMain.handle('debug:tail-log', async (_, lines) => {
+    const maxLines = Number.isFinite(Number(lines)) ? Number(lines) : 120;
+    return tailDebugLog(maxLines);
   });
-
-  // ─── App Info ──────────────────────────────────────────
-  ipcMain.handle('app:getVersion', async () => app.getVersion());
-  ipcMain.handle('app:getPath', async (_, name) => app.getPath(name));
-
-  // ─── Shell ─────────────────────────────────────────────
-  ipcMain.handle('shell:openExternal', async (_, url) => shell.openExternal(url));
-  ipcMain.handle('shell:showInFolder', async (_, filePath) => shell.showItemInFolder(filePath));
 }
 
 module.exports = { setupIpcHandlers };

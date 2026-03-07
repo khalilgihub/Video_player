@@ -156,7 +156,11 @@ class MpvProcess extends EventEmitter {
       'SPACE script-message hybrid-toggle-play',
       'LEFT  script-message hybrid-seek-back-5',
       'RIGHT script-message hybrid-seek-forward-5',
+      'UP    script-message hybrid-volume-up',
+      'DOWN  script-message hybrid-volume-down',
       'm    script-message hybrid-toggle-mute',
+      'u    script-message hybrid-unlock-ui',
+      'U    script-message hybrid-unlock-ui',
       '',
       '# Mouse',
       'MBTN_LEFT     script-message hybrid-mouse-click',
@@ -541,7 +545,10 @@ class MpvProcess extends EventEmitter {
     const expectedName = `hybrid-player-${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}.${fmt}`;
     const expectedPath = path.join(dir || '.', expectedName);
 
-    await this.command('screenshot-to-file', expectedPath, mode);
+    const maybePath = await this.command('screenshot-to-file', expectedPath, mode);
+    if (typeof maybePath === 'string' && maybePath.trim()) {
+      return maybePath.trim();
+    }
     return expectedPath;
   }
 

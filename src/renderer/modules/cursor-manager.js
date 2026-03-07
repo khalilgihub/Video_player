@@ -3,8 +3,8 @@
  * Centralized, single-responsibility cursor controller.
  *
  * RULES:
- *  1. Never touches document.body.style.cursor
- *  2. Uses a single CSS class on the video container
+ *  1. Never touches document.body.style.cursor directly
+ *  2. Uses CSS classes on the video container and, in fullscreen, document.body
  *  3. Hides cursor ONLY when:
  *       - Video is playing  (isPlaying === true)
  *       - Mouse is idle for IDLE_MS
@@ -25,6 +25,7 @@ class CursorManager {
 
     // State
     this._isPlaying = false;
+    this._isFullscreen = false;
     this._idleTimer = null;
 
     // Bind mouse activity listeners to the container (NOT document.body)
@@ -58,6 +59,18 @@ class CursorManager {
     }
   }
 
+  setFullscreen(isFullscreen) {
+    this._isFullscreen = !!isFullscreen;
+    if (!this._isFullscreen) {
+      document.body.classList.remove('force-hide-cursor');
+      return;
+    }
+
+    if (this._isPlaying && !this._isModalOpen()) {
+      this._resetTimer();
+    }
+  }
+
   // ─── Internal ──────────────────────────────────────────
 
   _onActivity() {
@@ -85,10 +98,14 @@ class CursorManager {
 
   _showCursor() {
     this.container.classList.remove('cursor-hidden');
+    document.body.classList.remove('force-hide-cursor');
   }
 
   _hideCursor() {
     this.container.classList.add('cursor-hidden');
+    if (this._isFullscreen) {
+      document.body.classList.add('force-hide-cursor');
+    }
   }
 
   _isModalOpen() {

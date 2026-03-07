@@ -1,0 +1,22 @@
+.lanyard-mount {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.lanyard-canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.welcome-screen > .lanyard-mount::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 25% 18%, rgba(255, 255, 255, 0.1), transparent 48%),
+    radial-gradient(circle at 70% 78%, rgba(255, 255, 255, 0.08), transparent 54%);
+}

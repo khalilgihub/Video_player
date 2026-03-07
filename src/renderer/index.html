@@ -7,18 +7,25 @@
   <title>Hybrid Player</title>
   <link rel="stylesheet" href="../styles/themes.css">
   <link rel="stylesheet" href="../styles/main.css">
+  <link rel="stylesheet" href="../styles/lanyard.css">
   <link rel="stylesheet" href="../styles/controls.css">
   <link rel="stylesheet" href="../styles/playlist.css">
   <link rel="stylesheet" href="../styles/settings.css">
   <link rel="stylesheet" href="../styles/animations.css">
 </head>
-<body data-theme="dark">
+<body data-theme="dark" data-motion-profile="balanced">
   
   <!-- ═══ CUSTOM TITLE BAR ═══ -->
   <header id="titlebar" class="titlebar">
     <div class="titlebar-drag">
       <div class="titlebar-icon">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 2v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M12 5C10.8 7.6 9.2 9.4 7.4 11.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          <path d="M12 5c1.2 2.6 2.8 4.4 4.6 6.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          <rect x="8.2" y="11.2" width="7.6" height="2.4" rx="1.2" fill="currentColor" opacity="0.8"/>
+          <rect x="7" y="13.4" width="10" height="8.6" rx="2" fill="currentColor"/>
+        </svg>
       </div>
       <span class="titlebar-title" id="titlebarText">Hybrid Player</span>
     </div>
@@ -49,14 +56,8 @@
 
       <!-- Welcome Screen / Drop Zone -->
       <div class="welcome-screen" id="welcomeScreen">
+        <div id="lanyardMount" class="lanyard-mount" aria-hidden="true"></div>
         <div class="welcome-content">
-          <div class="welcome-icon">
-            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <polygon points="5 3 19 12 5 21 5 3"/>
-            </svg>
-          </div>
-          <h1 class="welcome-title">Hybrid Player</h1>
-          <p class="welcome-subtitle">Drop a file here or click to open</p>
           <button class="btn-primary" id="btnOpenFile">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
             Open File
@@ -85,6 +86,18 @@
       <div class="ab-loop-indicator" id="abLoopIndicator" hidden>
         <span>A-B Loop Active</span>
       </div>
+
+      <div id="skip-indicator" class="osd-hidden" aria-hidden="true"></div>
+
+      <div class="recording-indicator" id="recordingIndicator" hidden>
+        <span class="recording-dot" aria-hidden="true"></span>
+        <span id="recordingIndicatorText">Recording started</span>
+      </div>
+
+      <button class="unlock-overlay" id="unlockOverlay" type="button" aria-hidden="true" title="Unlock (U)">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-7V6a3 3 0 1 1 6 0v1h2V6a5 5 0 0 0-5-5zm-6 10h12v9H6v-9z"/></svg>
+        <span>Unlock</span>
+      </button>
 
       <!-- ─── Control Bar ─── -->
       <div class="controls-wrapper" id="controlsWrapper">
@@ -162,13 +175,17 @@
             </button>
 
             <!-- Screenshot -->
-            <button class="ctrl-btn" id="btnScreenshot" title="Screenshot (Ctrl+S)">
+            <button class="ctrl-btn" id="btnScreenshot" title="Screenshot (S)">
               <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
             </button>
 
             <!-- Playlist Toggle -->
             <button class="ctrl-btn" id="btnPlaylist" title="Playlist (Ctrl+L)">
               <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
+            </button>
+
+            <button class="ctrl-btn" id="btnLock" title="Lock Controls">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M17 8h-1V6a4 4 0 1 0-8 0v2H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-7-2a2 2 0 1 1 4 0v2h-4V6zm7 14H7V10h10v10z"/></svg>
             </button>
 
             <!-- Settings -->
@@ -195,7 +212,7 @@
     </div>
 
     <!-- ─── Sidebar Playlist ─── -->
-    <aside class="sidebar-playlist" id="sidebarPlaylist">
+    <aside class="sidebar-playlist collapsed" id="sidebarPlaylist">
       <div class="sidebar-header">
         <h3>Playlist</h3>
         <div class="sidebar-actions">
@@ -216,7 +233,6 @@
       <div class="playlist-items" id="playlistItems"></div>
       <div class="sidebar-footer">
         <span id="playlistCount">0 items</span>
-        <span id="playlistDuration"></span>
       </div>
     </aside>
   </main>
@@ -330,15 +346,7 @@
         <button class="modal-close" data-close-modal="settingsModal">&times;</button>
       </div>
       <div class="settings-body">
-        <div class="settings-tabs">
-          <button class="settings-tab active" data-tab="general">General</button>
-          <button class="settings-tab" data-tab="playback">Playback</button>
-          <button class="settings-tab" data-tab="subtitles">Subtitles</button>
-          <button class="settings-tab" data-tab="audio">Audio</button>
-          <button class="settings-tab" data-tab="advanced">Advanced</button>
-        </div>
         <div class="settings-content">
-          <!-- General Tab -->
           <div class="settings-pane active" data-pane="general">
             <div class="setting-group">
               <h4>Appearance</h4>
@@ -354,6 +362,13 @@
                 <label>Accent Color</label>
                 <input type="color" id="settAccentColor" value="#e50914" class="color-input">
               </div>
+              <div class="setting-row">
+                <label>Brand Fonts</label>
+                <label class="toggle">
+                  <input type="checkbox" id="settBrandFontEnabled" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
             </div>
             <div class="setting-group">
               <h4>Behavior</h4>
@@ -363,6 +378,14 @@
                   <input type="checkbox" id="settAutoResume" checked>
                   <span class="toggle-slider"></span>
                 </label>
+              </div>
+              <div class="setting-row">
+                <label>Motion Profile</label>
+                <select id="settMotionProfile" class="select-input">
+                  <option value="reduced">Reduced</option>
+                  <option value="balanced" selected>Balanced</option>
+                  <option value="showcase">Showcase</option>
+                </select>
               </div>
             </div>
 
@@ -377,111 +400,8 @@
               </div>
             </div>
           </div>
-
-          <!-- Playback Tab -->
-          <div class="settings-pane" data-pane="playback">
-            <div class="setting-group">
-              <h4>Playback</h4>
-              <div class="setting-row">
-                <label>Default Speed</label>
-                <select id="settDefaultSpeed" class="select-input">
-                  <option value="0.5">0.5x</option>
-                  <option value="0.75">0.75x</option>
-                  <option value="1" selected>1x (Normal)</option>
-                  <option value="1.25">1.25x</option>
-                  <option value="1.5">1.5x</option>
-                  <option value="2">2x</option>
-                </select>
-              </div>
-              <div class="setting-row">
-                <label>Hardware Acceleration</label>
-                <label class="toggle">
-                  <input type="checkbox" id="settHwAccel" checked>
-                  <span class="toggle-slider"></span>
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <!-- Subtitles Tab -->
-          <div class="settings-pane" data-pane="subtitles">
-            <div class="setting-group">
-              <h4>Default Subtitle Style</h4>
-              <div class="setting-row">
-                <label>Font Family</label>
-                <select id="settSubFont" class="select-input">
-                  <option value="Segoe UI">Segoe UI</option>
-                  <option value="Arial">Arial</option>
-                  <option value="Roboto">Roboto</option>
-                  <option value="Helvetica">Helvetica</option>
-                  <option value="Consolas">Consolas</option>
-                </select>
-              </div>
-              <div class="setting-row">
-                <label>Font Size</label>
-                <input type="range" id="settSubSize" min="12" max="64" value="28" class="range-input">
-                <span id="settSubSizeVal">28px</span>
-              </div>
-              <div class="setting-row">
-                <label>Font Color</label>
-                <input type="color" id="settSubColor" value="#ffffff" class="color-input">
-              </div>
-            </div>
-          </div>
-
-          <!-- Audio Tab -->
-          <div class="settings-pane" data-pane="audio">
-            <div class="setting-group">
-              <h4>Audio</h4>
-              <div class="setting-row">
-                <label>Volume Normalization</label>
-                <label class="toggle">
-                  <input type="checkbox" id="settVolNorm">
-                  <span class="toggle-slider"></span>
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <!-- Advanced Tab -->
-          <div class="settings-pane" data-pane="advanced">
-            <div class="setting-group">
-              <h4>Advanced</h4>
-              <div class="setting-row">
-                <label>Cache Size (MB)</label>
-                <input type="number" id="settCacheSize" value="150" min="50" max="1000" class="number-input">
-              </div>
-              <div class="setting-row">
-                <label>Debug Logs</label>
-                <label class="toggle">
-                  <input type="checkbox" id="settDebugLogs">
-                  <span class="toggle-slider"></span>
-                </label>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
-    </div>
-  </div>
-
-  <!-- ═══ SLEEP TIMER MODAL ═══ -->
-  <div class="modal-overlay" id="sleepTimerModal" hidden>
-    <div class="modal-panel modal-small">
-      <div class="modal-header">
-        <h3>Sleep Timer</h3>
-        <button class="modal-close" data-close-modal="sleepTimerModal">&times;</button>
-      </div>
-      <div class="sleep-timer-options">
-        <button class="speed-btn" data-sleep="15">15 min</button>
-        <button class="speed-btn" data-sleep="30">30 min</button>
-        <button class="speed-btn" data-sleep="45">45 min</button>
-        <button class="speed-btn" data-sleep="60">1 hr</button>
-        <button class="speed-btn" data-sleep="90">1.5 hr</button>
-        <button class="speed-btn" data-sleep="120">2 hr</button>
-        <button class="speed-btn" data-sleep="0">Off</button>
-      </div>
-      <div class="sleep-timer-status" id="sleepTimerStatus"></div>
     </div>
   </div>
 
@@ -515,9 +435,6 @@
 
   <!-- ═══ SCRIPTS ═══ -->
   <script src="../components/toast.js"></script>
-  <script src="../components/modal.js"></script>
-  <script src="../services/database.js"></script>
-  <script src="../services/preferences.js"></script>
   <script src="../renderer/modules/cursor-manager.js"></script>
   <script src="../renderer/modules/player.js"></script>
   <script src="../renderer/modules/controls.js"></script>
@@ -529,5 +446,16 @@
   <script src="../renderer/modules/thumbnails.js"></script>
   <script src="../renderer/modules/gestures.js"></script>
   <script src="../renderer/app.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../../node_modules/three/build/three.module.js",
+        "three/examples/jsm/": "../../node_modules/three/examples/jsm/",
+        "cannon-es": "../../node_modules/cannon-es/dist/cannon-es.js",
+        "meshline": "../../node_modules/meshline/dist/index.js"
+      }
+    }
+  </script>
+  <script type="module" src="../renderer/modules/lanyard.js"></script>
 </body>
 </html>

@@ -206,7 +206,10 @@ body.fs-transition .controls-wrapper {
   color: #fff;
   cursor: pointer;
   border-radius: 8px;
-  transition: all 0.15s ease;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    color var(--motion-fast) var(--motion-ease-standard),
+    transform var(--motion-fast) var(--motion-ease-standard);
   position: relative;
 }
 
@@ -347,7 +350,10 @@ body.fs-transition .controls-wrapper {
   border-radius: 8px;
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    border-color var(--motion-fast) var(--motion-ease-standard),
+    color var(--motion-fast) var(--motion-ease-standard);
 }
 
 .speed-btn:hover {
@@ -415,7 +421,10 @@ body.fs-transition .controls-wrapper {
   border-radius: 8px;
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-standard),
+    border-color var(--motion-fast) var(--motion-ease-standard),
+    color var(--motion-fast) var(--motion-ease-standard);
 }
 
 .subtitle-track-btn:hover {

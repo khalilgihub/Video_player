@@ -40,6 +40,12 @@ class HybridApp {
     
     this._statsInterval = null;
     this._fsTransitionTimer = null;
+    this._welcomeObserver = null;
+    this.isLocked = false;
+    this.isClipRecording = false;
+    this.recordStartTime = null;
+    this.recordSourcePath = null;
+    this._clipRequestInFlight = false;
   }
 
   async init() {
@@ -67,9 +73,14 @@ class HybridApp {
       
       // Load recent files for welcome screen
       await this._loadRecentFiles();
+      this._syncWelcomeActiveState();
       
       // Start sidebar as collapsed
-      document.getElementById('sidebarPlaylist').classList.add('collapsed');
+      const sidebar = document.getElementById('sidebarPlaylist');
+      if (sidebar && !sidebar.classList.contains('collapsed')) {
+        console.log('[LAYOUTDBG][renderer] sidebar not collapsed on init; forcing collapsed state');
+      }
+      sidebar?.classList.add('collapsed');
       
       // Stats update interval
       this._statsInterval = setInterval(() => {
@@ -93,6 +104,7 @@ class HybridApp {
         } else {
           document.body.classList.remove('is-fullscreen');
         }
+        this.cursorManager?.setFullscreen(state === 'fullscreen');
 
         const fsEnter = document.querySelector('.icon-fullscreen-enter');
         const fsExit = document.querySelector('.icon-fullscreen-exit');
@@ -123,6 +135,17 @@ class HybridApp {
         if (this.currentPlaybackType !== 'youtube') return;
         if (event === 'file-loaded' || event === 'end-file' || event === 'playback-restart' || event === 'error') {
           ytdbg('mpv event', { event, data, currentStreamUrl: this.currentStreamUrl });
+        }
+      });
+
+      window.hybridAPI.mpv.onEvent((event, data) => {
+        if (event === 'skip-osd') {
+          this.controlsModule?.showSkipIndicator(Number(data?.seconds) || 0);
+          return;
+        }
+
+        if (event === 'unlock-request') {
+          this.setLocked(false);
         }
       });
 
@@ -199,15 +222,39 @@ class HybridApp {
 
   // ─── Public Methods ────────────────────────────────────
 
-  async openFiles(filePaths) {
-    if (!filePaths || filePaths.length === 0) return;
-    
-    // Add all to playlist
-    this.playlistModule.addFiles(filePaths);
-    
-    // If not already playing, play first file
-    if (this.playlistModule.currentIndex === -1 || this.playlistModule.items.length === filePaths.length) {
+  async openFiles(filePaths, { replacePlaylist = false, playFirst = false } = {}) {
+    const clean = Array.from(new Set((filePaths || []).filter((filePath) => typeof filePath === 'string' && filePath.trim())));
+    if (clean.length === 0) return;
+
+    if (replacePlaylist) {
+      this.playlistModule.replaceFiles(clean, { autoPlay: playFirst !== false });
+      return;
+    }
+
+    this.playlistModule.addFiles(clean);
+
+    if (playFirst || this.playlistModule.currentIndex === -1 || this.playlistModule.items.length === clean.length) {
       this.playlistModule.playIndex(0);
+    }
+  }
+
+  _syncWelcomeActiveState() {
+    const welcomeScreen = document.getElementById('welcomeScreen');
+    if (!welcomeScreen) return;
+
+    const apply = () => {
+      const isVisible = !welcomeScreen.classList.contains('hidden');
+      document.body.classList.toggle('welcome-active', isVisible);
+    };
+
+    apply();
+
+    if (!this._welcomeObserver) {
+      this._welcomeObserver = new MutationObserver(apply);
+      this._welcomeObserver.observe(welcomeScreen, {
+        attributes: true,
+        attributeFilter: ['class']
+      });
     }
   }
 
@@ -221,7 +268,7 @@ class HybridApp {
   async promptOpenFolder() {
     const paths = await window.hybridAPI.dialog.openFolder();
     if (Array.isArray(paths) && paths.length > 0) {
-      this.openFiles(paths);
+      this.openFiles(paths, { replacePlaylist: true, playFirst: true });
     } else {
       window.HybridToast?.show('No media files found in folder');
     }
@@ -247,7 +294,7 @@ class HybridApp {
 
       case 'media-open-folder':
         if (Array.isArray(payload) && payload.length > 0) {
-          await this._loadMediaReplaceAppend(payload);
+          await this.openFiles(payload, { replacePlaylist: true, playFirst: true });
         } else {
           window.HybridToast?.show('No media files found in selected folder');
         }
@@ -286,6 +333,10 @@ class HybridApp {
   }
 
   _syncUiAfterDirectLoad(filePathOrUrl) {
+    if (this.isClipRecording && this.recordSourcePath && this.recordSourcePath !== filePathOrUrl) {
+      this.cancelClipRecording('Clip recording stopped because the source changed');
+    }
+
     this.player.currentFilePath = filePathOrUrl;
     this.player.welcomeScreen?.classList.add('hidden');
 
@@ -394,10 +445,6 @@ class HybridApp {
     return `${height}p`;
   }
 
-  _renderNetworkQualityMenu(heights, selected = 'auto') {
-    return;
-  }
-
   _renderControlBarQualityMenu(heights, selected = 'auto') {
     const wrap = document.getElementById('youtubeQualityControl');
     const btn = document.getElementById('btnYoutubeQuality');
@@ -450,10 +497,7 @@ class HybridApp {
     const request = (async () => {
     try {
       ytdbg('fetch qualities start', { url: key });
-      const secureApi = window.api || null;
-      const heights = secureApi
-        ? await secureApi.getYoutubeQualities(key)
-        : await window.hybridAPI.youtube.getQualityHeights(key);
+      const heights = await window.hybridAPI.youtube.getQualityHeights(key);
 
       if (!Array.isArray(heights)) return [];
 
@@ -643,35 +687,24 @@ class HybridApp {
     const openStreamBtn = document.getElementById('settingsOpenStream');
     const quitBtn = document.getElementById('settingsQuitPlayer');
 
-    const secureApi = window.api || null;
-
     openFileBtn?.addEventListener('click', async () => {
-      const filePath = secureApi
-        ? await secureApi.openFile()
-        : await window.hybridAPI.dialog.openFile();
-
+      const filePath = await window.hybridAPI.dialog.openFile();
       if (filePath) {
         await this._loadMediaReplace(filePath);
       }
     });
 
     openMultipleBtn?.addEventListener('click', async () => {
-      const paths = secureApi
-        ? await secureApi.openMultipleFiles()
-        : await window.hybridAPI.dialog.openMultiple();
-
+      const paths = await window.hybridAPI.dialog.openMultiple();
       if (Array.isArray(paths) && paths.length > 0) {
         await this._loadMediaReplaceAppend(paths);
       }
     });
 
     openFolderBtn?.addEventListener('click', async () => {
-      const paths = secureApi
-        ? await secureApi.openFolder()
-        : await window.hybridAPI.dialog.openFolder();
-
+      const paths = await window.hybridAPI.dialog.openFolder();
       if (Array.isArray(paths) && paths.length > 0) {
-        await this._loadMediaReplaceAppend(paths);
+        await this.openFiles(paths, { replacePlaylist: true, playFirst: true });
       } else {
         window.HybridToast?.show('No media files found in folder');
       }
@@ -682,12 +715,132 @@ class HybridApp {
     });
 
     quitBtn?.addEventListener('click', async () => {
-      if (secureApi) {
-        await secureApi.quitPlayer();
-      } else {
-        await window.hybridAPI.window.close();
-      }
+      await window.hybridAPI.window.close();
     });
+  }
+
+  async setLocked(locked) {
+    const nextState = !!locked;
+    this.isLocked = nextState;
+    document.body.classList.toggle('is-locked', nextState);
+    this.controlsModule?.setLockState(nextState);
+
+    if (nextState) {
+      this.controlsModule?.closeAllModals();
+      document.getElementById('sidebarPlaylist')?.classList.add('collapsed');
+      this.cursorManager?.show();
+    } else {
+      this.cursorManager?.resume();
+    }
+
+    try {
+      await window.hybridAPI.window.setUiLocked(nextState);
+    } catch {
+      // Best-effort sync for mpv-surface hotkey blocking.
+    }
+
+    return nextState;
+  }
+
+  toggleLock() {
+    return this.setLocked(!this.isLocked);
+  }
+
+  _isClipEligiblePath(filePath) {
+    const value = typeof filePath === 'string' ? filePath.trim() : '';
+    return !!value && !/^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+  }
+
+  async toggleClipRecording() {
+    if (this._clipRequestInFlight) return;
+
+    if (this.isClipRecording) {
+      await this.stopClipRecording();
+      return;
+    }
+
+    await this.startClipRecording();
+  }
+
+  async startClipRecording() {
+    const filePath = this.player?.currentFilePath;
+    if (!this._isClipEligiblePath(filePath)) {
+      window.HybridToast?.show('Clip recording only works for local files');
+      return false;
+    }
+
+    const currentTime = Number(await window.hybridAPI.mpv.getProperty('time-pos')) || this.player.currentTime || 0;
+    this.recordStartTime = Math.max(0, currentTime);
+    this.recordSourcePath = filePath;
+    this.isClipRecording = true;
+    this.controlsModule?.setRecordingState(true, 'Recording started');
+    window.HybridToast?.show('Recording started');
+    return true;
+  }
+
+  async stopClipRecording() {
+    if (!this.isClipRecording) return false;
+
+    this._clipRequestInFlight = true;
+    const sourcePath = this.recordSourcePath;
+
+    try {
+      if (!this._isClipEligiblePath(sourcePath)) {
+        throw new Error('Clip recording only works for local files');
+      }
+
+      if (sourcePath !== this.player?.currentFilePath) {
+        throw new Error('Clip recording stopped because the source changed');
+      }
+
+      const endTime = Number(await window.hybridAPI.mpv.getProperty('time-pos')) || this.player.currentTime || this.recordStartTime || 0;
+      const safeEndTime = Math.max(this.recordStartTime || 0, endTime);
+      const duration = safeEndTime - (this.recordStartTime || 0);
+
+      this.isClipRecording = false;
+      this.controlsModule?.setRecordingState(false, 'Stop Recording');
+      window.HybridToast?.show('Stop Recording');
+
+      if (duration <= 0.2) {
+        throw new Error('Clip duration is too short');
+      }
+
+      const result = await window.hybridAPI.media.clipSegment({
+        filePath: sourcePath,
+        startTime: this.recordStartTime,
+        duration,
+      });
+
+      const outputName = result?.outputPath ? result.outputPath.split(/[/\\]/).pop() : 'clip';
+      window.HybridToast?.show(`Clip saved: ${outputName}`);
+      return true;
+    } catch (error) {
+      this.controlsModule?.setRecordingState(false, 'Stop Recording');
+      window.HybridToast?.show(error?.message || 'Clip export failed');
+      return false;
+    } finally {
+      this.isClipRecording = false;
+      this.recordStartTime = null;
+      this.recordSourcePath = null;
+      this._clipRequestInFlight = false;
+    }
+  }
+
+  cancelClipRecording(message) {
+    if (!this.isClipRecording) return;
+    this.isClipRecording = false;
+    this.recordStartTime = null;
+    this.recordSourcePath = null;
+    this.controlsModule?.setRecordingState(false, 'Stop Recording');
+    if (message) {
+      window.HybridToast?.show(message);
+    }
+  }
+
+  handleMediaSourceChange(nextPath) {
+    if (this.isClipRecording && this.recordSourcePath && this.recordSourcePath !== nextPath) {
+      this.cancelClipRecording('Clip recording stopped because the source changed');
+    }
   }
 }
 

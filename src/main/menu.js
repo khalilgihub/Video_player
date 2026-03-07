@@ -98,6 +98,23 @@ function createApplicationMenu(win) {
           click: () => app.quit()
         }
       ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        {
+          label: 'Toggle Renderer DevTools',
+          accelerator: 'CmdOrCtrl+Shift+I',
+          click: () => {
+            if (!win || win.isDestroyed()) return;
+            if (win.webContents.isDevToolsOpened()) {
+              win.webContents.closeDevTools();
+            } else {
+              win.webContents.openDevTools({ mode: 'detach' });
+            }
+          }
+        }
+      ]
     }
   ];
 
