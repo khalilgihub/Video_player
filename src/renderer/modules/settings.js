@@ -87,6 +87,11 @@ class HybridSettings {
       await this._applyBrandFontEnabled(e.target.checked, { persist: true });
     });
 
+    // Welcome background (top-right selector on welcome screen)
+    document.getElementById('welcomeBackgroundSelect')?.addEventListener('change', async (e) => {
+      await this._applyWelcomeBackground(e.target.value, { persist: true });
+    });
+
   }
 
   async loadPreferences() {
@@ -126,6 +131,15 @@ class HybridSettings {
       await this._applyBrandFontEnabled(brandFontEnabled, { persist: false });
       if (prefs.brandFontEnabled === undefined) {
         await window.hybridAPI.db.setPreference('brandFontEnabled', true);
+      }
+
+      // Welcome background effect
+      const welcomeBackground = ['none', 'dither', 'particles', 'faulty', 'dotgrid'].includes(prefs.welcomeBackground)
+        ? prefs.welcomeBackground
+        : 'dither';
+      await this._applyWelcomeBackground(welcomeBackground, { persist: false });
+      if (prefs.welcomeBackground === undefined) {
+        await window.hybridAPI.db.setPreference('welcomeBackground', welcomeBackground);
       }
 
       // Apply volume
@@ -184,6 +198,18 @@ class HybridSettings {
 
     if (persist) {
       await window.hybridAPI.db.setPreference('brandFontEnabled', value);
+    }
+  }
+
+  async _applyWelcomeBackground(background, { persist = true } = {}) {
+    const value = ['none', 'dither', 'particles', 'faulty', 'dotgrid'].includes(background) ? background : 'dither';
+    this._setValue('welcomeBackgroundSelect', value);
+    this._emitWelcomeSettings({
+      welcomeBackground: value,
+    });
+
+    if (persist) {
+      await window.hybridAPI.db.setPreference('welcomeBackground', value);
     }
   }
 

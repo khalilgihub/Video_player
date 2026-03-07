@@ -552,22 +552,18 @@ class VanillaLanyard {
 
   attachEvents() {
     window.addEventListener('resize', this.onResize);
+    window.addEventListener('mousemove', this.onMouseMove, true);
+    window.addEventListener('mousedown', this.onMouseDown, true);
     window.addEventListener('mouseup', this.onMouseUp);
     window.addEventListener('blur', this.onWindowBlur);
-
-    this.renderer.domElement.addEventListener('mousemove', this.onMouseMove);
-    this.renderer.domElement.addEventListener('mousedown', this.onMouseDown);
   }
 
   detachEvents() {
     window.removeEventListener('resize', this.onResize);
+    window.removeEventListener('mousemove', this.onMouseMove, true);
+    window.removeEventListener('mousedown', this.onMouseDown, true);
     window.removeEventListener('mouseup', this.onMouseUp);
     window.removeEventListener('blur', this.onWindowBlur);
-
-    if (this.renderer?.domElement) {
-      this.renderer.domElement.removeEventListener('mousemove', this.onMouseMove);
-      this.renderer.domElement.removeEventListener('mousedown', this.onMouseDown);
-    }
   }
 
   onResize() {

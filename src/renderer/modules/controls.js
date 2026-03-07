@@ -179,6 +179,11 @@ class HybridControls {
         window.HybridApp?.openFiles([filePath]);
       }
     });
+
+    // Open link button (YouTube / network stream URL)
+    document.getElementById('btnOpenLink')?.addEventListener('click', () => {
+      window.HybridApp?.promptOpenUrl?.();
+    });
   }
 
   _setupPlayerCallbacks() {

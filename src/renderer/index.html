@@ -56,13 +56,33 @@
 
       <!-- Welcome Screen / Drop Zone -->
       <div class="welcome-screen" id="welcomeScreen">
+        <div id="particlesMount" class="particles-mount" aria-hidden="true"></div>
+        <div id="faultyMount" class="faulty-mount" aria-hidden="true"></div>
         <div id="ditherMount" class="dither-mount" aria-hidden="true"></div>
+        <div id="dotGridMount" class="dotgrid-mount" aria-hidden="true"></div>
         <div id="lanyardMount" class="lanyard-mount" aria-hidden="true"></div>
+        <div class="welcome-bg-settings">
+          <div class="welcome-bg-control">
+            <select id="welcomeBackgroundSelect" class="welcome-bg-select" aria-label="Background">
+              <option value="dither">Dither</option>
+              <option value="particles">Particles</option>
+              <option value="faulty">Faulty Terminal</option>
+              <option value="dotgrid">Dot Grid</option>
+              <option value="none">Default</option>
+            </select>
+          </div>
+        </div>
         <div class="welcome-content">
-          <button class="btn-primary" id="btnOpenFile">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-            Open File
-          </button>
+          <div class="welcome-actions">
+            <button class="btn-primary" id="btnOpenFile">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              Open File
+            </button>
+            <button class="btn-secondary btn-open-link" id="btnOpenLink" type="button">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 14a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 1 0-7.07-7.07L11 6"/><path d="M14 10a5 5 0 0 0-7.07 0L4.1 12.83a5 5 0 0 0 7.07 7.07L13 18"/></svg>
+              Open Link
+            </button>
+          </div>
           <div class="welcome-recent" id="recentFiles"></div>
         </div>
       </div>
@@ -410,16 +430,16 @@
   <div class="modal-overlay" id="networkStreamModal" hidden>
     <div class="modal-panel modal-small network-stream-modal">
       <div class="modal-header">
-        <h3>Open Network Stream</h3>
+        <h3>Open Link</h3>
         <button class="modal-close" data-close-modal="networkStreamModal">&times;</button>
       </div>
       <form id="networkStreamForm" class="network-stream-body">
-        <label for="networkStreamInput" class="network-stream-label">Stream URL</label>
+        <label for="networkStreamInput" class="network-stream-label">YouTube / Stream URL</label>
         <input
           id="networkStreamInput"
           class="network-stream-input"
           type="url"
-          placeholder="https://example.com/stream.m3u8"
+          placeholder="https://www.youtube.com/watch?v=..."
           autocomplete="off"
           required
         >
@@ -454,11 +474,18 @@
         "three/examples/jsm/": "../../node_modules/three/examples/jsm/",
         "cannon-es": "../../node_modules/cannon-es/dist/cannon-es.js",
         "meshline": "../../node_modules/meshline/dist/index.js",
-        "postprocessing": "../../node_modules/postprocessing/build/index.js"
+        "postprocessing": "../../node_modules/postprocessing/build/index.js",
+        "ogl": "../../node_modules/ogl/src/index.js",
+        "gsap": "../../node_modules/gsap/index.js",
+        "gsap/InertiaPlugin": "../../node_modules/gsap/InertiaPlugin.js",
+        "gsap/": "../../node_modules/gsap/"
       }
     }
   </script>
+  <script type="module" src="../renderer/modules/faultyTerminal.js"></script>
   <script type="module" src="../renderer/modules/ditherWaves.js"></script>
+  <script type="module" src="../renderer/modules/dotGrid.js"></script>
+  <script type="module" src="../renderer/modules/particles.js"></script>
   <script type="module" src="../renderer/modules/lanyard.js"></script>
 </body>
 </html>

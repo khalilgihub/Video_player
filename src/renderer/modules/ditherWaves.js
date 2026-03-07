@@ -181,6 +181,7 @@ let createPromise = null;
 let destroyAfterCreate = false;
 let lifecycleObserver = null;
 let lifecycleBooted = false;
+let welcomeSettingsListener = null;
 
 function getContainerSize(container) {
   const width = Math.max(1, container.clientWidth || 1);
@@ -424,7 +425,11 @@ async function syncLifecycleState() {
   if (!welcomeScreen) return;
 
   const visible = !welcomeScreen.classList.contains('hidden');
-  if (visible) {
+  const welcomeState = window.__hybridWelcomeEffectsState || {};
+  const background = welcomeState.welcomeBackground || 'dither';
+  const shouldRunDither = visible && background === 'dither';
+
+  if (shouldRunDither) {
     try {
       await createDitherWaves();
     } catch (error) {
@@ -453,9 +458,19 @@ function bootLifecycle() {
     attributeFilter: ['class'],
   });
 
+  welcomeSettingsListener = (event) => {
+    if (!event?.detail || !Object.prototype.hasOwnProperty.call(event.detail, 'welcomeBackground')) return;
+    syncLifecycleState();
+  };
+  window.addEventListener('hybrid:welcome-settings-changed', welcomeSettingsListener);
+
   window.addEventListener('beforeunload', () => {
     lifecycleObserver?.disconnect();
     lifecycleObserver = null;
+    if (welcomeSettingsListener) {
+      window.removeEventListener('hybrid:welcome-settings-changed', welcomeSettingsListener);
+      welcomeSettingsListener = null;
+    }
     destroyDitherWaves();
   });
 
