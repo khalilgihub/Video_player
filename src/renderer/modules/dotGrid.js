@@ -403,8 +403,17 @@ async function syncLifecycleState() {
   const shouldRunDotGrid = visible && background === 'dotgrid';
 
   if (shouldRunDotGrid) {
+    const userOpts = welcomeState.bgOpts_dotgrid || {};
+    const mapped = {};
+    if (userOpts.dotSize !== undefined) mapped.dotSize = userOpts.dotSize;
+    if (userOpts.gap !== undefined) mapped.gap = userOpts.gap;
+    if (userOpts.baseColor !== undefined) mapped.baseColor = userOpts.baseColor;
+    if (userOpts.activeColor !== undefined) mapped.activeColor = userOpts.activeColor;
+    if (userOpts.proximity !== undefined) mapped.proximity = userOpts.proximity;
+    if (userOpts.shockRadius !== undefined) mapped.shockRadius = userOpts.shockRadius;
+
     try {
-      await createDotGrid();
+      await createDotGrid(mapped);
     } catch (error) {
       console.error(`${LOG_TAG} failed to create instance`, error);
     }
@@ -433,8 +442,15 @@ function bootLifecycle() {
   });
 
   welcomeSettingsListener = (event) => {
-    if (!event?.detail || !Object.prototype.hasOwnProperty.call(event.detail, 'welcomeBackground')) return;
-    syncLifecycleState();
+    if (!event?.detail) return;
+    if (Object.prototype.hasOwnProperty.call(event.detail, 'welcomeBackground')) {
+      syncLifecycleState();
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(event.detail, 'bgOpts_dotgrid')) {
+      destroyDotGrid();
+      syncLifecycleState();
+    }
   };
   window.addEventListener('hybrid:welcome-settings-changed', welcomeSettingsListener);
 

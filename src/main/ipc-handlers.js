@@ -3,7 +3,7 @@
  * Secure IPC communication between main and renderer
  */
 
-const { app, dialog } = require('electron');
+const { app, dialog, screen } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -49,6 +49,21 @@ function tailDebugLog(maxLines = 120) {
   return lines.slice(-Math.max(1, maxLines)).join('\n');
 }
 
+function clampWindowBoundsToDisplay(bounds, point) {
+  const display = screen.getDisplayNearestPoint({
+    x: Math.round(point.x),
+    y: Math.round(point.y),
+  });
+  const area = display?.workArea || screen.getPrimaryDisplay().workArea;
+  const width = Math.min(bounds.width, area.width);
+  const height = Math.min(bounds.height, area.height);
+  const maxX = area.x + Math.max(0, area.width - width);
+  const maxY = area.y + Math.max(0, area.height - height);
+  const x = Math.min(Math.max(bounds.x, area.x), maxX);
+  const y = Math.min(Math.max(bounds.y, area.y), maxY);
+  return { x, y, width, height };
+}
+
 function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
 
   // ─── Window Controls ───────────────────────────────────
@@ -77,6 +92,77 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
   ipcMain.handle('window:set-ui-locked', (_, state) => {
     win.__hybridUiLocked = !!state;
     return win.__hybridUiLocked;
+  });
+  ipcMain.handle('window:isMaximized', () => win.isMaximized());
+
+  // Native-like "drag down to restore" support for custom titlebars.
+  ipcMain.handle('window:dragRestoreStart', (_, payload = {}) => {
+    if (!win || win.isDestroyed() || win.isMinimized()) return false;
+    if (win.__hybridUiLocked) return false;
+
+    const screenX = Number(payload.screenX);
+    const screenY = Number(payload.screenY);
+    const ratioX = Math.min(1, Math.max(0, Number(payload.ratioX)));
+    const offsetY = Math.min(28, Math.max(8, Number(payload.offsetY) || 14));
+
+    if (!Number.isFinite(screenX) || !Number.isFinite(screenY) || !Number.isFinite(ratioX)) {
+      return false;
+    }
+
+    if (win.isFullScreen()) {
+      win.__hybridFullscreenState = false;
+      win.setFullScreen(false);
+    }
+
+    if (!win.isMaximized()) {
+      return false;
+    }
+
+    win.unmaximize();
+
+    const restoredBounds = win.getBounds();
+    const targetX = Math.round(screenX - restoredBounds.width * ratioX);
+    const targetY = Math.round(screenY - offsetY);
+    const clamped = clampWindowBoundsToDisplay(
+      { x: targetX, y: targetY, width: restoredBounds.width, height: restoredBounds.height },
+      { x: screenX, y: screenY }
+    );
+
+    win.setBounds(clamped, false);
+    win.__hybridManualDrag = {
+      active: true,
+      offsetX: Math.round(screenX - clamped.x),
+      offsetY: Math.round(screenY - clamped.y),
+    };
+    return true;
+  });
+
+  ipcMain.handle('window:dragMove', (_, payload = {}) => {
+    if (!win || win.isDestroyed() || win.isMinimized()) return false;
+    const dragState = win.__hybridManualDrag;
+    if (!dragState || !dragState.active) return false;
+
+    const screenX = Number(payload.screenX);
+    const screenY = Number(payload.screenY);
+    if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return false;
+
+    const bounds = win.getBounds();
+    const targetX = Math.round(screenX - dragState.offsetX);
+    const targetY = Math.round(screenY - dragState.offsetY);
+    const clamped = clampWindowBoundsToDisplay(
+      { x: targetX, y: targetY, width: bounds.width, height: bounds.height },
+      { x: screenX, y: screenY }
+    );
+
+    win.setPosition(clamped.x, clamped.y, false);
+    return true;
+  });
+
+  ipcMain.handle('window:dragEnd', () => {
+    if (win && !win.isDestroyed()) {
+      win.__hybridManualDrag = null;
+    }
+    return true;
   });
 
   // ─── File Operations ───────────────────────────────────

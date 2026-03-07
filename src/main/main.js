@@ -351,6 +351,9 @@ let mpvProcess = null;
 let fullscreenTransitionUntil = 0;
 const WINDOWED_WIDTH = 1920;
 const WINDOWED_HEIGHT = 1020;
+const FULLSCREEN_RESTORE_DELAY_MS = 140;
+const ENABLE_WINDOW_BOUNDS_CLAMP = false;
+let isClampingWindowBounds = false;
 
 // TEMP DEBUG: fullscreen/input tracing
 const FS_DEBUG = true;
@@ -397,8 +400,69 @@ function applyWindowedSize(win) {
   if (win.isMaximized()) {
     win.unmaximize();
   }
-  win.setSize(WINDOWED_WIDTH, WINDOWED_HEIGHT, false);
-  win.center();
+
+  const bounds = win.getBounds();
+  const display = screen.getDisplayMatching(bounds);
+  const area = display?.workArea || screen.getPrimaryDisplay().workArea;
+
+  const width = Math.min(WINDOWED_WIDTH, area.width);
+  const height = Math.min(WINDOWED_HEIGHT, area.height);
+  const x = area.x + Math.round((area.width - width) / 2);
+  const y = area.y + Math.round((area.height - height) / 2);
+
+  isClampingWindowBounds = true;
+  try {
+    win.setBounds({ x, y, width, height }, false);
+  } finally {
+    setTimeout(() => {
+      isClampingWindowBounds = false;
+    }, 0);
+  }
+}
+
+function clampWindowToVisibleArea(win) {
+  if (!ENABLE_WINDOW_BOUNDS_CLAMP) return;
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) return;
+  if (getTrackedFullscreen(win) || win.isMaximized()) return;
+  if (isClampingWindowBounds) return;
+  if (Date.now() < fullscreenTransitionUntil) return;
+
+  const bounds = win.getBounds();
+  const display = screen.getDisplayMatching(bounds);
+  if (!display || !display.workArea) return;
+
+  const area = display.workArea;
+  const targetWidth = Math.min(bounds.width, area.width);
+  const targetHeight = Math.min(bounds.height, area.height);
+  const maxX = area.x + Math.max(0, area.width - targetWidth);
+  const maxY = area.y + Math.max(0, area.height - targetHeight);
+  const clampedX = Math.min(Math.max(bounds.x, area.x), maxX);
+  const clampedY = Math.min(Math.max(bounds.y, area.y), maxY);
+
+  if (
+    clampedX === bounds.x &&
+    clampedY === bounds.y &&
+    targetWidth === bounds.width &&
+    targetHeight === bounds.height
+  ) return;
+
+  isClampingWindowBounds = true;
+  try {
+    win.setBounds(
+      { x: clampedX, y: clampedY, width: targetWidth, height: targetHeight },
+      false
+    );
+    fsdbg('window bounds clamped', {
+      from: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+      to: { x: clampedX, y: clampedY, width: targetWidth, height: targetHeight },
+      area,
+    });
+  } finally {
+    setTimeout(() => {
+      isClampingWindowBounds = false;
+    }, 0);
+  }
 }
 
 const DB_PATH = path.join(app.getPath('userData'), 'hybrid-player-db.json');
@@ -455,6 +519,9 @@ function createMainWindow() {
     height: WINDOWED_HEIGHT,
     minWidth: 800,
     minHeight: 500,
+    resizable: false,
+    maximizable: true,
+    thickFrame: false,
     frame: false,
     transparent: false,
     fullscreenable: true,
@@ -590,6 +657,9 @@ function createMainWindow() {
   });
   mainWindow.on('unmaximize', () => {
     fsdbg('window unmaximize');
+    if (ENABLE_WINDOW_BOUNDS_CLAMP) {
+      clampWindowToVisibleArea(mainWindow);
+    }
     mainWindow.webContents.send('window-state-changed', 'normal');
   });
   mainWindow.on('enter-full-screen', () => {
@@ -599,12 +669,27 @@ function createMainWindow() {
   });
   mainWindow.on('leave-full-screen', () => {
     mainWindow.__hybridFullscreenState = false;
-    applyWindowedSize(mainWindow);
+    // Let Windows settle the transition first, then restore windowed bounds.
+    const restoreWindowed = () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      if (getTrackedFullscreen(mainWindow) || mainWindow.isFullScreen()) return;
+      applyWindowedSize(mainWindow);
+      if (ENABLE_WINDOW_BOUNDS_CLAMP) {
+        clampWindowToVisibleArea(mainWindow);
+      }
+    };
+    setTimeout(restoreWindowed, FULLSCREEN_RESTORE_DELAY_MS);
+    setTimeout(restoreWindowed, FULLSCREEN_RESTORE_DELAY_MS + 180);
     fsdbg('window leave-full-screen');
     mainWindow.webContents.send('window-state-changed', 'normal');
   });
   mainWindow.on('focus', () => fsdbg('window focus'));
   mainWindow.on('blur', () => fsdbg('window blur'));
+  if (ENABLE_WINDOW_BOUNDS_CLAMP) {
+    mainWindow.on('move', () => {
+      clampWindowToVisibleArea(mainWindow);
+    });
+  }
 
   return mainWindow;
 }

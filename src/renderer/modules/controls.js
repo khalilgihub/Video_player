@@ -180,6 +180,100 @@ class HybridControls {
       }
     });
 
+    // Custom titlebar drag: when maximized/fullscreen and pulled down, restore and drag like native apps.
+    const titlebarDrag = document.querySelector('.titlebar-drag');
+    if (titlebarDrag) {
+      let dragState = null;
+
+      const cleanupDrag = async () => {
+        if (!dragState) return;
+        const state = dragState;
+        dragState = null;
+        window.removeEventListener('mousemove', state.onMove, true);
+        window.removeEventListener('mouseup', state.onUp, true);
+        if (state.rafId) {
+          cancelAnimationFrame(state.rafId);
+          state.rafId = 0;
+        }
+        try {
+          await window.hybridAPI.window.dragEnd();
+        } catch {
+          // best effort
+        }
+      };
+
+      titlebarDrag.addEventListener('mousedown', async (e) => {
+        if (e.button !== 0) return;
+        if (e.target.closest('.titlebar-controls, .titlebar-btn')) return;
+        if (dragState) return;
+
+        const [isFs, isMax] = await Promise.all([
+          window.hybridAPI.window.isFullScreen(),
+          window.hybridAPI.window.isMaximized(),
+        ]);
+
+        // Normal window drag is handled by -webkit-app-region: drag.
+        if (!isFs && !isMax) return;
+
+        e.preventDefault();
+
+        dragState = {
+          startScreenX: e.screenX,
+          startScreenY: e.screenY,
+          ratioX: Math.min(1, Math.max(0, e.clientX / Math.max(window.innerWidth, 1))),
+          restored: false,
+          lastScreenX: e.screenX,
+          lastScreenY: e.screenY,
+          rafId: 0,
+          onMove: null,
+          onUp: null,
+        };
+
+        dragState.onMove = async (ev) => {
+          if (!dragState) return;
+          dragState.lastScreenX = ev.screenX;
+          dragState.lastScreenY = ev.screenY;
+
+          if (!dragState.restored) {
+            const movedDown = ev.screenY - dragState.startScreenY;
+            if (movedDown < 7) return;
+            const restored = await window.hybridAPI.window.dragRestoreStart({
+              screenX: ev.screenX,
+              screenY: ev.screenY,
+              ratioX: dragState.ratioX,
+              offsetY: 14,
+            });
+            if (!restored) {
+              await cleanupDrag();
+              return;
+            }
+            dragState.restored = true;
+          }
+
+          if (dragState.rafId) return;
+          dragState.rafId = requestAnimationFrame(async () => {
+            if (!dragState) return;
+            dragState.rafId = 0;
+            try {
+              await window.hybridAPI.window.dragMove({
+                screenX: dragState.lastScreenX,
+                screenY: dragState.lastScreenY,
+              });
+            } catch {
+              await cleanupDrag();
+            }
+          });
+        };
+
+        dragState.onUp = async () => {
+          await cleanupDrag();
+        };
+
+        window.addEventListener('mousemove', dragState.onMove, true);
+        window.addEventListener('mouseup', dragState.onUp, true);
+      });
+    }
+
     // Volume button
     document.getElementById('btnVolume').addEventListener('click', () => {
       const muted = this.player.toggleMute();
@@ -294,6 +388,11 @@ class HybridControls {
         this.hideTimeout = setTimeout(hideControls, 3000);
       }
     };
+
+    // Expose helpers so other modules (e.g. fullscreen transitions) can reveal chrome.
+    this._showControlsNow = showControls;
+    this._hideControlsNow = hideControls;
+    this._resetControlsHideTimer = resetHideTimer;
 
     const videoContainer = document.getElementById('videoContainer');
 
@@ -468,6 +567,24 @@ class HybridControls {
   togglePlaylist() {
     const sidebar = document.getElementById('sidebarPlaylist');
     sidebar.classList.toggle('collapsed');
+  }
+
+  revealChromeAfterWindowStateChange() {
+    if (typeof this._showControlsNow === 'function') {
+      this._showControlsNow();
+    } else {
+      this.controlsWrapper?.classList.remove('hidden');
+      this.titlebar?.classList.remove('hidden');
+      this.controlsVisible = true;
+    }
+
+    if (this.player?.isPlaying) {
+      if (typeof this._resetControlsHideTimer === 'function') {
+        this._resetControlsHideTimer();
+      }
+    } else {
+      clearTimeout(this.hideTimeout);
+    }
   }
 
   showSkipIndicator(seconds) {

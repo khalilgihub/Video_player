@@ -64,14 +64,208 @@
         <div id="lanyardMount" class="lanyard-mount" aria-hidden="true"></div>
         <div class="welcome-bg-settings">
           <div class="welcome-bg-control">
-            <select id="welcomeBackgroundSelect" class="welcome-bg-select" aria-label="Background">
-              <option value="dither">Dither</option>
-              <option value="particles">Particles</option>
-              <option value="faulty">Faulty Terminal</option>
-              <option value="dotgrid">Dot Grid</option>
-              <option value="colorbends">Color Bends</option>
-              <option value="none">Default</option>
-            </select>
+            <div class="welcome-bg-select-wrap">
+              <select id="welcomeBackgroundSelect" class="welcome-bg-select" aria-label="Background">
+                <option value="dither">Dither</option>
+                <option value="particles">Particles</option>
+                <option value="faulty">Faulty Terminal</option>
+                <option value="dotgrid">Dot Grid</option>
+                <option value="colorbends">Color Bends</option>
+                <option value="none">Default</option>
+              </select>
+            </div>
+            <button class="welcome-bg-gear" id="bgSettingsToggle" type="button" title="Background Settings" aria-label="Background Settings">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>
+            </button>
+          </div>
+
+          <!-- ─── Per-Background Settings Panel ─── -->
+          <div class="bg-settings-panel" id="bgSettingsPanel" hidden>
+
+            <!-- DITHER settings -->
+            <div class="bg-settings-group" data-bg="dither">
+              <div class="bg-setting-row">
+                <label>Speed</label>
+                <input type="range" id="bgDitherSpeed" min="0.01" max="0.2" step="0.01" value="0.05">
+                <span class="bg-setting-value">0.05</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Frequency</label>
+                <input type="range" id="bgDitherFrequency" min="1" max="8" step="0.5" value="3">
+                <span class="bg-setting-value">3</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Amplitude</label>
+                <input type="range" id="bgDitherAmplitude" min="0.1" max="0.8" step="0.05" value="0.3">
+                <span class="bg-setting-value">0.3</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Color</label>
+                <input type="color" id="bgDitherColor" value="#808080" class="bg-color-input">
+              </div>
+              <div class="bg-setting-row">
+                <label>Pixel Size</label>
+                <input type="range" id="bgDitherPixelSize" min="1" max="8" step="1" value="2">
+                <span class="bg-setting-value">2</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Color Depth</label>
+                <input type="range" id="bgDitherColorNum" min="2" max="8" step="1" value="4">
+                <span class="bg-setting-value">4</span>
+              </div>
+            </div>
+
+            <!-- PARTICLES settings -->
+            <div class="bg-settings-group" data-bg="particles">
+              <div class="bg-setting-row">
+                <label>Count</label>
+                <input type="range" id="bgParticlesCount" min="50" max="800" step="50" value="300">
+                <span class="bg-setting-value">300</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Speed</label>
+                <input type="range" id="bgParticlesSpeed" min="0.02" max="0.5" step="0.02" value="0.1">
+                <span class="bg-setting-value">0.1</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Spread</label>
+                <input type="range" id="bgParticlesSpread" min="2" max="20" step="1" value="10">
+                <span class="bg-setting-value">10</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Color</label>
+                <input type="color" id="bgParticlesColor" value="#ffffff" class="bg-color-input">
+              </div>
+              <div class="bg-setting-row">
+                <label>Size</label>
+                <input type="range" id="bgParticlesSize" min="20" max="300" step="10" value="100">
+                <span class="bg-setting-value">100</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Alpha</label>
+                <label class="bg-toggle">
+                  <input type="checkbox" id="bgParticlesAlpha">
+                  <span class="bg-toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <!-- FAULTY TERMINAL settings -->
+            <div class="bg-settings-group" data-bg="faulty">
+              <div class="bg-setting-row">
+                <label>Glitch</label>
+                <input type="range" id="bgFaultyGlitch" min="0" max="3" step="0.1" value="1">
+                <span class="bg-setting-value">1</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Scanlines</label>
+                <input type="range" id="bgFaultyScanlines" min="0" max="1.5" step="0.05" value="0.7">
+                <span class="bg-setting-value">0.7</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Flicker</label>
+                <input type="range" id="bgFaultyFlicker" min="0" max="2" step="0.1" value="1">
+                <span class="bg-setting-value">1</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Aberration</label>
+                <input type="range" id="bgFaultyAberration" min="0" max="5" step="0.5" value="0">
+                <span class="bg-setting-value">0</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Curvature</label>
+                <input type="range" id="bgFaultyCurvature" min="0" max="0.3" step="0.02" value="0.1">
+                <span class="bg-setting-value">0.1</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Tint</label>
+                <input type="color" id="bgFaultyTint" value="#A7EF9E" class="bg-color-input">
+              </div>
+              <div class="bg-setting-row">
+                <label>Brightness</label>
+                <input type="range" id="bgFaultyBrightness" min="0.2" max="1.5" step="0.05" value="0.8">
+                <span class="bg-setting-value">0.8</span>
+              </div>
+            </div>
+
+            <!-- DOT GRID settings -->
+            <div class="bg-settings-group" data-bg="dotgrid">
+              <div class="bg-setting-row">
+                <label>Dot Size</label>
+                <input type="range" id="bgDotgridDotSize" min="2" max="12" step="1" value="5">
+                <span class="bg-setting-value">5</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Gap</label>
+                <input type="range" id="bgDotgridGap" min="4" max="30" step="2" value="10">
+                <span class="bg-setting-value">10</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Base Color</label>
+                <input type="color" id="bgDotgridBaseColor" value="#271E37" class="bg-color-input">
+              </div>
+              <div class="bg-setting-row">
+                <label>Active Color</label>
+                <input type="color" id="bgDotgridActiveColor" value="#5227FF" class="bg-color-input">
+              </div>
+              <div class="bg-setting-row">
+                <label>Proximity</label>
+                <input type="range" id="bgDotgridProximity" min="40" max="300" step="10" value="120">
+                <span class="bg-setting-value">120</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Shock Radius</label>
+                <input type="range" id="bgDotgridShockRadius" min="100" max="500" step="25" value="250">
+                <span class="bg-setting-value">250</span>
+              </div>
+            </div>
+
+            <!-- COLOR BENDS settings -->
+            <div class="bg-settings-group" data-bg="colorbends">
+              <div class="bg-setting-row">
+                <label>Speed</label>
+                <input type="range" id="bgColorbendsSpeed" min="0.05" max="1" step="0.05" value="0.2">
+                <span class="bg-setting-value">0.2</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Rotation</label>
+                <input type="range" id="bgColorbendsRotation" min="0" max="360" step="5" value="0">
+                <span class="bg-setting-value">0</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Scale</label>
+                <input type="range" id="bgColorbendsScale" min="0.3" max="3" step="0.1" value="1">
+                <span class="bg-setting-value">1</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Frequency</label>
+                <input type="range" id="bgColorbendsFrequency" min="0.3" max="3" step="0.1" value="1">
+                <span class="bg-setting-value">1</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Warp</label>
+                <input type="range" id="bgColorbendsWarp" min="0" max="3" step="0.1" value="1">
+                <span class="bg-setting-value">1</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Color 1</label>
+                <input type="color" id="bgColorbendsColor1" value="#ff5c7a" class="bg-color-input">
+              </div>
+              <div class="bg-setting-row">
+                <label>Color 2</label>
+                <input type="color" id="bgColorbendsColor2" value="#8a5cff" class="bg-color-input">
+              </div>
+              <div class="bg-setting-row">
+                <label>Color 3</label>
+                <input type="color" id="bgColorbendsColor3" value="#00ffd1" class="bg-color-input">
+              </div>
+            </div>
+
+            <!-- DEFAULT (none) - no settings -->
+            <div class="bg-settings-group" data-bg="none">
+              <p class="bg-settings-empty">No settings for default background.</p>
+            </div>
+
           </div>
         </div>
         <div class="welcome-content">

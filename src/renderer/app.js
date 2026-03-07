@@ -41,6 +41,7 @@ class HybridApp {
     this._statsInterval = null;
     this._fsTransitionTimer = null;
     this._welcomeObserver = null;
+    this._lastWindowState = null;
     this.isLocked = false;
     this.isClipRecording = false;
     this.recordStartTime = null;
@@ -92,12 +93,19 @@ class HybridApp {
 
       // Listen for window state changes
       window.hybridAPI.window.onStateChanged((state) => {
-        document.body.classList.add('fs-transition');
-        if (this._fsTransitionTimer) clearTimeout(this._fsTransitionTimer);
-        this._fsTransitionTimer = setTimeout(() => {
-          document.body.classList.remove('fs-transition');
-          this._fsTransitionTimer = null;
-        }, 440);
+        const wasFullscreen = this._lastWindowState === 'fullscreen';
+        const nowFullscreen = state === 'fullscreen';
+        this._lastWindowState = state;
+
+        // Only run fullscreen transition animation for real fullscreen toggles.
+        if (wasFullscreen !== nowFullscreen) {
+          document.body.classList.add('fs-transition');
+          if (this._fsTransitionTimer) clearTimeout(this._fsTransitionTimer);
+          this._fsTransitionTimer = setTimeout(() => {
+            document.body.classList.remove('fs-transition');
+            this._fsTransitionTimer = null;
+          }, 440);
+        }
 
         if (state === 'fullscreen') {
           document.body.classList.add('is-fullscreen');
@@ -114,6 +122,11 @@ class HybridApp {
         } else {
           fsEnter.style.display = 'block';
           fsExit.style.display = 'none';
+        }
+
+        // Always reveal titlebar + control bar on fullscreen enter/exit transitions.
+        if (wasFullscreen !== nowFullscreen) {
+          this.controlsModule?.revealChromeAfterWindowStateChange?.();
         }
       });
 

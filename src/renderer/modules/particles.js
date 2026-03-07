@@ -359,8 +359,17 @@ async function syncLifecycleState() {
   const shouldRunParticles = visible && background === 'particles';
 
   if (shouldRunParticles) {
+    const userOpts = welcomeState.bgOpts_particles || {};
+    const mapped = {};
+    if (userOpts.count !== undefined) mapped.particleCount = userOpts.count;
+    if (userOpts.speed !== undefined) mapped.speed = userOpts.speed;
+    if (userOpts.spread !== undefined) mapped.particleSpread = userOpts.spread;
+    if (userOpts.color !== undefined) mapped.particleColors = [userOpts.color];
+    if (userOpts.size !== undefined) mapped.particleBaseSize = userOpts.size;
+    if (userOpts.alpha !== undefined) mapped.alphaParticles = userOpts.alpha;
+
     try {
-      await createParticles();
+      await createParticles(mapped);
     } catch (error) {
       console.error(`${LOG_TAG} failed to create instance`, error);
     }
@@ -389,8 +398,15 @@ function bootLifecycle() {
   });
 
   welcomeSettingsListener = event => {
-    if (!event?.detail || !Object.prototype.hasOwnProperty.call(event.detail, 'welcomeBackground')) return;
-    syncLifecycleState();
+    if (!event?.detail) return;
+    if (Object.prototype.hasOwnProperty.call(event.detail, 'welcomeBackground')) {
+      syncLifecycleState();
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(event.detail, 'bgOpts_particles')) {
+      destroyParticles();
+      syncLifecycleState();
+    }
   };
   window.addEventListener('hybrid:welcome-settings-changed', welcomeSettingsListener);
 

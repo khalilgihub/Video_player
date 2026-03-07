@@ -430,8 +430,21 @@ async function syncLifecycleState() {
   const shouldRunDither = visible && background === 'dither';
 
   if (shouldRunDither) {
+    const userOpts = welcomeState.bgOpts_dither || {};
+    const mapped = {};
+    if (userOpts.speed !== undefined) mapped.waveSpeed = userOpts.speed;
+    if (userOpts.frequency !== undefined) mapped.waveFrequency = userOpts.frequency;
+    if (userOpts.amplitude !== undefined) mapped.waveAmplitude = userOpts.amplitude;
+    if (userOpts.color !== undefined) {
+      const h = String(userOpts.color).replace('#', '');
+      const n = parseInt(h, 16);
+      mapped.waveColor = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+    }
+    if (userOpts.pixelSize !== undefined) mapped.pixelSize = userOpts.pixelSize;
+    if (userOpts.colorNum !== undefined) mapped.colorNum = userOpts.colorNum;
+
     try {
-      await createDitherWaves();
+      await createDitherWaves(mapped);
     } catch (error) {
       console.error(`${LOG_TAG} failed to create instance`, error);
     }
@@ -459,8 +472,15 @@ function bootLifecycle() {
   });
 
   welcomeSettingsListener = (event) => {
-    if (!event?.detail || !Object.prototype.hasOwnProperty.call(event.detail, 'welcomeBackground')) return;
-    syncLifecycleState();
+    if (!event?.detail) return;
+    if (Object.prototype.hasOwnProperty.call(event.detail, 'welcomeBackground')) {
+      syncLifecycleState();
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(event.detail, 'bgOpts_dither')) {
+      destroyDitherWaves();
+      syncLifecycleState();
+    }
   };
   window.addEventListener('hybrid:welcome-settings-changed', welcomeSettingsListener);
 

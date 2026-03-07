@@ -499,8 +499,18 @@ async function syncLifecycleState() {
   const shouldRunFaulty = visible && background === 'faulty';
 
   if (shouldRunFaulty) {
+    const userOpts = welcomeState.bgOpts_faulty || {};
+    const mapped = {};
+    if (userOpts.glitch !== undefined) mapped.glitchAmount = userOpts.glitch;
+    if (userOpts.scanlines !== undefined) mapped.scanlineIntensity = userOpts.scanlines;
+    if (userOpts.flicker !== undefined) mapped.flickerAmount = userOpts.flicker;
+    if (userOpts.aberration !== undefined) mapped.chromaticAberration = userOpts.aberration;
+    if (userOpts.curvature !== undefined) mapped.curvature = userOpts.curvature;
+    if (userOpts.tint !== undefined) mapped.tint = userOpts.tint;
+    if (userOpts.brightness !== undefined) mapped.brightness = userOpts.brightness;
+
     try {
-      await createFaultyTerminal();
+      await createFaultyTerminal(mapped);
     } catch (error) {
       console.error(`${LOG_TAG} failed to create instance`, error);
     }
@@ -528,8 +538,15 @@ function bootLifecycle() {
   });
 
   welcomeSettingsListener = (event) => {
-    if (!event?.detail || !Object.prototype.hasOwnProperty.call(event.detail, 'welcomeBackground')) return;
-    syncLifecycleState();
+    if (!event?.detail) return;
+    if (Object.prototype.hasOwnProperty.call(event.detail, 'welcomeBackground')) {
+      syncLifecycleState();
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(event.detail, 'bgOpts_faulty')) {
+      destroyFaultyTerminal();
+      syncLifecycleState();
+    }
   };
   window.addEventListener('hybrid:welcome-settings-changed', welcomeSettingsListener);
 

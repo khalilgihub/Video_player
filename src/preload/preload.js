@@ -14,6 +14,10 @@ contextBridge.exposeInMainWorld('hybridAPI', {
     close: () => ipcRenderer.invoke('window:close'),
     fullscreen: (state) => ipcRenderer.invoke('window:fullscreen', state),
     isFullScreen: () => ipcRenderer.invoke('window:isFullScreen'),
+    isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+    dragRestoreStart: (payload) => ipcRenderer.invoke('window:dragRestoreStart', payload),
+    dragMove: (payload) => ipcRenderer.invoke('window:dragMove', payload),
+    dragEnd: () => ipcRenderer.invoke('window:dragEnd'),
     setUiLocked: (state) => ipcRenderer.invoke('window:set-ui-locked', state),
     onStateChanged: (cb) => ipcRenderer.on('window-state-changed', (_, state) => cb(state))
   },

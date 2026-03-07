@@ -405,8 +405,21 @@ async function syncLifecycleState() {
   const shouldRunColorBends = visible && background === 'colorbends';
 
   if (shouldRunColorBends) {
+    const userOpts = welcomeState.bgOpts_colorbends || {};
+    const mapped = {};
+    if (userOpts.speed !== undefined) mapped.speed = userOpts.speed;
+    if (userOpts.rotation !== undefined) mapped.rotation = userOpts.rotation;
+    if (userOpts.scale !== undefined) mapped.scale = userOpts.scale;
+    if (userOpts.frequency !== undefined) mapped.frequency = userOpts.frequency;
+    if (userOpts.warp !== undefined) mapped.warpStrength = userOpts.warp;
+    const colors = [];
+    if (userOpts.color1) colors.push(userOpts.color1);
+    if (userOpts.color2) colors.push(userOpts.color2);
+    if (userOpts.color3) colors.push(userOpts.color3);
+    if (colors.length > 0) mapped.colors = colors;
+
     try {
-      await createColorBends();
+      await createColorBends(mapped);
     } catch (error) {
       console.error(`${LOG_TAG} failed to create instance`, error);
     }
@@ -435,8 +448,15 @@ function bootLifecycle() {
   });
 
   welcomeSettingsListener = (event) => {
-    if (!event?.detail || !Object.prototype.hasOwnProperty.call(event.detail, 'welcomeBackground')) return;
-    syncLifecycleState();
+    if (!event?.detail) return;
+    if (Object.prototype.hasOwnProperty.call(event.detail, 'welcomeBackground')) {
+      syncLifecycleState();
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(event.detail, 'bgOpts_colorbends')) {
+      destroyColorBends();
+      syncLifecycleState();
+    }
   };
   window.addEventListener('hybrid:welcome-settings-changed', welcomeSettingsListener);
 
