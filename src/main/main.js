@@ -397,7 +397,7 @@ function applyWindowedSize(win) {
   if (win.isMaximized()) {
     win.unmaximize();
   }
-  win.setSize(WINDOWED_WIDTH, WINDOWED_HEIGHT, true);
+  win.setSize(WINDOWED_WIDTH, WINDOWED_HEIGHT, false);
   win.center();
 }
 
@@ -552,7 +552,6 @@ function createMainWindow() {
 
   // Smooth show – also spawn mpv once the window is visible
   mainWindow.once('ready-to-show', () => {
-    applyWindowedSize(mainWindow);
     mainWindow.show();
 
     // Get native window handle and spawn mpv into it
