@@ -50,6 +50,19 @@
   height: 100% !important;
 }
 
+.colorbends-mount {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.colorbends-mount canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
 .lanyard-mount {
   position: absolute;
   inset: 0;

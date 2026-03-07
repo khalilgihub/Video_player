@@ -349,6 +349,8 @@ app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512');
 let mainWindow = null;
 let mpvProcess = null;
 let fullscreenTransitionUntil = 0;
+const WINDOWED_WIDTH = 1920;
+const WINDOWED_HEIGHT = 1020;
 
 // TEMP DEBUG: fullscreen/input tracing
 const FS_DEBUG = true;
@@ -388,6 +390,15 @@ function setTrackedFullscreen(win, target, source = 'unknown') {
   fsdbg('setTrackedFullscreen apply', { source, from: current, to: desired });
   win.setFullScreen(desired);
   return desired;
+}
+
+function applyWindowedSize(win) {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMaximized()) {
+    win.unmaximize();
+  }
+  win.setSize(WINDOWED_WIDTH, WINDOWED_HEIGHT, true);
+  win.center();
 }
 
 const DB_PATH = path.join(app.getPath('userData'), 'hybrid-player-db.json');
@@ -439,12 +450,9 @@ function saveDatabase(db) {
 }
 
 function createMainWindow() {
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.workAreaSize;
-
   mainWindow = new BrowserWindow({
-    width: Math.min(1400, width),
-    height: Math.min(850, height),
+    width: WINDOWED_WIDTH,
+    height: WINDOWED_HEIGHT,
     minWidth: 800,
     minHeight: 500,
     frame: false,
@@ -544,6 +552,7 @@ function createMainWindow() {
 
   // Smooth show – also spawn mpv once the window is visible
   mainWindow.once('ready-to-show', () => {
+    applyWindowedSize(mainWindow);
     mainWindow.show();
 
     // Get native window handle and spawn mpv into it
@@ -591,6 +600,7 @@ function createMainWindow() {
   });
   mainWindow.on('leave-full-screen', () => {
     mainWindow.__hybridFullscreenState = false;
+    applyWindowedSize(mainWindow);
     fsdbg('window leave-full-screen');
     mainWindow.webContents.send('window-state-changed', 'normal');
   });
@@ -694,7 +704,11 @@ app.whenReady().then(() => {
 });
 
 app.on('will-quit', () => {
-  globalShortcut.unregisterAll();
+  // Can fire before app is ready (e.g., second-instance lock fails).
+  // globalShortcut API throws if used before readiness.
+  if (app.isReady()) {
+    globalShortcut.unregisterAll();
+  }
 });
 
 app.on('window-all-closed', () => {

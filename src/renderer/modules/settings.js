@@ -134,7 +134,7 @@ class HybridSettings {
       }
 
       // Welcome background effect
-      const welcomeBackground = ['none', 'dither', 'particles', 'faulty', 'dotgrid'].includes(prefs.welcomeBackground)
+      const welcomeBackground = ['none', 'dither', 'particles', 'faulty', 'dotgrid', 'colorbends'].includes(prefs.welcomeBackground)
         ? prefs.welcomeBackground
         : 'dither';
       await this._applyWelcomeBackground(welcomeBackground, { persist: false });
@@ -202,7 +202,7 @@ class HybridSettings {
   }
 
   async _applyWelcomeBackground(background, { persist = true } = {}) {
-    const value = ['none', 'dither', 'particles', 'faulty', 'dotgrid'].includes(background) ? background : 'dither';
+    const value = ['none', 'dither', 'particles', 'faulty', 'dotgrid', 'colorbends'].includes(background) ? background : 'dither';
     this._setValue('welcomeBackgroundSelect', value);
     this._emitWelcomeSettings({
       welcomeBackground: value,

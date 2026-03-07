@@ -82,14 +82,17 @@ html, body {
   align-items: center;
   justify-content: space-between;
   height: 36px;
-  background: var(--bg-titlebar);
+  background: transparent !important;
+  backdrop-filter: none !important;
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  z-index: 1000;
+  z-index: 1200;
   color: #fff;
-  transition: opacity 0.28s ease, transform 0.28s ease;
+  transition:
+    opacity 0.42s cubic-bezier(0.2, 0.72, 0.22, 1),
+    transform 0.42s cubic-bezier(0.2, 0.72, 0.22, 1);
 }
 
 .titlebar.hidden {
@@ -104,6 +107,8 @@ html, body {
   gap: 10px;
   padding-left: 14px;
   height: 100%;
+  background: transparent !important;
+  backdrop-filter: none !important;
   -webkit-app-region: drag;
 }
 
@@ -396,7 +401,7 @@ body.is-locked .sidebar-playlist {
 /* ─── Welcome Screen ─── */
 .welcome-screen {
   position: absolute;
-  top: 36px;
+  top: 0;
   left: 0;
   right: 0;
   bottom: 0;
@@ -404,10 +409,6 @@ body.is-locked .sidebar-playlist {
   background: var(--bg-primary);
   overflow: hidden;
   transition: opacity 0.4s ease;
-}
-
-body.is-fullscreen .welcome-screen {
-  top: 0;
 }
 
 .welcome-screen.hidden {
@@ -438,7 +439,7 @@ body.is-fullscreen .welcome-screen {
 
 .welcome-bg-settings {
   position: absolute;
-  top: 14px;
+  top: 48px;
   right: 14px;
   z-index: 3;
   display: inline-flex;
@@ -458,9 +459,22 @@ body.is-fullscreen .welcome-screen {
   pointer-events: auto;
   overflow: hidden;
   transition:
-    transform var(--motion-fast) var(--motion-ease-standard),
-    box-shadow var(--motion-medium) var(--motion-ease-standard),
-    background var(--motion-medium) var(--motion-ease-standard);
+    transform 0.42s cubic-bezier(0.2, 0.72, 0.22, 1),
+    box-shadow 0.42s cubic-bezier(0.2, 0.72, 0.22, 1),
+    background 0.42s cubic-bezier(0.2, 0.72, 0.22, 1);
+}
+
+body.is-fullscreen .welcome-bg-settings {
+  top: 48px;
+}
+
+body.fs-transition .titlebar {
+  transform: translateY(1px);
+  opacity: 0.985;
+}
+
+body.fs-transition .welcome-bg-settings {
+  transform: translateY(1px) scale(0.996);
 }
 
 .welcome-bg-settings::before {
@@ -554,7 +568,7 @@ body.is-fullscreen .welcome-screen {
 
 @media (max-width: 720px) {
   .welcome-bg-settings {
-    top: 10px;
+    top: 42px;
     right: 10px;
     padding: 8px;
   }

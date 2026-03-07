@@ -12,11 +12,13 @@
   z-index: 20;
   padding: 0 14px 12px;
   background: var(--bg-controls);
-  transition: opacity 0.35s ease, transform 0.35s ease;
+  transition:
+    opacity 0.42s cubic-bezier(0.2, 0.72, 0.22, 1),
+    transform 0.42s cubic-bezier(0.2, 0.72, 0.22, 1);
 }
 
 body.fs-transition .controls-wrapper {
-  transform: translateY(3px);
+  transform: translateY(2px);
 }
 
 .controls-wrapper.hidden {

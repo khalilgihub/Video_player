@@ -97,7 +97,7 @@ class HybridApp {
         this._fsTransitionTimer = setTimeout(() => {
           document.body.classList.remove('fs-transition');
           this._fsTransitionTimer = null;
-        }, 280);
+        }, 440);
 
         if (state === 'fullscreen') {
           document.body.classList.add('is-fullscreen');

@@ -60,6 +60,20 @@ class HybridControls {
   }
 
   _bindControls() {
+    const shouldIgnoreFullscreenDblClick = (target) => {
+      if (!target || !(target instanceof Element)) return false;
+      return !!target.closest(
+        '#controlsWrapper, .modal-overlay, .welcome-bg-settings, .welcome-recent, .recent-item, button, input, select, textarea, a, [role="button"]'
+      );
+    };
+
+    const handleFullscreenDblClick = (e, source = 'unknown') => {
+      if (shouldIgnoreFullscreenDblClick(e.target)) return;
+      e.preventDefault();
+      console.log(`[FSDBG][renderer-controls] ${source} dblclick`);
+      this.toggleFullscreen();
+    };
+
     // Play/Pause
     document.getElementById('btnPlay').addEventListener('click', () => this.player.togglePlay());
 
@@ -67,12 +81,12 @@ class HybridControls {
     const mpvContainer = document.getElementById('mpvContainer');
     if (mpvContainer) {
       mpvContainer.addEventListener('click', () => this.player.togglePlay());
-      mpvContainer.addEventListener('dblclick', (e) => {
-        e.preventDefault();
-        console.log('[FSDBG][renderer-controls] mpvContainer dblclick');
-        this.toggleFullscreen();
-      });
+      mpvContainer.addEventListener('dblclick', (e) => handleFullscreenDblClick(e, 'mpvContainer'));
     }
+
+    // Welcome overlay covers mpv surface; bind dblclick here too.
+    const welcomeScreen = document.getElementById('welcomeScreen');
+    welcomeScreen?.addEventListener('dblclick', (e) => handleFullscreenDblClick(e, 'welcomeScreen'));
 
     // Previous / Next
     document.getElementById('btnPrev').addEventListener('click', () => {
