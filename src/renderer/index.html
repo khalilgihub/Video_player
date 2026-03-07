@@ -56,6 +56,7 @@
 
       <!-- Welcome Screen / Drop Zone -->
       <div class="welcome-screen" id="welcomeScreen">
+        <div id="ditherMount" class="dither-mount" aria-hidden="true"></div>
         <div id="lanyardMount" class="lanyard-mount" aria-hidden="true"></div>
         <div class="welcome-content">
           <button class="btn-primary" id="btnOpenFile">
@@ -452,10 +453,12 @@
         "three": "../../node_modules/three/build/three.module.js",
         "three/examples/jsm/": "../../node_modules/three/examples/jsm/",
         "cannon-es": "../../node_modules/cannon-es/dist/cannon-es.js",
-        "meshline": "../../node_modules/meshline/dist/index.js"
+        "meshline": "../../node_modules/meshline/dist/index.js",
+        "postprocessing": "../../node_modules/postprocessing/build/index.js"
       }
     }
   </script>
+  <script type="module" src="../renderer/modules/ditherWaves.js"></script>
   <script type="module" src="../renderer/modules/lanyard.js"></script>
 </body>
 </html>

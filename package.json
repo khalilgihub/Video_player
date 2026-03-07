@@ -23,6 +23,7 @@
   "dependencies": {
     "cannon-es": "^0.20.0",
     "meshline": "^3.3.1",
+    "postprocessing": "^6.38.3",
     "three": "^0.183.2"
   }
 }
