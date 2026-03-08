@@ -43,28 +43,83 @@ body[data-motion-profile="reduced"] .welcome-screen * {
   transition-duration: var(--motion-fast) !important;
 }
 
+body[data-motion-profile="reduced"] .app-main {
+  transition-duration: var(--motion-fast);
+}
+
+body[data-motion-profile="reduced"].app-cold-start .app-main,
+body[data-motion-profile="reduced"].app-unfocused .app-main {
+  transform: none;
+  filter: none;
+}
+
+body[data-motion-profile="reduced"].app-cold-start .titlebar,
+body[data-motion-profile="reduced"].app-cold-start .welcome-bg-settings {
+  transform: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   body:not([data-motion-profile="balanced"]):not([data-motion-profile="showcase"]) .welcome-screen * {
     animation-duration: 1ms !important;
     animation-delay: 0ms !important;
     transition-duration: var(--motion-fast) !important;
   }
+
+  body:not([data-motion-profile="balanced"]):not([data-motion-profile="showcase"]) .app-main {
+    transition-duration: var(--motion-fast);
+  }
+
+  body:not([data-motion-profile="balanced"]):not([data-motion-profile="showcase"]).app-cold-start .app-main,
+  body:not([data-motion-profile="balanced"]):not([data-motion-profile="showcase"]).app-unfocused .app-main {
+    transform: none;
+    filter: none;
+  }
+
+  body:not([data-motion-profile="balanced"]):not([data-motion-profile="showcase"]).app-cold-start .titlebar,
+  body:not([data-motion-profile="balanced"]):not([data-motion-profile="showcase"]).app-cold-start .welcome-bg-settings {
+    transform: none;
+  }
 }
 
 html, body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
   height: 100%;
   overflow: hidden;
   font-family: var(--font-ui);
   font-size: 14px;
   line-height: 1.5;
   color: var(--text-primary);
+  /* Keep Chromium transparent so embedded mpv (--wid) remains visible. */
   background-color: transparent;
   user-select: none;
   -webkit-font-smoothing: antialiased;
+  box-shadow: none;
 }
 
 .hidden {
   display: none !important;
+}
+
+/* Top-edge mask for Windows transparent-window inactive border seam. */
+body::before {
+  content: none;
+}
+
+/* Right-edge seam mask for top-right inactive border artifact. */
+body::after {
+  content: none;
+}
+
+/* On blur, expand masks for fractional-DPI seam drift. */
+body.app-unfocused::before {
+  content: none;
+}
+
+body.app-unfocused::after {
+  content: none;
 }
 
 /* ─── Scrollbar ─── */
@@ -83,7 +138,13 @@ html, body {
   justify-content: space-between;
   height: 36px;
   background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
   backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border: none !important;
+  border-bottom: none !important;
   position: fixed;
   top: 0;
   left: 0;
@@ -108,8 +169,16 @@ html, body {
   padding-left: 14px;
   height: 100%;
   background: transparent !important;
+  background-color: transparent !important;
   backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border: none !important;
   -webkit-app-region: drag;
+}
+
+.titlebar-drag > * {
+  -webkit-app-region: no-drag;
 }
 
 .titlebar-icon {
@@ -130,6 +199,22 @@ html, body {
   display: flex;
   height: 100%;
   -webkit-app-region: no-drag;
+  background: transparent !important;
+  background-color: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* Native titleBarOverlay controls are active: hide custom duplicate controls. */
+body.has-native-window-controls .titlebar-controls {
+  display: none !important;
+}
+
+/* Reserve space so title text/drag area doesn't overlap native control buttons. */
+body.has-native-window-controls .titlebar-drag {
+  padding-right: 140px;
 }
 
 .titlebar-btn {
@@ -139,18 +224,22 @@ html, body {
   align-items: center;
   justify-content: center;
   border: none;
-  background: transparent;
+  background: transparent !important;
+  background-color: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
   color: #fff;
   cursor: pointer;
   transition: background 0.15s ease;
 }
 
 .titlebar-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: transparent !important;
 }
 
 .titlebar-btn-close:hover {
-  background: #e81123;
+  background: transparent !important;
 }
 
 /* ─── Main Layout ─── */
@@ -158,6 +247,43 @@ html, body {
   display: flex;
   height: 100vh;
   padding-top: 0; /* No padding - titlebar overlays */
+  transform-origin: center center;
+  transition:
+    opacity var(--motion-slow) var(--motion-ease-emphasized),
+    transform var(--motion-slow) var(--motion-ease-emphasized),
+    filter var(--motion-slow) var(--motion-ease-standard);
+  will-change: opacity, transform, filter;
+}
+
+body.app-cold-start .app-main {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+body.app-cold-start .titlebar {
+  opacity: 1;
+  transform: none;
+}
+
+body.app-cold-start .welcome-bg-settings {
+  opacity: 1;
+  transform: none;
+}
+
+body.app-unfocused .app-main {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+body.app-unfocused .titlebar {
+  opacity: 1;
+}
+
+body.app-unfocused .welcome-bg-settings {
+  opacity: 1;
+  transform: none;
 }
 
 /* ─── Video Container ─── */
@@ -194,11 +320,15 @@ html, body {
   background-color: #000000;
   z-index: 5;
   opacity: 0;
+  display: none;
+  visibility: hidden;
   pointer-events: none;
   transition: opacity 0.3s ease;
 }
 
 .video-curtain.visible {
+  display: block;
+  visibility: visible;
   opacity: 1;
   pointer-events: auto;
 }
@@ -220,6 +350,30 @@ body.is-fullscreen .titlebar {
   pointer-events: auto;
 }
 
+body.is-fullscreen .titlebar-controls {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+body.is-maximized .titlebar {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+body.is-fullscreen .video-container,
+body.is-maximized .video-container {
+  height: 100vh;
+}
+
+.video-container video,
+#mpvContainer,
+.mpv-container {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 /* Cursor-hidden state (managed by CursorManager) */
 .cursor-hidden,
 .cursor-hidden * {
@@ -237,6 +391,22 @@ body.force-hide-cursor * {
   inset: 0;
   z-index: 0;
   pointer-events: auto;
+}
+
+.paused-frame-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+.paused-frame-overlay.visible {
+  opacity: 1;
 }
 
 #skip-indicator {
@@ -367,35 +537,24 @@ body.is-locked .sidebar-playlist {
   top: 50px;
   left: 20px;
   max-width: 260px;
-  cursor: pointer;
+  cursor: default;
   z-index: 50;
   border-radius: 10px;
   overflow: hidden;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-  animation: screenshotFadeIn 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-  backdrop-filter: blur(12px);
+  opacity: 1;
+  transform: none;
+  transition: none;
+  backdrop-filter: none;
 }
 .screenshot-preview.hiding {
-  opacity: 0;
-  transform: translateY(-10px);
-  transition: opacity 0.35s ease, transform 0.35s ease;
+  opacity: 1;
+  transform: none;
 }
 .screenshot-preview img {
   display: block;
   width: 100%;
-  border-radius: 10px 10px 0 0;
-}
-.screenshot-preview-label {
-  display: block;
-  padding: 6px 10px;
-  font-size: 11px;
-  color: var(--text-secondary, #aaa);
-  background: rgba(20, 20, 20, 0.85);
-  backdrop-filter: blur(8px);
-}
-@keyframes screenshotFadeIn {
-  from { opacity: 0; transform: translateY(-10px) scale(0.96); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  border-radius: 10px;
 }
 
 /* ─── Welcome Screen ─── */
@@ -413,6 +572,8 @@ body.is-locked .sidebar-playlist {
 
 .welcome-screen.hidden {
   opacity: 0;
+  visibility: hidden;
+  display: none;
   pointer-events: none;
 }
 
@@ -426,7 +587,7 @@ body.is-locked .sidebar-playlist {
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
-  padding: 0 18px 18px;
+  padding: 0 18px 60px;
   pointer-events: none;
 }
 
@@ -635,9 +796,15 @@ body[data-welcome-background='none'] .welcome-screen {
   pointer-events: auto;
   overflow: hidden;
   transition:
+    opacity 0.42s cubic-bezier(0.2, 0.72, 0.22, 1),
     transform 0.42s cubic-bezier(0.2, 0.72, 0.22, 1),
     box-shadow 0.42s cubic-bezier(0.2, 0.72, 0.22, 1),
     background 0.42s cubic-bezier(0.2, 0.72, 0.22, 1);
+}
+
+/* Keep selector aligned to the right edge in native-controls mode. */
+body.has-native-window-controls .welcome-bg-settings {
+  right: 14px;
 }
 
 body.is-fullscreen .welcome-bg-settings {
@@ -645,12 +812,12 @@ body.is-fullscreen .welcome-bg-settings {
 }
 
 body.fs-transition .titlebar {
-  transform: translateY(1px);
-  opacity: 0.985;
+  transform: none;
+  opacity: 1;
 }
 
 body.fs-transition .welcome-bg-settings {
-  transform: translateY(1px) scale(0.996);
+  transform: none;
 }
 
 .welcome-bg-settings::before {
@@ -954,6 +1121,10 @@ body[data-welcome-background='none'] .welcome-bg-select {
     top: 42px;
     right: 10px;
     padding: 8px;
+  }
+
+  body.has-native-window-controls .welcome-bg-settings {
+    right: 10px;
   }
 
   .welcome-bg-select {
@@ -1370,7 +1541,7 @@ body.welcome-active .sidebar-playlist {
 @media (max-height: 620px) {
   .welcome-content {
     gap: 8px;
-    padding-bottom: 12px;
+    padding-bottom: 35px;
   }
 
   .welcome-recent {

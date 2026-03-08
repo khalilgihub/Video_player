@@ -46,6 +46,9 @@ class HybridControls {
     this.currentVolume      = 1;
     this.skipIndicatorTimer = null;
     this.recordingIndicatorTimer = null;
+    this._titlebarDragSession = null;
+    this._hitTestSyncRaf = null;
+    this._titlebarResizeObserver = null;
 
     // Loading spinner
     this.spinner = document.createElement('div');
@@ -53,6 +56,8 @@ class HybridControls {
     document.getElementById('videoContainer').appendChild(this.spinner);
 
     this._bindControls();
+    this._setupTitlebarDragRestore();
+    this._setupHitTestExclusionsSync();
     this._setupAutoHide();
     this._setupProgressBar();
     this._setupVolumeControl();
@@ -161,12 +166,12 @@ class HybridControls {
       }
     });
     document.getElementById('btnMaximize').addEventListener('click', async () => {
-      console.log('[WINCTRL][renderer] maximize/restore click');
+      console.log('[WINCTRL][renderer] toggle-maximize click');
       try {
-        const maximized = await window.hybridAPI.window.maximize();
-        console.log('[WINCTRL][renderer] maximize invoke success', { maximized });
+        const maximized = await window.hybridAPI.window.toggleMaximize();
+        console.log('[WINCTRL][renderer] toggle-maximize invoke success', { maximized });
       } catch (error) {
-        console.error('[WINCTRL][renderer] maximize invoke failed', error);
+        console.error('[WINCTRL][renderer] toggle-maximize invoke failed', error);
       }
     });
     document.getElementById('btnClose').addEventListener('click', async () => {
@@ -179,100 +184,6 @@ class HybridControls {
         console.error('[WINCTRL][renderer] close invoke failed', error);
       }
     });
-
-    // Custom titlebar drag: when maximized/fullscreen and pulled down, restore and drag like native apps.
-    const titlebarDrag = document.querySelector('.titlebar-drag');
-    if (titlebarDrag) {
-      let dragState = null;
-
-      const cleanupDrag = async () => {
-        if (!dragState) return;
-        const state = dragState;
-        dragState = null;
-        window.removeEventListener('mousemove', state.onMove, true);
-        window.removeEventListener('mouseup', state.onUp, true);
-        if (state.rafId) {
-          cancelAnimationFrame(state.rafId);
-          state.rafId = 0;
-        }
-        try {
-          await window.hybridAPI.window.dragEnd();
-        } catch {
-          // best effort
-        }
-      };
-
-      titlebarDrag.addEventListener('mousedown', async (e) => {
-        if (e.button !== 0) return;
-        if (e.target.closest('.titlebar-controls, .titlebar-btn')) return;
-        if (dragState) return;
-
-        const [isFs, isMax] = await Promise.all([
-          window.hybridAPI.window.isFullScreen(),
-          window.hybridAPI.window.isMaximized(),
-        ]);
-
-        // Normal window drag is handled by -webkit-app-region: drag.
-        if (!isFs && !isMax) return;
-
-        e.preventDefault();
-
-        dragState = {
-          startScreenX: e.screenX,
-          startScreenY: e.screenY,
-          ratioX: Math.min(1, Math.max(0, e.clientX / Math.max(window.innerWidth, 1))),
-          restored: false,
-          lastScreenX: e.screenX,
-          lastScreenY: e.screenY,
-          rafId: 0,
-          onMove: null,
-          onUp: null,
-        };
-
-        dragState.onMove = async (ev) => {
-          if (!dragState) return;
-          dragState.lastScreenX = ev.screenX;
-          dragState.lastScreenY = ev.screenY;
-
-          if (!dragState.restored) {
-            const movedDown = ev.screenY - dragState.startScreenY;
-            if (movedDown < 7) return;
-            const restored = await window.hybridAPI.window.dragRestoreStart({
-              screenX: ev.screenX,
-              screenY: ev.screenY,
-              ratioX: dragState.ratioX,
-              offsetY: 14,
-            });
-            if (!restored) {
-              await cleanupDrag();
-              return;
-            }
-            dragState.restored = true;
-          }
-
-          if (dragState.rafId) return;
-          dragState.rafId = requestAnimationFrame(async () => {
-            if (!dragState) return;
-            dragState.rafId = 0;
-            try {
-              await window.hybridAPI.window.dragMove({
-                screenX: dragState.lastScreenX,
-                screenY: dragState.lastScreenY,
-              });
-            } catch {
-              await cleanupDrag();
-            }
-          });
-        };
-
-        dragState.onUp = async () => {
-          await cleanupDrag();
-        };
-
-        window.addEventListener('mousemove', dragState.onMove, true);
-        window.addEventListener('mouseup', dragState.onUp, true);
-      });
-    }
 
     // Volume button
     document.getElementById('btnVolume').addEventListener('click', () => {
@@ -292,6 +203,128 @@ class HybridControls {
     document.getElementById('btnOpenLink')?.addEventListener('click', () => {
       window.HybridApp?.promptOpenUrl?.();
     });
+  }
+
+  _setupTitlebarDragRestore() {
+    const dragSurface = this.titlebar?.querySelector('.titlebar-drag');
+    if (!dragSurface || !window.hybridAPI?.window?.titlebarDragStart) return;
+
+    this._titlebarDragSession = {
+      active: false,
+      framePending: false,
+      lastPoint: null,
+    };
+
+    const flushMove = () => {
+      if (!this._titlebarDragSession?.active) return;
+      this._titlebarDragSession.framePending = false;
+      const point = this._titlebarDragSession.lastPoint;
+      if (!point) return;
+      window.hybridAPI.window.titlebarDragMove(point).catch(() => {});
+    };
+
+    const onMouseMove = (event) => {
+      if (!this._titlebarDragSession?.active) return;
+      if ((event.buttons & 1) !== 1) {
+        endDrag();
+        return;
+      }
+      event.preventDefault();
+      this._titlebarDragSession.lastPoint = {
+        screenX: Math.round(event.screenX),
+        screenY: Math.round(event.screenY),
+      };
+      if (this._titlebarDragSession.framePending) return;
+      this._titlebarDragSession.framePending = true;
+      window.requestAnimationFrame(flushMove);
+    };
+
+    const onMouseUp = () => {
+      endDrag();
+    };
+
+    const endDrag = () => {
+      if (!this._titlebarDragSession?.active) return;
+      this._titlebarDragSession.active = false;
+      this._titlebarDragSession.framePending = false;
+      this._titlebarDragSession.lastPoint = null;
+      window.removeEventListener('mousemove', onMouseMove, true);
+      window.removeEventListener('mouseup', onMouseUp, true);
+      window.hybridAPI.window.titlebarDragEnd().catch(() => {});
+    };
+
+    dragSurface.addEventListener('mousedown', async (event) => {
+      if (event.button !== 0) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('.titlebar-controls, .titlebar-btn, button, input, select, textarea, a, [role="button"]')) {
+        return;
+      }
+
+      const response = await window.hybridAPI.window.titlebarDragStart({
+        screenX: Math.round(event.screenX),
+        screenY: Math.round(event.screenY),
+      });
+
+      if (!response?.handled) return;
+
+      event.preventDefault();
+      this._titlebarDragSession.active = true;
+      this._titlebarDragSession.framePending = false;
+      this._titlebarDragSession.lastPoint = {
+        screenX: Math.round(event.screenX),
+        screenY: Math.round(event.screenY),
+      };
+
+      window.addEventListener('mousemove', onMouseMove, true);
+      window.addEventListener('mouseup', onMouseUp, true);
+    });
+
+    window.addEventListener('blur', endDrag);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') {
+        endDrag();
+      }
+    });
+  }
+
+  _setupHitTestExclusionsSync() {
+    if (!window.hybridAPI?.window?.setHitTestExclusions) return;
+
+    const pushExclusions = () => {
+      const controls = this.titlebar?.querySelector('.titlebar-controls');
+      const exclusions = [];
+
+      if (controls) {
+        const rect = controls.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          exclusions.push({
+            x: Math.round(rect.left),
+            y: Math.round(rect.top),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          });
+        }
+      }
+
+      window.hybridAPI.window.setHitTestExclusions(exclusions).catch(() => {});
+    };
+
+    const schedulePush = () => {
+      if (this._hitTestSyncRaf != null) return;
+      this._hitTestSyncRaf = window.requestAnimationFrame(() => {
+        this._hitTestSyncRaf = null;
+        pushExclusions();
+      });
+    };
+
+    schedulePush();
+    window.addEventListener('resize', schedulePush);
+    window.hybridAPI.window.onStateChanged(() => schedulePush());
+
+    if (typeof ResizeObserver === 'function' && this.titlebar) {
+      this._titlebarResizeObserver = new ResizeObserver(() => schedulePush());
+      this._titlebarResizeObserver.observe(this.titlebar);
+    }
   }
 
   _setupPlayerCallbacks() {
@@ -375,7 +408,8 @@ class HybridControls {
       if (this._mouseOverControls || this.isDraggingProgress || this._isDragging) return;
       if (this.player.isPlaying) {
         this.controlsWrapper.classList.add('hidden');
-        this.titlebar.classList.add('hidden');
+        // Keep window controls visible at all times.
+        this.titlebar.classList.remove('hidden');
         this.controlsVisible = false;
       }
     };

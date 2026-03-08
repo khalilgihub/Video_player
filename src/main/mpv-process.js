@@ -14,13 +14,13 @@ const net = require('net');
 const EventEmitter = require('events');
 
 // TEMP DEBUG: fullscreen/input tracing
-const FS_DEBUG = true;
+const FS_DEBUG = false;
 function fsdbg(...args) {
   if (!FS_DEBUG) return;
   console.log('[FSDBG][mpv-process]', ...args);
 }
 
-const MPV_LOG_DEBUG = true;
+const MPV_LOG_DEBUG = false;
 function mpverr(...args) {
   console.error('[MPV ERROR]', ...args);
 }
@@ -55,6 +55,8 @@ class MpvProcess extends EventEmitter {
     this._recvBuf = '';                 // partial-line buffer
     this.pipeName = options.pipeName || makePipeName(options.pipePrefix || 'hybrid-mpv-ipc');
     this.observeDefaults = options.observeDefaults !== false;
+    this._screenshotDir = '';
+    this._screenshotFormat = 'png';
   }
 
   // ─── Resolve mpv binary ────────────────────────────────
@@ -123,10 +125,22 @@ class MpvProcess extends EventEmitter {
 
     let hwnd = null;
     if (opts.attachWindow !== false && nativeHandle) {
-      // On Windows the native handle is a 4- or 8-byte LE integer
-      hwnd = nativeHandle.readUInt32LE
-        ? nativeHandle.readUInt32LE(0)
-        : parseInt(nativeHandle.toString('hex'), 16);
+      // On Windows the native handle is a pointer-sized LE integer.
+      // Use 64-bit when available; truncating to 32-bit can break --wid embedding.
+      try {
+        if (process.platform === 'win32') {
+          if (nativeHandle.length >= 8 && typeof nativeHandle.readBigUInt64LE === 'function') {
+            hwnd = nativeHandle.readBigUInt64LE(0).toString();
+          } else if (nativeHandle.length >= 4 && typeof nativeHandle.readUInt32LE === 'function') {
+            hwnd = String(nativeHandle.readUInt32LE(0));
+          }
+        } else {
+          hwnd = parseInt(nativeHandle.toString('hex'), 16).toString();
+        }
+      } catch (error) {
+        mpverr('failed to parse native window handle for --wid', error?.message || error);
+        hwnd = null;
+      }
     }
 
     const mpvBin = opts.mpvPath || MpvProcess.findBinary();
@@ -135,11 +149,14 @@ class MpvProcess extends EventEmitter {
     const defaultUserAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36';
     const screenshotDir = opts.screenshotDir || path.join(__dirname, '../../screenshots');
+    const screenshotFormat = String(opts.screenshotFormat || 'jpg').toLowerCase();
 
     // Ensure screenshot directory exists
     if (!fs.existsSync(screenshotDir)) {
       fs.mkdirSync(screenshotDir, { recursive: true });
     }
+    this._screenshotDir = screenshotDir;
+    this._screenshotFormat = screenshotFormat === 'jpeg' ? 'jpg' : screenshotFormat;
 
     // ── Generate input.conf that relays key/mouse to Electron via script-message ──
     const os = require('os');
@@ -175,6 +192,7 @@ class MpvProcess extends EventEmitter {
       '--idle=yes',
       '--keep-open=yes',
       '--no-terminal',
+      '--msg-level=all=warn',
       '--no-osc',
       '--no-osd-bar',
       '--osd-level=0',
@@ -188,7 +206,8 @@ class MpvProcess extends EventEmitter {
       // Screenshot defaults
       `--screenshot-directory=${screenshotDir}`,
       '--screenshot-template=hybrid-player-%tY-%tm-%td-%tH-%tM-%tS',
-      '--screenshot-format=png',
+      `--screenshot-format=${this._screenshotFormat}`,
+      '--screenshot-jpeg-quality=92',
       // Input: disable defaults, use our input.conf that relays via script-message
       '--no-config',
       '--input-default-bindings=no',
@@ -217,8 +236,10 @@ class MpvProcess extends EventEmitter {
       }
     }
 
-    if (opts.attachWindow !== false) {
+    if (opts.attachWindow !== false && hwnd) {
       args.push(`--wid=${hwnd}`);
+    } else if (opts.attachWindow !== false) {
+      throw new Error('mpv spawn failed: missing valid HWND for embedded --wid rendering');
     } else {
       args.push('--force-window=no');
       args.push('--mute=yes');
@@ -369,7 +390,7 @@ class MpvProcess extends EventEmitter {
 
   // ─── Observe default properties ────────────────────────
   async _observeDefaults() {
-    await this.command('request_log_messages', 'debug').catch(() => null);
+    await this.command('request_log_messages', 'warn').catch(() => null);
 
     const props = [
       'time-pos',       // current playback time
@@ -535,20 +556,43 @@ class MpvProcess extends EventEmitter {
    * @returns {Promise<string>} the path mpv wrote to (obtained via filename property)
    */
   async screenshot(mode = 'video') {
-    const dir = await this.getProperty('screenshot-directory').catch(() => '');
-    const tmpl = await this.getProperty('screenshot-template').catch(() => 'hybrid-player-shot');
-    const fmt  = await this.getProperty('screenshot-format').catch(() => 'png');
+    const dir = this._screenshotDir || await this.getProperty('screenshot-directory').catch(() => '');
+    const fmt = this._screenshotFormat || await this.getProperty('screenshot-format').catch(() => 'jpg');
 
-    // Build the expected filename (mpv expands %t* at capture time)
+    // Build the expected filename and await mpv command ACK.
     const now = new Date();
     const pad = (n, w = 2) => String(n).padStart(w, '0');
-    const expectedName = `hybrid-player-${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}.${fmt}`;
+    const ms = pad(now.getMilliseconds(), 3);
+    const expectedName = `hybrid-player-${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}-${ms}.${fmt}`;
     const expectedPath = path.join(dir || '.', expectedName);
 
     const maybePath = await this.command('screenshot-to-file', expectedPath, mode);
     if (typeof maybePath === 'string' && maybePath.trim()) {
       return maybePath.trim();
     }
+    return expectedPath;
+  }
+
+  /**
+   * Fire-and-forget screenshot path for immediate UI response.
+   * Returns the expected file path immediately while mpv writes asynchronously.
+   * @param {'video'|'subtitles'|'window'} mode
+   * @returns {Promise<string>}
+   */
+  async screenshotFast(mode = 'video') {
+    const dir = this._screenshotDir || await this.getProperty('screenshot-directory').catch(() => '');
+    const fmt = this._screenshotFormat || await this.getProperty('screenshot-format').catch(() => 'jpg');
+
+    const now = new Date();
+    const pad = (n, w = 2) => String(n).padStart(w, '0');
+    const ms = pad(now.getMilliseconds(), 3);
+    const expectedName = `hybrid-player-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}-${ms}.${fmt}`;
+    const expectedPath = path.join(dir || '.', expectedName);
+
+    this.command('screenshot-to-file', expectedPath, mode).catch((error) => {
+      mpverr('screenshotFast command failed', error?.message || error);
+    });
+
     return expectedPath;
   }
 

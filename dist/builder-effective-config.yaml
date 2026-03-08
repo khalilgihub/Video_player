@@ -17,17 +17,19 @@ win:
     - target: nsis
       arch:
         - x64
-  icon: assets/icons/video.ico
+  icon: icons/icon.ico
   signAndEditExecutable: false
 mac:
   target:
     - dmg
   category: public.app-category.entertainment
+  icon: icons/icon.png
 linux:
   target:
     - AppImage
     - deb
   category: Video
+  icon: icons/icon-linux.png
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
