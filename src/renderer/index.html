@@ -81,6 +81,17 @@
 
           <!-- ─── Per-Background Settings Panel ─── -->
           <div class="bg-settings-panel" id="bgSettingsPanel" hidden>
+            <div class="bg-settings-global">
+              <div class="bg-setting-row bg-setting-row-quality">
+                <label>Quality</label>
+                <select id="welcomeQualitySelect" class="bg-setting-select" aria-label="Welcome Background Quality">
+                  <option value="low">Low</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="high">High</option>
+                  <option value="custom" hidden>Custom</option>
+                </select>
+              </div>
+            </div>
 
             <!-- DITHER settings -->
             <div class="bg-settings-group" data-bg="dither">

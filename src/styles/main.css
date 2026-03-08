@@ -1207,6 +1207,47 @@ body[data-welcome-background='none'] .welcome-bg-select {
   border-radius: 2px;
 }
 
+.bg-settings-global {
+  padding: 0 2px 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.bg-setting-row-quality {
+  min-height: 34px;
+}
+
+.bg-setting-select {
+  appearance: none;
+  min-width: 94px;
+  height: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(8, 12, 26, 0.68);
+  color: rgba(255, 255, 255, 0.92);
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  outline: none;
+  cursor: pointer;
+}
+
+.bg-setting-select:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.bg-setting-select:focus-visible {
+  border-color: var(--accent, #00f5c4);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.16);
+}
+
+.bg-setting-select option {
+  color: #e8ecff;
+  background: #0f152d;
+}
+
 .bg-settings-group {
   display: none;
 }
