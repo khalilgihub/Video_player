@@ -837,6 +837,20 @@ body.fs-transition .welcome-bg-settings {
   box-shadow: var(--welcome-picker-panel-shadow-hover);
 }
 
+/* Trim expensive glass effects at lower welcome quality levels. */
+body[data-welcome-quality='medium'] .welcome-bg-settings {
+  backdrop-filter: blur(10px) saturate(125%);
+}
+
+body[data-welcome-quality='low'] .welcome-bg-settings {
+  backdrop-filter: none;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.3);
+}
+
+body[data-welcome-quality='low'] .welcome-bg-settings::before {
+  opacity: 0.35;
+}
+
 .welcome-bg-control {
   position: relative;
   z-index: 1;

@@ -14,8 +14,8 @@
   "author": "Hybrid Player Team",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^35.7.5",
-    "electron-builder": "^26.7.0"
+    "electron": "^40.8.0",
+    "electron-builder": "^26.8.1"
   },
   "build": {
     "extends": "./electron-builder.json"

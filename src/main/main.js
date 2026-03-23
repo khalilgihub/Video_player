@@ -385,8 +385,9 @@ function fsdbg(...args) {
 }
 
 // DWM seam diagnostics for the white top-strip issue on transparent windows.
-const DWM_DIAG_LOG = true;
-const DWM_DIAG_ECHO_CONSOLE = true;
+// Keep disabled in normal runs to avoid terminal/file log spam.
+const DWM_DIAG_LOG = false;
+const DWM_DIAG_ECHO_CONSOLE = false;
 const DWM_DIAG_BLUR_PROBE_MS = [0, 16, 33, 66, 100, 150, 250, 400, 700, 1000];
 const DWM_DIAG_THROTTLE_MS = 120;
 const windowDiagLastAt = new Map();
@@ -1049,14 +1050,15 @@ function createMainWindow() {
     height: WINDOWED_HEIGHT,
     minWidth: 800,
     minHeight: 500,
-    resizable: false,
-    maximizable: !useTransparentOnWindows,
-    thickFrame: false,
+    // Keep native maximize/resize path: fake-maximize + border suppression can break
+    // mpv composition on some Windows/Electron combinations (white live surface).
+    resizable: true,
+    maximizable: true,
     frame: false,
     transparent: useTransparentOnWindows,
     fullscreenable: true,
     backgroundColor: useTransparentOnWindows ? '#00000000' : '#000000',
-    hasShadow: !useTransparentOnWindows,
+    hasShadow: true,
     roundedCorners: false,
     titleBarStyle: 'hidden',
     titleBarOverlay: false,
@@ -1087,7 +1089,7 @@ function createMainWindow() {
   mainWindow.__hybridSuppressNextUnmaximizeEvent = false;
   mainWindow.__hybridConvertingNativeMaximize = false;
   mainWindow.__hybridNcHitTestExclusions = [];
-  mainWindow.__hybridUseFakeMaximize = useTransparentOnWindows;
+  mainWindow.__hybridUseFakeMaximize = false;
   if (mainWindow.__hybridUseFakeMaximize) {
     setupWindowsNcHitTestHook(mainWindow);
     setupWindowsNcActivateHook(mainWindow);
@@ -1106,8 +1108,7 @@ function createMainWindow() {
       frame: false,
       transparent: useTransparentOnWindows,
       backgroundColor: useTransparentOnWindows ? '#00000000' : '#000000',
-      thickFrame: false,
-      hasShadow: false,
+      hasShadow: true,
       titleBarStyle: 'hidden',
       titleBarOverlay: false,
       useFakeMaximize: mainWindow.__hybridUseFakeMaximize,

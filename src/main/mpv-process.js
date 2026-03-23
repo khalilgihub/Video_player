@@ -125,14 +125,15 @@ class MpvProcess extends EventEmitter {
 
     let hwnd = null;
     if (opts.attachWindow !== false && nativeHandle) {
-      // On Windows the native handle is a pointer-sized LE integer.
-      // Use 64-bit when available; truncating to 32-bit can break --wid embedding.
+      // Windows HWNDs from Electron are exposed as LE bytes.
+      // In practice, mpv embedding is more reliable when we pass the legacy low 32-bit value.
+      // (Some Electron/Windows combos expose non-zero upper bits that mpv rejects for --wid.)
       try {
         if (process.platform === 'win32') {
-          if (nativeHandle.length >= 8 && typeof nativeHandle.readBigUInt64LE === 'function') {
-            hwnd = nativeHandle.readBigUInt64LE(0).toString();
-          } else if (nativeHandle.length >= 4 && typeof nativeHandle.readUInt32LE === 'function') {
+          if (nativeHandle.length >= 4 && typeof nativeHandle.readUInt32LE === 'function') {
             hwnd = String(nativeHandle.readUInt32LE(0));
+          } else if (nativeHandle.length >= 8 && typeof nativeHandle.readBigUInt64LE === 'function') {
+            hwnd = nativeHandle.readBigUInt64LE(0).toString();
           }
         } else {
           hwnd = parseInt(nativeHandle.toString('hex'), 16).toString();

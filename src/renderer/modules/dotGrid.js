@@ -38,6 +38,9 @@ const DEFAULT_OPTIONS = Object.freeze({
   maxSpeed: 5000,
   resistance: 750,
   returnDuration: 1.5,
+  dpr: null,
+  pointerThrottleMs: 50,
+  pauseWhenUnfocused: true,
 });
 
 let activeInstance = null;
@@ -47,12 +50,41 @@ let lifecycleObserver = null;
 let lifecycleBooted = false;
 let welcomeSettingsListener = null;
 
+function getWelcomeQuality(welcomeState = null) {
+  const state = welcomeState || window.__hybridWelcomeEffectsState || {};
+  const quality = state.welcomeQuality;
+  if (quality === 'low' || quality === 'medium' || quality === 'high' || quality === 'custom') {
+    return quality;
+  }
+  return 'medium';
+}
+
+function getQualityDpr(quality) {
+  const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  if (quality === 'low') return Math.min(deviceDpr, 0.8);
+  if (quality === 'medium') return Math.min(deviceDpr, 1.0);
+  return Math.min(deviceDpr, 1.4);
+}
+
+function getPointerThrottleMs(quality) {
+  if (quality === 'low') return 72;
+  if (quality === 'medium') return 56;
+  return 42;
+}
+
+function isAppInteractive() {
+  return document.visibilityState === 'visible' && document.hasFocus();
+}
+
 export function initDotGrid(containerElement, customOptions = {}) {
   if (!(containerElement instanceof HTMLElement)) {
     throw new Error(`${LOG_TAG} initDotGrid requires a valid container HTMLElement.`);
   }
 
   const options = { ...DEFAULT_OPTIONS, ...customOptions };
+  if (!(typeof options.dpr === 'number' && Number.isFinite(options.dpr) && options.dpr > 0)) {
+    options.dpr = getQualityDpr(getWelcomeQuality());
+  }
 
   const section = document.createElement('section');
   section.className = 'dot-grid';
@@ -82,26 +114,29 @@ export function initDotGrid(containerElement, customOptions = {}) {
     lastY: 0,
   };
 
-  const baseRgb = hexToRgb(options.baseColor);
-  const activeRgb = hexToRgb(options.activeColor);
+  let baseRgb = hexToRgb(options.baseColor);
+  let activeRgb = hexToRgb(options.activeColor);
+  let proxSq = options.proximity * options.proximity;
 
   let destroyed = false;
   let rafId = 0;
   let resizeObserver = null;
   let usesWindowResizeFallback = false;
   let throttledMove = null;
+  let pointerThrottleMs = options.pointerThrottleMs;
 
-  const circlePath = (() => {
+  const createCirclePath = () => {
     if (!window.Path2D) return null;
     const p = new window.Path2D();
     p.arc(0, 0, options.dotSize / 2, 0, Math.PI * 2);
     return p;
-  })();
+  };
+  let circlePath = createCirclePath();
 
   const buildGrid = () => {
     if (destroyed) return;
     const { width, height } = wrap.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = options.dpr || window.devicePixelRatio || 1;
 
     canvas.width = width * dpr;
     canvas.height = height * dpr;
@@ -134,10 +169,12 @@ export function initDotGrid(containerElement, customOptions = {}) {
     }
   };
 
-  const proxSq = options.proximity * options.proximity;
-
   const draw = () => {
     if (destroyed) return;
+    if (options.pauseWhenUnfocused && !isAppInteractive()) {
+      rafId = requestAnimationFrame(draw);
+      return;
+    }
 
     const ctx = canvas.getContext('2d');
     if (!ctx) {
@@ -180,6 +217,7 @@ export function initDotGrid(containerElement, customOptions = {}) {
     }
 
     rafId = requestAnimationFrame(draw);
+    window.HybridPerfMonitor?.markFrame?.('effect:dotgrid');
   };
 
   const onMove = (e) => {
@@ -262,6 +300,23 @@ export function initDotGrid(containerElement, customOptions = {}) {
     }
   };
 
+  const bindPointerMove = (throttleMs) => {
+    if (throttledMove) {
+      window.removeEventListener('mousemove', throttledMove);
+    }
+    throttledMove = throttle(onMove, throttleMs);
+    pointerThrottleMs = throttleMs;
+    window.addEventListener('mousemove', throttledMove, { passive: true });
+  };
+
+  const recomputeDerived = ({ rebuild = false } = {}) => {
+    baseRgb = hexToRgb(options.baseColor);
+    activeRgb = hexToRgb(options.activeColor);
+    proxSq = options.proximity * options.proximity;
+    circlePath = createCirclePath();
+    if (rebuild) buildGrid();
+  };
+
   buildGrid();
 
   if ('ResizeObserver' in window) {
@@ -272,11 +327,34 @@ export function initDotGrid(containerElement, customOptions = {}) {
     window.addEventListener('resize', buildGrid);
   }
 
-  throttledMove = throttle(onMove, 50);
-  window.addEventListener('mousemove', throttledMove, { passive: true });
+  bindPointerMove(options.pointerThrottleMs);
   window.addEventListener('click', onClick);
 
   rafId = requestAnimationFrame(draw);
+
+  const updateOptions = (nextOptions = {}) => {
+    if (!nextOptions || typeof nextOptions !== 'object' || destroyed) return;
+    const prevDotSize = options.dotSize;
+    const prevGap = options.gap;
+    const prevDpr = options.dpr;
+    const prevBase = options.baseColor;
+    const prevActive = options.activeColor;
+    const prevProx = options.proximity;
+    const prevThrottle = options.pointerThrottleMs;
+
+    Object.assign(options, nextOptions);
+    if (!(typeof options.dpr === 'number' && Number.isFinite(options.dpr) && options.dpr > 0)) {
+      options.dpr = getQualityDpr(getWelcomeQuality());
+    }
+
+    const needsRebuild = prevDotSize !== options.dotSize || prevGap !== options.gap || prevDpr !== options.dpr;
+    if (prevBase !== options.baseColor || prevActive !== options.activeColor || prevProx !== options.proximity || needsRebuild) {
+      recomputeDerived({ rebuild: needsRebuild });
+    }
+    if (prevThrottle !== options.pointerThrottleMs) {
+      bindPointerMove(options.pointerThrottleMs);
+    }
+  };
 
   console.log(`${LOG_TAG} init`, {
     dots: dots.length,
@@ -329,7 +407,7 @@ export function initDotGrid(containerElement, customOptions = {}) {
     });
   };
 
-  return { destroy, canvas, wrap, section };
+  return { destroy, updateOptions, canvas, wrap, section };
 }
 
 function ensureMount() {
@@ -404,6 +482,7 @@ async function syncLifecycleState() {
 
   if (shouldRunDotGrid) {
     const userOpts = welcomeState.bgOpts_dotgrid || {};
+    const quality = getWelcomeQuality(welcomeState);
     const mapped = {};
     if (userOpts.dotSize !== undefined) mapped.dotSize = userOpts.dotSize;
     if (userOpts.gap !== undefined) mapped.gap = userOpts.gap;
@@ -411,6 +490,14 @@ async function syncLifecycleState() {
     if (userOpts.activeColor !== undefined) mapped.activeColor = userOpts.activeColor;
     if (userOpts.proximity !== undefined) mapped.proximity = userOpts.proximity;
     if (userOpts.shockRadius !== undefined) mapped.shockRadius = userOpts.shockRadius;
+    mapped.dpr = getQualityDpr(quality);
+    mapped.pointerThrottleMs = getPointerThrottleMs(quality);
+    mapped.pauseWhenUnfocused = true;
+
+    if (activeInstance?.updateOptions) {
+      activeInstance.updateOptions(mapped);
+      return;
+    }
 
     try {
       await createDotGrid(mapped);
@@ -447,8 +534,10 @@ function bootLifecycle() {
       syncLifecycleState();
       return;
     }
-    if (Object.prototype.hasOwnProperty.call(event.detail, 'bgOpts_dotgrid')) {
-      destroyDotGrid();
+    if (
+      Object.prototype.hasOwnProperty.call(event.detail, 'bgOpts_dotgrid') ||
+      Object.prototype.hasOwnProperty.call(event.detail, 'welcomeQuality')
+    ) {
       syncLifecycleState();
     }
   };

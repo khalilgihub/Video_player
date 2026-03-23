@@ -7,7 +7,8 @@ const { app, dialog, screen } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const DWM_DIAG_ECHO_CONSOLE = true;
+const DWM_DIAG_LOG = false;
+const DWM_DIAG_ECHO_CONSOLE = false;
 const dwmPatchLastAt = new Map();
 const dwmPatchInFlight = new Set();
 const TITLEBAR_DRAG_VERTICAL_OFFSET = 14;
@@ -538,6 +539,9 @@ function formatDebugPayload(payload) {
 
 function appendDebugLog(scope, payload) {
   const safeScope = normalizeScope(scope);
+  if (!DWM_DIAG_LOG && safeScope.startsWith('dwm-')) {
+    return getDebugLogFilePath().logFile;
+  }
   const message = formatDebugPayload(payload);
   const line = `${new Date().toISOString()} [${safeScope}] ${message}\n`;
   const { logDir, logFile } = getDebugLogFilePath();
@@ -558,6 +562,7 @@ function tailDebugLog(maxLines = 120) {
 }
 
 function logWindowIpcState(win, source, extra = {}) {
+  if (!DWM_DIAG_LOG) return;
   if (!win || win.isDestroyed()) return;
   const bounds = win.getBounds();
   const centerPoint = {

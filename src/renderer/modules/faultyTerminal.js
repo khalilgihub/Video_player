@@ -244,6 +244,7 @@ const DEFAULT_OPTIONS = Object.freeze({
   dpr: 1,
   pageLoadAnimation: true,
   brightness: 0.8,
+  pauseWhenUnfocused: true,
   mouseEventTarget: null,
 });
 
@@ -254,6 +255,26 @@ let lifecycleObserver = null;
 let lifecycleBooted = false;
 let welcomeSettingsListener = null;
 
+function getWelcomeQuality(welcomeState = null) {
+  const state = welcomeState || window.__hybridWelcomeEffectsState || {};
+  const quality = state.welcomeQuality;
+  if (quality === 'low' || quality === 'medium' || quality === 'high' || quality === 'custom') {
+    return quality;
+  }
+  return 'medium';
+}
+
+function getQualityDpr(quality) {
+  const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  if (quality === 'low') return Math.min(deviceDpr, 0.8);
+  if (quality === 'medium') return Math.min(deviceDpr, 1.0);
+  return Math.min(deviceDpr, 1.5);
+}
+
+function isAppInteractive() {
+  return document.visibilityState === 'visible' && document.hasFocus();
+}
+
 export function initFaultyTerminal(containerElement, customOptions = {}) {
   if (!(containerElement instanceof HTMLElement)) {
     throw new Error(`${LOG_TAG} initFaultyTerminal requires a valid container HTMLElement.`);
@@ -261,8 +282,7 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
 
   const options = { ...DEFAULT_OPTIONS, ...customOptions };
   if (customOptions.dpr == null) {
-    const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-    options.dpr = Math.min(deviceDpr, 2);
+    options.dpr = getQualityDpr(getWelcomeQuality());
   }
   const mouseEventTarget = options.mouseEventTarget || containerElement;
   const tintVec = hexToRgb(options.tint);
@@ -276,6 +296,8 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
   let frozenTime = 0;
   let loadAnimationStart = 0;
   let resizeObserver = null;
+  let mouseMoveRafId = 0;
+  let pendingMouseClient = null;
 
   const timeOffset = Math.random() * 100;
   const renderer = new Renderer({ dpr: options.dpr });
@@ -311,12 +333,42 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
 
   const mesh = new Mesh(gl, { geometry, program });
 
-  const handleMouseMove = (event) => {
+  const applyOptionUniforms = () => {
+    program.uniforms.uScale.value = options.scale;
+    program.uniforms.uGridMul.value = new Float32Array(options.gridMul);
+    program.uniforms.uDigitSize.value = options.digitSize;
+    program.uniforms.uScanlineIntensity.value = options.scanlineIntensity;
+    program.uniforms.uGlitchAmount.value = options.glitchAmount;
+    program.uniforms.uFlickerAmount.value = options.flickerAmount;
+    program.uniforms.uNoiseAmp.value = options.noiseAmp;
+    program.uniforms.uChromaticAberration.value = options.chromaticAberration;
+    program.uniforms.uDither.value = getDitherValue(options.dither);
+    program.uniforms.uCurvature.value = options.curvature;
+    const tintNow = hexToRgb(options.tint);
+    program.uniforms.uTint.value = new Color(tintNow[0], tintNow[1], tintNow[2]);
+    program.uniforms.uMouseStrength.value = options.mouseStrength;
+    program.uniforms.uUseMouse.value = options.mouseReact ? 1 : 0;
+    program.uniforms.uUsePageLoadAnimation.value = options.pageLoadAnimation ? 1 : 0;
+    program.uniforms.uBrightness.value = options.brightness;
+  };
+  applyOptionUniforms();
+
+  const flushMouse = () => {
+    mouseMoveRafId = 0;
+    if (!pendingMouseClient || destroyed) return;
     const rect = containerElement.getBoundingClientRect();
-    const x = (event.clientX - rect.left) / Math.max(rect.width, 1);
-    const y = 1 - (event.clientY - rect.top) / Math.max(rect.height, 1);
+    const x = (pendingMouseClient.x - rect.left) / Math.max(rect.width, 1);
+    const y = 1 - (pendingMouseClient.y - rect.top) / Math.max(rect.height, 1);
     mouse.x = x;
     mouse.y = y;
+  };
+
+  const handleMouseMove = (event) => {
+    if (destroyed || !options.mouseReact) return;
+    pendingMouseClient = { x: event.clientX, y: event.clientY };
+    if (!mouseMoveRafId) {
+      mouseMoveRafId = requestAnimationFrame(flushMouse);
+    }
   };
 
   const resize = () => {
@@ -335,6 +387,7 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
   const update = (t) => {
     if (destroyed) return;
     rafId = requestAnimationFrame(update);
+    if (options.pauseWhenUnfocused && !isAppInteractive()) return;
 
     if (options.pageLoadAnimation && loadAnimationStart === 0) {
       loadAnimationStart = t;
@@ -366,6 +419,7 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
     }
 
     renderer.render({ scene: mesh });
+    window.HybridPerfMonitor?.markFrame?.('effect:faulty');
   };
 
   resizeObserver = new ResizeObserver(() => resize());
@@ -378,6 +432,20 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
 
   containerElement.appendChild(gl.canvas);
   rafId = requestAnimationFrame(update);
+
+  const updateOptions = (nextOptions = {}) => {
+    if (!nextOptions || typeof nextOptions !== 'object' || destroyed) return;
+    const prevDpr = options.dpr;
+    Object.assign(options, nextOptions);
+    if (!(typeof options.dpr === 'number' && Number.isFinite(options.dpr) && options.dpr > 0)) {
+      options.dpr = getQualityDpr(getWelcomeQuality());
+    }
+    if (prevDpr !== options.dpr) {
+      renderer.dpr = options.dpr;
+      resize();
+    }
+    applyOptionUniforms();
+  };
 
   console.log(`${LOG_TAG} init`, {
     canvasWidth: gl.canvas.width,
@@ -392,6 +460,10 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
 
     cancelAnimationFrame(rafId);
     rafId = 0;
+    if (mouseMoveRafId) {
+      cancelAnimationFrame(mouseMoveRafId);
+      mouseMoveRafId = 0;
+    }
 
     if (resizeObserver) {
       resizeObserver.disconnect();
@@ -421,6 +493,7 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
 
   return {
     destroy,
+    updateOptions,
     renderer,
     program,
     mesh,
@@ -500,6 +573,7 @@ async function syncLifecycleState() {
 
   if (shouldRunFaulty) {
     const userOpts = welcomeState.bgOpts_faulty || {};
+    const quality = getWelcomeQuality(welcomeState);
     const mapped = {};
     if (userOpts.glitch !== undefined) mapped.glitchAmount = userOpts.glitch;
     if (userOpts.scanlines !== undefined) mapped.scanlineIntensity = userOpts.scanlines;
@@ -508,6 +582,13 @@ async function syncLifecycleState() {
     if (userOpts.curvature !== undefined) mapped.curvature = userOpts.curvature;
     if (userOpts.tint !== undefined) mapped.tint = userOpts.tint;
     if (userOpts.brightness !== undefined) mapped.brightness = userOpts.brightness;
+    mapped.dpr = getQualityDpr(quality);
+    mapped.pauseWhenUnfocused = true;
+
+    if (activeInstance?.updateOptions) {
+      activeInstance.updateOptions(mapped);
+      return;
+    }
 
     try {
       await createFaultyTerminal(mapped);
@@ -543,8 +624,10 @@ function bootLifecycle() {
       syncLifecycleState();
       return;
     }
-    if (Object.prototype.hasOwnProperty.call(event.detail, 'bgOpts_faulty')) {
-      destroyFaultyTerminal();
+    if (
+      Object.prototype.hasOwnProperty.call(event.detail, 'bgOpts_faulty') ||
+      Object.prototype.hasOwnProperty.call(event.detail, 'welcomeQuality')
+    ) {
       syncLifecycleState();
     }
   };

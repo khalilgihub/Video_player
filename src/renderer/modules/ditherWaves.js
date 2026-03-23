@@ -170,9 +170,10 @@ const DEFAULT_OPTIONS = Object.freeze({
   mouseRadius: 0.22,
   mouseIntensity: 0.35,
   cameraZ: 6,
-  dpr: 1,
-  antialias: true,
-  preserveDrawingBuffer: true,
+  dpr: null,
+  antialias: false,
+  preserveDrawingBuffer: false,
+  pauseWhenUnfocused: true,
   mouseEventTarget: null,
 });
 
@@ -182,6 +183,26 @@ let destroyAfterCreate = false;
 let lifecycleObserver = null;
 let lifecycleBooted = false;
 let welcomeSettingsListener = null;
+
+function getWelcomeQuality(welcomeState = null) {
+  const state = welcomeState || window.__hybridWelcomeEffectsState || {};
+  const quality = state.welcomeQuality;
+  if (quality === 'low' || quality === 'medium' || quality === 'high' || quality === 'custom') {
+    return quality;
+  }
+  return 'medium';
+}
+
+function getQualityDpr(quality) {
+  const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  if (quality === 'low') return Math.min(deviceDpr, 0.8);
+  if (quality === 'medium') return Math.min(deviceDpr, 1.0);
+  return Math.min(deviceDpr, 1.5);
+}
+
+function isAppInteractive() {
+  return document.visibilityState === 'visible' && document.hasFocus();
+}
 
 function getContainerSize(container) {
   const width = Math.max(1, container.clientWidth || 1);
@@ -202,9 +223,14 @@ export function initDitherWaves(containerElement, customOptions = {}) {
   }
 
   const options = { ...DEFAULT_OPTIONS, ...customOptions };
+  if (!(typeof options.dpr === 'number' && Number.isFinite(options.dpr) && options.dpr > 0)) {
+    options.dpr = getQualityDpr(getWelcomeQuality());
+  }
   const mouseEventTarget = options.mouseEventTarget || containerElement;
   let destroyed = false;
   let rafId = 0;
+  let mouseMoveRafId = 0;
+  let pendingMouseClient = null;
 
   const renderer = new THREE.WebGLRenderer({
     antialias: options.antialias,
@@ -272,15 +298,24 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     planeMesh.scale.set(viewport.width, viewport.height, 1);
   };
 
-  const onMouseMove = (event) => {
-    if (!options.enableMouseInteraction || destroyed) return;
+  const flushMouse = () => {
+    mouseMoveRafId = 0;
+    if (!pendingMouseClient || !options.enableMouseInteraction || destroyed) return;
     const rect = containerElement.getBoundingClientRect();
-    const nx = THREE.MathUtils.clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
-    const ny = THREE.MathUtils.clamp((event.clientY - rect.top) / Math.max(1, rect.height), 0, 1);
+    const nx = THREE.MathUtils.clamp((pendingMouseClient.x - rect.left) / Math.max(1, rect.width), 0, 1);
+    const ny = THREE.MathUtils.clamp((pendingMouseClient.y - rect.top) / Math.max(1, rect.height), 0, 1);
     mouseN.set(nx, ny);
 
     const res = waveUniforms.resolution.value;
     waveUniforms.mousePos.value.set(mouseN.x * res.x, mouseN.y * res.y);
+  };
+
+  const onMouseMove = (event) => {
+    if (!options.enableMouseInteraction || destroyed) return;
+    pendingMouseClient = { x: event.clientX, y: event.clientY };
+    if (!mouseMoveRafId) {
+      mouseMoveRafId = window.requestAnimationFrame(flushMouse);
+    }
   };
 
   const onResize = () => updateSize();
@@ -288,6 +323,7 @@ export function initDitherWaves(containerElement, customOptions = {}) {
   const renderLoop = () => {
     if (destroyed) return;
     rafId = window.requestAnimationFrame(renderLoop);
+    if (options.pauseWhenUnfocused && !isAppInteractive()) return;
 
     if (!options.disableAnimation) {
       waveUniforms.time.value = clock.getElapsedTime();
@@ -305,6 +341,7 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     retroEffect.pixelSize = options.pixelSize;
 
     composer.render();
+    window.HybridPerfMonitor?.markFrame?.('effect:dither');
   };
 
   updateSize();
@@ -319,6 +356,21 @@ export function initDitherWaves(containerElement, customOptions = {}) {
 
   rafId = window.requestAnimationFrame(renderLoop);
 
+  const updateOptions = (nextOptions = {}) => {
+    if (!nextOptions || typeof nextOptions !== 'object' || destroyed) return;
+    const prevDpr = options.dpr;
+    Object.assign(options, nextOptions);
+    if (!(typeof options.dpr === 'number' && Number.isFinite(options.dpr) && options.dpr > 0)) {
+      options.dpr = getQualityDpr(getWelcomeQuality());
+    }
+    if (prevDpr !== options.dpr) {
+      renderer.setPixelRatio(options.dpr);
+      updateSize();
+      const res = waveUniforms.resolution.value;
+      waveUniforms.mousePos.value.set(mouseN.x * res.x, mouseN.y * res.y);
+    }
+  };
+
   const destroy = () => {
     if (destroyed) return;
     destroyed = true;
@@ -326,6 +378,10 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     if (rafId) {
       window.cancelAnimationFrame(rafId);
       rafId = 0;
+    }
+    if (mouseMoveRafId) {
+      window.cancelAnimationFrame(mouseMoveRafId);
+      mouseMoveRafId = 0;
     }
 
     mouseEventTarget.removeEventListener('mousemove', onMouseMove);
@@ -353,6 +409,7 @@ export function initDitherWaves(containerElement, customOptions = {}) {
 
   return {
     destroy,
+    updateOptions,
     renderer,
     scene,
     camera,
@@ -431,6 +488,7 @@ async function syncLifecycleState() {
 
   if (shouldRunDither) {
     const userOpts = welcomeState.bgOpts_dither || {};
+    const quality = getWelcomeQuality(welcomeState);
     const mapped = {};
     if (userOpts.speed !== undefined) mapped.waveSpeed = userOpts.speed;
     if (userOpts.frequency !== undefined) mapped.waveFrequency = userOpts.frequency;
@@ -442,6 +500,15 @@ async function syncLifecycleState() {
     }
     if (userOpts.pixelSize !== undefined) mapped.pixelSize = userOpts.pixelSize;
     if (userOpts.colorNum !== undefined) mapped.colorNum = userOpts.colorNum;
+    mapped.dpr = getQualityDpr(quality);
+    mapped.pauseWhenUnfocused = true;
+    mapped.antialias = quality === 'high' || quality === 'custom';
+    mapped.preserveDrawingBuffer = quality === 'high' || quality === 'custom';
+
+    if (activeInstance?.updateOptions) {
+      activeInstance.updateOptions(mapped);
+      return;
+    }
 
     try {
       await createDitherWaves(mapped);
@@ -477,8 +544,10 @@ function bootLifecycle() {
       syncLifecycleState();
       return;
     }
-    if (Object.prototype.hasOwnProperty.call(event.detail, 'bgOpts_dither')) {
-      destroyDitherWaves();
+    if (
+      Object.prototype.hasOwnProperty.call(event.detail, 'bgOpts_dither') ||
+      Object.prototype.hasOwnProperty.call(event.detail, 'welcomeQuality')
+    ) {
       syncLifecycleState();
     }
   };

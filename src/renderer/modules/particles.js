@@ -96,7 +96,8 @@ const DEFAULT_OPTIONS = Object.freeze({
   sizeRandomness: 1,
   cameraDistance: 20,
   disableRotation: false,
-  pixelRatio: 1,
+  pixelRatio: null,
+  pauseWhenUnfocused: true,
   mouseEventTarget: null,
 });
 
@@ -107,16 +108,46 @@ let lifecycleObserver = null;
 let lifecycleBooted = false;
 let welcomeSettingsListener = null;
 
+function getWelcomeQuality(welcomeState = null) {
+  const state = welcomeState || window.__hybridWelcomeEffectsState || {};
+  const quality = state.welcomeQuality;
+  if (quality === 'low' || quality === 'medium' || quality === 'high' || quality === 'custom') {
+    return quality;
+  }
+  return 'medium';
+}
+
+function getQualityDpr(quality) {
+  const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  if (quality === 'low') return Math.min(deviceDpr, 0.8);
+  if (quality === 'medium') return Math.min(deviceDpr, 1.0);
+  return Math.min(deviceDpr, 1.4);
+}
+
+function isAppInteractive() {
+  return document.visibilityState === 'visible' && document.hasFocus();
+}
+
+function normalizePalette(colors) {
+  if (!Array.isArray(colors) || colors.length === 0) return defaultColors;
+  return colors.map((c) => String(c));
+}
+
 export function initParticles(containerElement, customOptions = {}) {
   if (!(containerElement instanceof HTMLElement)) {
     throw new Error(`${LOG_TAG} initParticles(container): containerElement must be an HTMLElement.`);
   }
 
   const options = { ...DEFAULT_OPTIONS, ...customOptions };
+  if (!(typeof options.pixelRatio === 'number' && Number.isFinite(options.pixelRatio) && options.pixelRatio > 0)) {
+    options.pixelRatio = getQualityDpr(getWelcomeQuality());
+  }
   const mouseEventTarget = options.mouseEventTarget || containerElement;
   const mouse = { x: 0, y: 0 };
   let destroyed = false;
   let rafId = 0;
+  let mouseMoveRafId = 0;
+  let pendingMouseClient = null;
 
   const renderer = new Renderer({
     dpr: options.pixelRatio,
@@ -147,12 +178,21 @@ export function initParticles(containerElement, customOptions = {}) {
   window.addEventListener('resize', resize, false);
   resize();
 
-  const handleMouseMove = e => {
+  const flushMouse = () => {
+    mouseMoveRafId = 0;
+    if (!pendingMouseClient || destroyed) return;
     const rect = containerElement.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    const y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+    const x = ((pendingMouseClient.x - rect.left) / rect.width) * 2 - 1;
+    const y = -(((pendingMouseClient.y - rect.top) / rect.height) * 2 - 1);
     mouse.x = x;
     mouse.y = y;
+  };
+
+  const handleMouseMove = e => {
+    pendingMouseClient = { x: e.clientX, y: e.clientY };
+    if (!mouseMoveRafId) {
+      mouseMoveRafId = requestAnimationFrame(flushMouse);
+    }
   };
   if (options.moveParticlesOnHover) {
     mouseEventTarget.addEventListener('mousemove', handleMouseMove);
@@ -162,10 +202,7 @@ export function initParticles(containerElement, customOptions = {}) {
   const positions = new Float32Array(count * 3);
   const randoms = new Float32Array(count * 4);
   const colors = new Float32Array(count * 3);
-  const palette =
-    Array.isArray(options.particleColors) && options.particleColors.length > 0
-      ? options.particleColors
-      : defaultColors;
+  const palette = normalizePalette(options.particleColors);
 
   for (let i = 0; i < count; i++) {
     let x;
@@ -213,12 +250,17 @@ export function initParticles(containerElement, customOptions = {}) {
   const update = t => {
     if (destroyed) return;
     rafId = requestAnimationFrame(update);
+    if (options.pauseWhenUnfocused && !isAppInteractive()) return;
 
     const delta = t - lastTime;
     lastTime = t;
     elapsed += delta * options.speed;
 
     program.uniforms.uTime.value = elapsed * 0.001;
+    program.uniforms.uSpread.value = options.particleSpread;
+    program.uniforms.uBaseSize.value = options.particleBaseSize * options.pixelRatio;
+    program.uniforms.uSizeRandomness.value = options.sizeRandomness;
+    program.uniforms.uAlphaParticles.value = options.alphaParticles ? 1 : 0;
 
     if (options.moveParticlesOnHover) {
       particles.position.x = -mouse.x * options.particleHoverFactor;
@@ -235,8 +277,33 @@ export function initParticles(containerElement, customOptions = {}) {
     }
 
     renderer.render({ scene: particles, camera });
+    window.HybridPerfMonitor?.markFrame?.('effect:particles');
   };
   rafId = requestAnimationFrame(update);
+
+  const applyOptions = (nextOptions = {}) => {
+    if (!nextOptions || typeof nextOptions !== 'object' || destroyed) return true;
+
+    const prevCount = options.particleCount;
+    const prevPalette = normalizePalette(options.particleColors).join('|');
+    const nextCount = nextOptions.particleCount ?? prevCount;
+    const nextPalette = normalizePalette(nextOptions.particleColors ?? options.particleColors).join('|');
+    const requiresRebuild = nextCount !== prevCount || nextPalette !== prevPalette;
+    if (requiresRebuild) {
+      return false;
+    }
+
+    const prevPixelRatio = options.pixelRatio;
+    Object.assign(options, nextOptions);
+    if (!(typeof options.pixelRatio === 'number' && Number.isFinite(options.pixelRatio) && options.pixelRatio > 0)) {
+      options.pixelRatio = getQualityDpr(getWelcomeQuality());
+    }
+    if (prevPixelRatio !== options.pixelRatio) {
+      renderer.dpr = options.pixelRatio;
+      resize();
+    }
+    return true;
+  };
 
   console.log(`${LOG_TAG} init`, {
     particleCount: count,
@@ -252,6 +319,10 @@ export function initParticles(containerElement, customOptions = {}) {
     if (rafId) {
       cancelAnimationFrame(rafId);
       rafId = 0;
+    }
+    if (mouseMoveRafId) {
+      cancelAnimationFrame(mouseMoveRafId);
+      mouseMoveRafId = 0;
     }
 
     window.removeEventListener('resize', resize, false);
@@ -276,6 +347,7 @@ export function initParticles(containerElement, customOptions = {}) {
 
   return {
     destroy,
+    applyOptions,
     renderer,
     camera,
     geometry,
@@ -360,6 +432,7 @@ async function syncLifecycleState() {
 
   if (shouldRunParticles) {
     const userOpts = welcomeState.bgOpts_particles || {};
+    const quality = getWelcomeQuality(welcomeState);
     const mapped = {};
     if (userOpts.count !== undefined) mapped.particleCount = userOpts.count;
     if (userOpts.speed !== undefined) mapped.speed = userOpts.speed;
@@ -367,6 +440,14 @@ async function syncLifecycleState() {
     if (userOpts.color !== undefined) mapped.particleColors = [userOpts.color];
     if (userOpts.size !== undefined) mapped.particleBaseSize = userOpts.size;
     if (userOpts.alpha !== undefined) mapped.alphaParticles = userOpts.alpha;
+    mapped.pixelRatio = getQualityDpr(quality);
+    mapped.pauseWhenUnfocused = true;
+
+    if (activeInstance?.applyOptions) {
+      const updatedInPlace = activeInstance.applyOptions(mapped);
+      if (updatedInPlace) return;
+      destroyParticles();
+    }
 
     try {
       await createParticles(mapped);
@@ -403,8 +484,10 @@ function bootLifecycle() {
       syncLifecycleState();
       return;
     }
-    if (Object.prototype.hasOwnProperty.call(event.detail, 'bgOpts_particles')) {
-      destroyParticles();
+    if (
+      Object.prototype.hasOwnProperty.call(event.detail, 'bgOpts_particles') ||
+      Object.prototype.hasOwnProperty.call(event.detail, 'welcomeQuality')
+    ) {
       syncLifecycleState();
     }
   };

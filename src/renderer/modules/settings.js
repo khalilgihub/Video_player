@@ -508,14 +508,16 @@ class HybridSettings {
     }
 
     if (bg === 'colorbends') {
-      tuned.speed = this._clamp((opts.speed ?? BG_DEFAULTS.colorbends.speed) * (isLow ? 0.75 : 0.9), 0.05, 1);
+      // Keep Color Bends visually stable across quality levels; avoid
+      // aggressive reductions that make the effect look "broken".
+      tuned.speed = this._clamp((opts.speed ?? BG_DEFAULTS.colorbends.speed) * (isLow ? 0.9 : 0.97), 0.05, 1);
       tuned.frequency = this._clamp(
-        (opts.frequency ?? BG_DEFAULTS.colorbends.frequency) * (isLow ? 0.7 : 0.88),
+        (opts.frequency ?? BG_DEFAULTS.colorbends.frequency) * (isLow ? 0.9 : 0.97),
         0.3,
         3
       );
-      tuned.warp = this._clamp((opts.warp ?? BG_DEFAULTS.colorbends.warp) * (isLow ? 0.7 : 0.9), 0, 3);
-      tuned.scale = this._clamp((opts.scale ?? BG_DEFAULTS.colorbends.scale) * (isLow ? 0.9 : 0.95), 0.3, 3);
+      tuned.warp = this._clamp((opts.warp ?? BG_DEFAULTS.colorbends.warp) * (isLow ? 0.88 : 0.96), 0, 3);
+      tuned.scale = this._clamp(opts.scale ?? BG_DEFAULTS.colorbends.scale, 0.3, 3);
       return tuned;
     }
 

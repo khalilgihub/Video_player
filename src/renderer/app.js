@@ -21,6 +21,212 @@ function appdbg(...args) {
   console.log('[APPDBG][renderer]', ...args);
 }
 
+class HybridPerfMonitorImpl {
+  constructor({ sampleIntervalMs = 5000 } = {}) {
+    this.sampleIntervalMs = sampleIntervalMs;
+    this._running = false;
+    this._rafId = 0;
+    this._timerId = 0;
+    this._lastRafTs = 0;
+    this._scopeStats = new Map();
+    this._scopeFrameMarks = new Map();
+    this._recentFrameTimes = [];
+    this._windowStartedAt = 0;
+    this._lastActiveScope = 'player';
+    this._reports = [];
+    this._longTaskObserver = null;
+
+    this._onRaf = this._onRaf.bind(this);
+  }
+
+  _resolveScope() {
+    const welcome = document.getElementById('welcomeScreen');
+    const welcomeVisible = !!welcome && !welcome.classList.contains('hidden');
+    if (welcomeVisible) {
+      const bg = document.body?.dataset?.welcomeBackground || 'dither';
+      return `welcome:${bg}`;
+    }
+    return 'player';
+  }
+
+  _getScopeStats(scope) {
+    if (!this._scopeStats.has(scope)) {
+      this._scopeStats.set(scope, {
+        frames: 0,
+        frameTimeTotal: 0,
+        frameTimeMax: 0,
+        over16ms: 0,
+        over33ms: 0,
+        longTasks: 0,
+        longTaskTotal: 0,
+      });
+    }
+    return this._scopeStats.get(scope);
+  }
+
+  _onRaf(ts) {
+    if (!this._running) return;
+    this._rafId = requestAnimationFrame(this._onRaf);
+    if (!this._lastRafTs) {
+      this._lastRafTs = ts;
+      return;
+    }
+
+    const dt = ts - this._lastRafTs;
+    this._lastRafTs = ts;
+    if (!Number.isFinite(dt) || dt <= 0) return;
+
+    const scope = this._resolveScope();
+    this._lastActiveScope = scope;
+    const stats = this._getScopeStats(scope);
+    stats.frames += 1;
+    stats.frameTimeTotal += dt;
+    if (dt > stats.frameTimeMax) stats.frameTimeMax = dt;
+    if (dt > 16.7) stats.over16ms += 1;
+    if (dt > 33.3) stats.over33ms += 1;
+
+    this._recentFrameTimes.push(dt);
+    if (this._recentFrameTimes.length > 300) {
+      this._recentFrameTimes.shift();
+    }
+  }
+
+  markFrame(tag = 'frame') {
+    if (!this._running) return;
+    const scope = this._resolveScope();
+    const key = `${scope}|${tag}`;
+    this._scopeFrameMarks.set(key, (this._scopeFrameMarks.get(key) || 0) + 1);
+  }
+
+  _recordLongTask(duration) {
+    const scope = this._lastActiveScope || this._resolveScope();
+    const stats = this._getScopeStats(scope);
+    stats.longTasks += 1;
+    stats.longTaskTotal += duration;
+  }
+
+  _buildReport() {
+    const now = performance.now();
+    const elapsedMs = Math.max(1, now - this._windowStartedAt);
+    const elapsedSec = elapsedMs / 1000;
+    const scopes = [];
+
+    for (const [scope, stats] of this._scopeStats.entries()) {
+      if (stats.frames === 0 && stats.longTasks === 0) continue;
+      const avgFrameMs = stats.frames > 0 ? stats.frameTimeTotal / stats.frames : 0;
+      const fps = stats.frames / elapsedSec;
+      scopes.push({
+        scope,
+        fps: Number(fps.toFixed(1)),
+        avgFrameMs: Number(avgFrameMs.toFixed(2)),
+        maxFrameMs: Number(stats.frameTimeMax.toFixed(2)),
+        over16msPct: Number((stats.frames > 0 ? (stats.over16ms / stats.frames) * 100 : 0).toFixed(1)),
+        over33msPct: Number((stats.frames > 0 ? (stats.over33ms / stats.frames) * 100 : 0).toFixed(1)),
+        longTasks: stats.longTasks,
+        longTaskMs: Number(stats.longTaskTotal.toFixed(1)),
+      });
+    }
+
+    scopes.sort((a, b) => (b.over33msPct + b.longTasks * 2) - (a.over33msPct + a.longTasks * 2));
+
+    let p95FrameMs = 0;
+    if (this._recentFrameTimes.length > 0) {
+      const sorted = [...this._recentFrameTimes].sort((a, b) => a - b);
+      const idx = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95));
+      p95FrameMs = sorted[idx];
+    }
+
+    const frameMarks = Array.from(this._scopeFrameMarks.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12)
+      .map(([key, count]) => ({ key, count }));
+
+    return {
+      ts: Date.now(),
+      windowMs: Math.round(elapsedMs),
+      p95FrameMs: Number(p95FrameMs.toFixed(2)),
+      scopes,
+      frameMarks,
+    };
+  }
+
+  flush({ force = false } = {}) {
+    if (!this._running) return null;
+    const elapsed = performance.now() - this._windowStartedAt;
+    if (!force && elapsed < this.sampleIntervalMs - 50) return null;
+
+    const report = this._buildReport();
+    this._reports.push(report);
+    if (this._reports.length > 120) this._reports.shift();
+
+    console.info('[PERF][renderer] window report', {
+      windowMs: report.windowMs,
+      p95FrameMs: report.p95FrameMs,
+      scopes: report.scopes,
+    });
+
+    window.__hybridPerfLastReport = report;
+    window.__hybridPerfReports = this._reports;
+
+    this._scopeStats.clear();
+    this._scopeFrameMarks.clear();
+    this._recentFrameTimes.length = 0;
+    this._windowStartedAt = performance.now();
+    return report;
+  }
+
+  getSnapshot() {
+    return {
+      running: this._running,
+      reports: [...this._reports],
+      latest: window.__hybridPerfLastReport || null,
+    };
+  }
+
+  start() {
+    if (this._running) return;
+    this._running = true;
+    this._lastRafTs = 0;
+    this._windowStartedAt = performance.now();
+    this._rafId = requestAnimationFrame(this._onRaf);
+    this._timerId = window.setInterval(() => this.flush(), this.sampleIntervalMs);
+
+    if ('PerformanceObserver' in window) {
+      try {
+        this._longTaskObserver = new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            this._recordLongTask(entry.duration || 0);
+          }
+        });
+        this._longTaskObserver.observe({ type: 'longtask', buffered: true });
+      } catch (_) {
+        this._longTaskObserver = null;
+      }
+    }
+  }
+
+  stop() {
+    if (!this._running) return;
+    this._running = false;
+    if (this._rafId) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = 0;
+    }
+    if (this._timerId) {
+      clearInterval(this._timerId);
+      this._timerId = 0;
+    }
+    if (this._longTaskObserver) {
+      this._longTaskObserver.disconnect();
+      this._longTaskObserver = null;
+    }
+  }
+}
+
+if (typeof window !== 'undefined' && !window.HybridPerfMonitor) {
+  window.HybridPerfMonitor = new HybridPerfMonitorImpl();
+}
+
 class HybridApp {
   constructor() {
     this.player = null;
@@ -64,6 +270,7 @@ class HybridApp {
     this._pausedFrameHeartbeatTimer = null;
     this._pausedFrameCaptureInFlight = false;
     this._pausedFrameLastCaptureAt = 0;
+    this.perfMonitor = null;
   }
 
   async init() {
@@ -72,6 +279,8 @@ class HybridApp {
     try {
       // Initialize core player
       this.player = new HybridPlayer();
+      this.perfMonitor = window.HybridPerfMonitor || null;
+      this.perfMonitor?.start?.();
       
       // Cursor manager (centralized cursor-hide logic)
       this.cursorManager = new CursorManager();
@@ -154,7 +363,10 @@ class HybridApp {
         }, 440);
       };
 
+      const DWM_RENDERER_DIAG = false;
+
       const logDwmRendererSnapshot = (source, extra = {}) => {
+        if (!DWM_RENDERER_DIAG) return;
         try {
           if (!window.hybridAPI?.debug?.appendLog) return;
           const bodyStyle = window.getComputedStyle(document.body);
@@ -196,6 +408,7 @@ class HybridApp {
       };
 
       const scheduleRendererDwmProbe = (source) => {
+        if (!DWM_RENDERER_DIAG) return;
         const probeDelays = [0, 16, 33, 66, 120, 220, 350, 600];
         for (const delayMs of probeDelays) {
           setTimeout(() => logDwmRendererSnapshot(`${source}+${delayMs}ms`), delayMs);

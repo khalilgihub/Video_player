@@ -17,6 +17,8 @@ class HybridGestures {
     this.container.addEventListener('wheel', (e) => {
       // If over progress bar, seek instead
       if (e.target.closest('.progress-bar-container') || e.target.closest('.controls-bar')) return;
+      // Allow native scrolling in welcome background settings panel.
+      if (e.target.closest('.bg-settings-panel') || e.target.closest('.welcome-bg-settings')) return;
       
       e.preventDefault();
       const vol = document.getElementById('volumeSlider');

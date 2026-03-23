@@ -28,6 +28,7 @@ const DEFAULT_OPTIONS = Object.freeze({
   tipLength: 0.07,
   tipRadius: 0.01,
   tipColor: 0x0f0f10,
+  pauseWhenUnfocused: true,
 });
 
 let activeInstance = null;
@@ -35,9 +36,30 @@ let createPromise = null;
 let destroyAfterCreate = false;
 let lifecycleObserver = null;
 let lifecycleBooted = false;
+let welcomeSettingsListener = null;
 
 function isMobileViewport() {
   return window.innerWidth < 768;
+}
+
+function getWelcomeQuality(welcomeState = null) {
+  const state = welcomeState || window.__hybridWelcomeEffectsState || {};
+  const quality = state.welcomeQuality;
+  if (quality === 'low' || quality === 'medium' || quality === 'high' || quality === 'custom') {
+    return quality;
+  }
+  return 'medium';
+}
+
+function getQualityDpr(quality) {
+  const deviceDpr = window.devicePixelRatio || 1;
+  if (quality === 'low') return Math.min(deviceDpr, 0.8);
+  if (quality === 'medium') return Math.min(deviceDpr, 1.0);
+  return Math.min(deviceDpr, isMobileViewport() ? 1.5 : 1.8);
+}
+
+function isAppInteractive() {
+  return document.visibilityState === 'visible' && document.hasFocus();
 }
 
 function resolveAsset(relativePath) {
@@ -173,7 +195,7 @@ class VanillaLanyard {
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.setClearColor(0x000000, this.options.transparent ? 0 : 1);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobileViewport() ? 1.5 : 2));
+    this.renderer.setPixelRatio(getQualityDpr(getWelcomeQuality()));
     this.renderer.domElement.classList.add('lanyard-canvas');
     this.mount.appendChild(this.renderer.domElement);
   }
@@ -574,7 +596,7 @@ class VanillaLanyard {
 
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobileViewport() ? 1.5 : 2));
+    this.renderer.setPixelRatio(getQualityDpr(getWelcomeQuality()));
     this.renderer.setSize(width, height, false);
 
     if (this.bandMaterial?.uniforms?.resolution?.value) {
@@ -685,6 +707,7 @@ class VanillaLanyard {
   animate(now) {
     if (this.destroyed) return;
     this.rafId = window.requestAnimationFrame(this.animate);
+    if (this.options.pauseWhenUnfocused && !isAppInteractive()) return;
 
     const delta = Math.min(0.033, Math.max(0.001, (now - this.lastFrameTime) / 1000));
     this.lastFrameTime = now;
@@ -700,6 +723,13 @@ class VanillaLanyard {
     this.applyCardAngularCorrection();
     this.syncVisuals(delta, now);
     this.renderer.render(this.scene, this.camera);
+    window.HybridPerfMonitor?.markFrame?.('effect:lanyard');
+  }
+
+  applyPerformanceProfile() {
+    if (!this.renderer || this.destroyed) return;
+    this.renderer.setPixelRatio(getQualityDpr(getWelcomeQuality()));
+    this.onResize();
   }
 
   applyCardAngularCorrection() {
@@ -995,6 +1025,10 @@ async function syncLifecycleState() {
 
   const visible = !welcomeScreen.classList.contains('hidden');
   if (visible) {
+    if (activeInstance) {
+      activeInstance.applyPerformanceProfile?.();
+      return;
+    }
     try {
       await createLanyard();
     } catch (error) {
@@ -1023,9 +1057,24 @@ function bootLifecycle() {
     attributeFilter: ['class'],
   });
 
+  welcomeSettingsListener = (event) => {
+    if (!event?.detail) return;
+    if (
+      Object.prototype.hasOwnProperty.call(event.detail, 'welcomeQuality') ||
+      Object.prototype.hasOwnProperty.call(event.detail, 'welcomeBackground')
+    ) {
+      syncLifecycleState();
+    }
+  };
+  window.addEventListener('hybrid:welcome-settings-changed', welcomeSettingsListener);
+
   window.addEventListener('beforeunload', () => {
     lifecycleObserver?.disconnect();
     lifecycleObserver = null;
+    if (welcomeSettingsListener) {
+      window.removeEventListener('hybrid:welcome-settings-changed', welcomeSettingsListener);
+      welcomeSettingsListener = null;
+    }
     destroyLanyard();
   });
 

@@ -108,6 +108,7 @@ const DEFAULT_OPTIONS = Object.freeze({
   parallax: 0.5,
   noise: 0.1,
   dpr: null,
+  pauseWhenUnfocused: true,
   pointerEventTarget: null,
 });
 
@@ -117,6 +118,27 @@ let destroyAfterCreate = false;
 let lifecycleObserver = null;
 let lifecycleBooted = false;
 let welcomeSettingsListener = null;
+
+function getWelcomeQuality(welcomeState = null) {
+  const state = welcomeState || window.__hybridWelcomeEffectsState || {};
+  const quality = state.welcomeQuality;
+  if (quality === 'low' || quality === 'medium' || quality === 'high' || quality === 'custom') {
+    return quality;
+  }
+  return 'medium';
+}
+
+function getQualityDpr(quality) {
+  const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  // Keep Color Bends at >=1.0 DPR to avoid shader artifacts/over-blur.
+  if (quality === 'low') return Math.min(deviceDpr, 1.0);
+  if (quality === 'medium') return Math.min(deviceDpr, 1.2);
+  return Math.min(deviceDpr, 1.5);
+}
+
+function isAppInteractive() {
+  return document.visibilityState === 'visible' && document.hasFocus();
+}
 
 function toVec3(hex) {
   const h = String(hex || '').replace('#', '').trim();
@@ -150,6 +172,9 @@ export function initColorBends(containerElement, customOptions = {}) {
   }
 
   const options = { ...DEFAULT_OPTIONS, ...customOptions };
+  if (!(typeof options.dpr === 'number' && Number.isFinite(options.dpr) && options.dpr > 0)) {
+    options.dpr = getQualityDpr(getWelcomeQuality());
+  }
   const pointerEventTarget = options.pointerEventTarget || containerElement;
   const dpr = resolveDpr(options.dpr);
 
@@ -210,6 +235,8 @@ export function initColorBends(containerElement, customOptions = {}) {
   let destroyed = false;
   let resizeObserver = null;
   let usingWindowResize = false;
+  let pointerRafId = 0;
+  let pendingPointerClient = null;
 
   const handleResize = () => {
     if (destroyed) return;
@@ -219,21 +246,38 @@ export function initColorBends(containerElement, customOptions = {}) {
     material.uniforms.uCanvas.value.set(w, h);
   };
 
+  const flushPointer = () => {
+    pointerRafId = 0;
+    if (!pendingPointerClient || destroyed) return;
+    const rect = containerElement.getBoundingClientRect();
+    const x = ((pendingPointerClient.x - rect.left) / (rect.width || 1)) * 2 - 1;
+    const y = -(((pendingPointerClient.y - rect.top) / (rect.height || 1)) * 2 - 1);
+    pointerTarget.set(x, y);
+  };
+
   const handlePointerMove = (event) => {
     if (destroyed) return;
-    const rect = containerElement.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / (rect.width || 1)) * 2 - 1;
-    const y = -(((event.clientY - rect.top) / (rect.height || 1)) * 2 - 1);
-    pointerTarget.set(x, y);
+    pendingPointerClient = { x: event.clientX, y: event.clientY };
+    if (!pointerRafId) {
+      pointerRafId = requestAnimationFrame(flushPointer);
+    }
   };
 
   const renderLoop = () => {
     if (destroyed) return;
     rafId = requestAnimationFrame(renderLoop);
+    if (options.pauseWhenUnfocused && !isAppInteractive()) return;
 
     const dt = clock.getDelta();
     const elapsed = clock.elapsedTime;
     material.uniforms.uTime.value = elapsed;
+    material.uniforms.uSpeed.value = options.speed;
+    material.uniforms.uScale.value = options.scale;
+    material.uniforms.uFrequency.value = options.frequency;
+    material.uniforms.uWarpStrength.value = options.warpStrength;
+    material.uniforms.uMouseInfluence.value = options.mouseInfluence;
+    material.uniforms.uParallax.value = options.parallax;
+    material.uniforms.uNoise.value = options.noise;
 
     const deg = (options.rotation % 360) + options.autoRotate * elapsed;
     const rad = (deg * Math.PI) / 180;
@@ -246,6 +290,7 @@ export function initColorBends(containerElement, customOptions = {}) {
     material.uniforms.uPointer.value.copy(pointerCurrent);
 
     renderer.render(scene, camera);
+    window.HybridPerfMonitor?.markFrame?.('effect:colorbends');
   };
 
   handleResize();
@@ -267,6 +312,34 @@ export function initColorBends(containerElement, customOptions = {}) {
 
   rafId = requestAnimationFrame(renderLoop);
 
+  const updateOptions = (nextOptions = {}) => {
+    if (!nextOptions || typeof nextOptions !== 'object' || destroyed) return;
+    const prevDpr = options.dpr;
+    const prevColors = Array.isArray(options.colors) ? options.colors.join('|') : '';
+    Object.assign(options, nextOptions);
+    if (!(typeof options.dpr === 'number' && Number.isFinite(options.dpr) && options.dpr > 0)) {
+      options.dpr = getQualityDpr(getWelcomeQuality());
+    }
+    if (prevDpr !== options.dpr) {
+      renderer.setPixelRatio(resolveDpr(options.dpr));
+      handleResize();
+    }
+
+    material.uniforms.uTransparent.value = options.transparent ? 1 : 0;
+    material.uniforms.uSpeed.value = options.speed;
+    material.uniforms.uScale.value = options.scale;
+    material.uniforms.uFrequency.value = options.frequency;
+    material.uniforms.uWarpStrength.value = options.warpStrength;
+    material.uniforms.uMouseInfluence.value = options.mouseInfluence;
+    material.uniforms.uParallax.value = options.parallax;
+    material.uniforms.uNoise.value = options.noise;
+
+    const nextColors = Array.isArray(options.colors) ? options.colors.join('|') : '';
+    if (prevColors !== nextColors) {
+      applyColorUniforms(material, options.colors);
+    }
+  };
+
   const destroy = () => {
     if (destroyed) return;
     destroyed = true;
@@ -274,6 +347,10 @@ export function initColorBends(containerElement, customOptions = {}) {
     if (rafId) {
       cancelAnimationFrame(rafId);
       rafId = 0;
+    }
+    if (pointerRafId) {
+      cancelAnimationFrame(pointerRafId);
+      pointerRafId = 0;
     }
 
     if (resizeObserver) {
@@ -311,6 +388,7 @@ export function initColorBends(containerElement, customOptions = {}) {
 
   return {
     destroy,
+    updateOptions,
     renderer,
     scene,
     camera,
@@ -406,6 +484,7 @@ async function syncLifecycleState() {
 
   if (shouldRunColorBends) {
     const userOpts = welcomeState.bgOpts_colorbends || {};
+    const quality = getWelcomeQuality(welcomeState);
     const mapped = {};
     if (userOpts.speed !== undefined) mapped.speed = userOpts.speed;
     if (userOpts.rotation !== undefined) mapped.rotation = userOpts.rotation;
@@ -417,6 +496,13 @@ async function syncLifecycleState() {
     if (userOpts.color2) colors.push(userOpts.color2);
     if (userOpts.color3) colors.push(userOpts.color3);
     if (colors.length > 0) mapped.colors = colors;
+    mapped.dpr = getQualityDpr(quality);
+    mapped.pauseWhenUnfocused = true;
+
+    if (activeInstance?.updateOptions) {
+      activeInstance.updateOptions(mapped);
+      return;
+    }
 
     try {
       await createColorBends(mapped);
@@ -453,8 +539,10 @@ function bootLifecycle() {
       syncLifecycleState();
       return;
     }
-    if (Object.prototype.hasOwnProperty.call(event.detail, 'bgOpts_colorbends')) {
-      destroyColorBends();
+    if (
+      Object.prototype.hasOwnProperty.call(event.detail, 'bgOpts_colorbends') ||
+      Object.prototype.hasOwnProperty.call(event.detail, 'welcomeQuality')
+    ) {
       syncLifecycleState();
     }
   };
