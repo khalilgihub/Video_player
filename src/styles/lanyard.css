@@ -76,12 +76,21 @@
   height: 100% !important;
 }
 
-.welcome-screen > .lanyard-mount::after {
+.welcome-screen > .lanyard-mount.lanyard-active::after {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
+  opacity: 0.65;
   background:
     radial-gradient(circle at 25% 18%, rgba(255, 255, 255, 0.1), transparent 48%),
     radial-gradient(circle at 70% 78%, rgba(255, 255, 255, 0.08), transparent 54%);
+}
+
+body[data-welcome-quality='medium'] .welcome-screen > .lanyard-mount.lanyard-active::after {
+  opacity: 0.4;
+}
+
+body[data-welcome-quality='low'] .welcome-screen > .lanyard-mount.lanyard-active::after {
+  opacity: 0;
 }

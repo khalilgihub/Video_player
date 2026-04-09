@@ -15,7 +15,7 @@ const DEFAULT_OPTIONS = Object.freeze({
   minSpeed: 0,
   maxSpeed: 30,
   straightRenderSegments: 12,
-  debug: true,
+  debug: false,
   anchorY: 6.8,
   attachYOffset: -0.18,
   attachInset: 0.04,
@@ -29,6 +29,11 @@ const DEFAULT_OPTIONS = Object.freeze({
   tipRadius: 0.01,
   tipColor: 0x0f0f10,
   pauseWhenUnfocused: true,
+  solverIterations: 12,
+  solverTolerance: 0.001,
+  hoverRaycastIntervalMs: 24,
+  dragRaycastIntervalMs: 12,
+  renderEveryNFrames: 1,
 });
 
 let activeInstance = null;
@@ -58,6 +63,66 @@ function getQualityDpr(quality) {
   return Math.min(deviceDpr, isMobileViewport() ? 1.5 : 1.8);
 }
 
+function getLanyardIntent(welcomeState = null) {
+  const state = welcomeState || window.__hybridWelcomeEffectsState || {};
+  const selectedBackground = state.welcomeBackground === 'lanyard';
+  const overlayEnabled = state.welcomeLanyardEnabled === true;
+  return {
+    selectedBackground,
+    overlayEnabled,
+    enabled: selectedBackground || overlayEnabled,
+  };
+}
+
+function getLanyardQualityProfile(welcomeState = null) {
+  const quality = getWelcomeQuality(welcomeState);
+
+  if (quality === 'low') {
+    return {
+      dpr: getQualityDpr(quality),
+      fixedTimeStep: 1 / 32,
+      maxSubSteps: 1,
+      solverIterations: 6,
+      solverTolerance: 0.01,
+      hoverRaycastIntervalMs: 90,
+      dragRaycastIntervalMs: 45,
+      renderEveryNFrames: 2,
+    };
+  }
+
+  if (quality === 'medium') {
+    return {
+      dpr: getQualityDpr(quality),
+      fixedTimeStep: 1 / 45,
+      maxSubSteps: 2,
+      solverIterations: 8,
+      solverTolerance: 0.005,
+      hoverRaycastIntervalMs: 55,
+      dragRaycastIntervalMs: 28,
+      renderEveryNFrames: 1,
+    };
+  }
+
+  return {
+    dpr: getQualityDpr(quality),
+    fixedTimeStep: isMobileViewport() ? 1 / 45 : 1 / 60,
+    maxSubSteps: 4,
+    solverIterations: 12,
+    solverTolerance: 0.001,
+    hoverRaycastIntervalMs: 24,
+    dragRaycastIntervalMs: 12,
+    renderEveryNFrames: 1,
+  };
+}
+
+function getLanyardRuntimeOptions(welcomeState = null) {
+  const state = welcomeState || window.__hybridWelcomeEffectsState || {};
+  return {
+    ...getLanyardQualityProfile(state),
+    debug: state.welcomeLanyardDebug === true,
+  };
+}
+
 function isAppInteractive() {
   return document.visibilityState === 'visible' && document.hasFocus();
 }
@@ -69,9 +134,6 @@ function resolveAsset(relativePath) {
 class VanillaLanyard {
   constructor(options) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
-    if (options.fixedTimeStep == null) {
-      this.options.fixedTimeStep = isMobileViewport() ? 1 / 30 : 1 / 60;
-    }
     this.mount = options.mount;
 
     this.scene = null;
@@ -154,6 +216,9 @@ class VanillaLanyard {
     this.rafId = 0;
     this.lastFrameTime = 0;
     this.lastDebugLogTime = 0;
+    this.frameStrideCounter = 0;
+    this.lastHoverRaycastTime = 0;
+    this.lastDragRaycastTime = 0;
     this.destroyed = false;
 
     this.disposedGeometries = new Set();
@@ -179,7 +244,9 @@ class VanillaLanyard {
 
     this.lastFrameTime = performance.now();
     this.rafId = window.requestAnimationFrame(this.animate);
-    console.log(`${LOG_TAG} initialized`);
+    if (this.options.debug) {
+      console.log(`${LOG_TAG} initialized`);
+    }
     return this;
   }
 
@@ -195,9 +262,10 @@ class VanillaLanyard {
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.setClearColor(0x000000, this.options.transparent ? 0 : 1);
-    this.renderer.setPixelRatio(getQualityDpr(getWelcomeQuality()));
+    this.renderer.setPixelRatio(Number(this.options.dpr) || getQualityDpr(getWelcomeQuality()));
     this.renderer.domElement.classList.add('lanyard-canvas');
     this.mount.appendChild(this.renderer.domElement);
+    this.mount.classList.add('lanyard-active');
   }
 
   initScene() {
@@ -227,8 +295,10 @@ class VanillaLanyard {
       allowSleep: true,
     });
     this.world.broadphase = new CANNON.SAPBroadphase(this.world);
-    this.world.solver.iterations = 12;
-    this.world.solver.tolerance = 0.001;
+    this.world.solver.iterations = Math.max(4, Number(this.options.solverIterations) || 12);
+    this.world.solver.tolerance = Number.isFinite(Number(this.options.solverTolerance))
+      ? Number(this.options.solverTolerance)
+      : 0.001;
 
     const segmentProps = {
       mass: 0.15,
@@ -346,13 +416,17 @@ class VanillaLanyard {
     const cardUrl = resolveAsset('../../../assets/card.glb');
     const strapUrl = resolveAsset('../../../assets/lanyard.png');
 
-    console.log(`${LOG_TAG} Loading card.glb from: ${cardUrl}`);
-    console.log(`${LOG_TAG} Loading lanyard texture from: ${strapUrl}`);
+    if (this.options.debug) {
+      console.log(`${LOG_TAG} Loading card.glb from: ${cardUrl}`);
+      console.log(`${LOG_TAG} Loading lanyard texture from: ${strapUrl}`);
+    }
 
     let gltf;
     try {
       gltf = await this.gltfLoader.loadAsync(cardUrl);
-      console.log(`${LOG_TAG} card.glb loaded successfully.`);
+      if (this.options.debug) {
+        console.log(`${LOG_TAG} card.glb loaded successfully.`);
+      }
     } catch (error) {
       console.error(`${LOG_TAG} card.glb failed to load. Verify path, asar packaging, and file permissions.`, error);
       throw error;
@@ -369,7 +443,9 @@ class VanillaLanyard {
       this.bandMaterial.map = this.strapTexture;
       this.bandMaterial.useMap = 1;
       this.bandMaterial.needsUpdate = true;
-      console.log(`${LOG_TAG} lanyard texture loaded successfully.`);
+      if (this.options.debug) {
+        console.log(`${LOG_TAG} lanyard texture loaded successfully.`);
+      }
     } catch (error) {
       console.warn(`${LOG_TAG} lanyard texture failed to load. Rendering plain white strap instead.`, error);
     }
@@ -487,22 +563,24 @@ class VanillaLanyard {
     this.rebindCardJoint();
     this.alignCardUnderJoint();
 
-    console.log(`${LOG_TAG} card joint pivot set from GLB clip mesh:`, {
-      physics: [
-        Number(physicsAttach.x.toFixed(3)),
-        Number(physicsAttach.y.toFixed(3)),
-        Number(physicsAttach.z.toFixed(3)),
-      ],
-      visual: [
-        Number(visualAttach.x.toFixed(3)),
-        Number(visualAttach.y.toFixed(3)),
-        Number(visualAttach.z.toFixed(3)),
-      ],
-      sourceMeshes: {
-        physics: clipMesh?.name || 'clip',
-        visual: visualSource === clampSource ? clampMesh?.name || 'clamp' : clipMesh?.name || 'clip',
-      },
-    });
+    if (this.options.debug) {
+      console.log(`${LOG_TAG} card joint pivot set from GLB clip mesh:`, {
+        physics: [
+          Number(physicsAttach.x.toFixed(3)),
+          Number(physicsAttach.y.toFixed(3)),
+          Number(physicsAttach.z.toFixed(3)),
+        ],
+        visual: [
+          Number(visualAttach.x.toFixed(3)),
+          Number(visualAttach.y.toFixed(3)),
+          Number(visualAttach.z.toFixed(3)),
+        ],
+        sourceMeshes: {
+          physics: clipMesh?.name || 'clip',
+          visual: visualSource === clampSource ? clampMesh?.name || 'clamp' : clipMesh?.name || 'clip',
+        },
+      });
+    }
   }
 
   pickBestVisualAttach(clipSource, clampSource) {
@@ -596,7 +674,7 @@ class VanillaLanyard {
 
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
-    this.renderer.setPixelRatio(getQualityDpr(getWelcomeQuality()));
+    this.renderer.setPixelRatio(Number(this.options.dpr) || getQualityDpr(getWelcomeQuality()));
     this.renderer.setSize(width, height, false);
 
     if (this.bandMaterial?.uniforms?.resolution?.value) {
@@ -606,15 +684,26 @@ class VanillaLanyard {
 
   onMouseMove(event) {
     this.updatePointer(event);
+    const now = performance.now();
 
     if (this.isDragging) {
-      this.raycaster.setFromCamera(this.pointerNdc, this.camera);
-      if (this.raycaster.ray.intersectPlane(this.dragPlane, this.dragPoint)) {
-        this.dragTarget.copy(this.dragPoint).sub(this.dragOffset);
+      const dragRaycastIntervalMs = Math.max(0, Number(this.options.dragRaycastIntervalMs) || 0);
+      if (now - this.lastDragRaycastTime >= dragRaycastIntervalMs) {
+        this.lastDragRaycastTime = now;
+        this.raycaster.setFromCamera(this.pointerNdc, this.camera);
+        if (this.raycaster.ray.intersectPlane(this.dragPlane, this.dragPoint)) {
+          this.dragTarget.copy(this.dragPoint).sub(this.dragOffset);
+        }
       }
       this.updateCursor();
       return;
     }
+
+    const hoverRaycastIntervalMs = Math.max(0, Number(this.options.hoverRaycastIntervalMs) || 0);
+    if (now - this.lastHoverRaycastTime < hoverRaycastIntervalMs) {
+      return;
+    }
+    this.lastHoverRaycastTime = now;
 
     this.raycaster.setFromCamera(this.pointerNdc, this.camera);
     const hit = this.raycaster.intersectObjects(this.cardMeshes, true).length > 0;
@@ -721,14 +810,43 @@ class VanillaLanyard {
 
     this.world.step(this.options.fixedTimeStep, delta, this.options.maxSubSteps);
     this.applyCardAngularCorrection();
-    this.syncVisuals(delta, now);
-    this.renderer.render(this.scene, this.camera);
-    window.HybridPerfMonitor?.markFrame?.('effect:lanyard');
+
+    const renderEveryNFrames = Math.max(1, Math.round(Number(this.options.renderEveryNFrames) || 1));
+    this.frameStrideCounter = (this.frameStrideCounter + 1) % renderEveryNFrames;
+    if (this.frameStrideCounter === 0) {
+      this.syncVisuals(delta, now);
+      this.renderer.render(this.scene, this.camera);
+      window.HybridPerfMonitor?.markFrame?.('effect:lanyard');
+    }
   }
 
-  applyPerformanceProfile() {
-    if (!this.renderer || this.destroyed) return;
-    this.renderer.setPixelRatio(getQualityDpr(getWelcomeQuality()));
+  applyPerformanceProfile(welcomeState = null) {
+    if (this.destroyed) return;
+
+    const profile = getLanyardQualityProfile(welcomeState);
+    this.options.dpr = profile.dpr;
+    this.options.fixedTimeStep = profile.fixedTimeStep;
+    this.options.maxSubSteps = profile.maxSubSteps;
+    this.options.solverIterations = profile.solverIterations;
+    this.options.solverTolerance = profile.solverTolerance;
+    this.options.hoverRaycastIntervalMs = profile.hoverRaycastIntervalMs;
+    this.options.dragRaycastIntervalMs = profile.dragRaycastIntervalMs;
+    this.options.renderEveryNFrames = profile.renderEveryNFrames;
+
+    const state = welcomeState || window.__hybridWelcomeEffectsState || {};
+    this.options.debug = state.welcomeLanyardDebug === true;
+
+    if (this.world?.solver) {
+      this.world.solver.iterations = Math.max(4, Number(this.options.solverIterations) || 12);
+      this.world.solver.tolerance = Number.isFinite(Number(this.options.solverTolerance))
+        ? Number(this.options.solverTolerance)
+        : 0.001;
+    }
+
+    this.lastHoverRaycastTime = 0;
+    this.lastDragRaycastTime = 0;
+    if (!this.renderer) return;
+
     this.onResize();
   }
 
@@ -913,6 +1031,8 @@ class VanillaLanyard {
     if (this.destroyed) return;
     this.destroyed = true;
 
+    this.mount?.classList.remove('lanyard-active');
+
     if (this.rafId) {
       window.cancelAnimationFrame(this.rafId);
       this.rafId = 0;
@@ -961,7 +1081,9 @@ class VanillaLanyard {
     this.world = null;
     this.cardMeshes.length = 0;
 
-    console.log(`${LOG_TAG} destroyed and resources disposed.`);
+    if (this.options.debug) {
+      console.log(`${LOG_TAG} destroyed and resources disposed.`);
+    }
   }
 }
 
@@ -989,7 +1111,9 @@ export async function createLanyard(options = {}) {
     const mount = options.mount || ensureMount();
     if (!mount) throw new Error('Could not find #welcomeScreen to mount lanyard.');
 
-    const instance = new VanillaLanyard({ ...options, mount });
+    const runtimeOptions = getLanyardRuntimeOptions(window.__hybridWelcomeEffectsState || {});
+
+    const instance = new VanillaLanyard({ ...runtimeOptions, ...options, mount });
     try {
       await instance.init();
       activeInstance = instance;
@@ -1023,14 +1147,18 @@ async function syncLifecycleState() {
   const welcomeScreen = document.getElementById('welcomeScreen');
   if (!welcomeScreen) return;
 
+  const welcomeState = window.__hybridWelcomeEffectsState || {};
   const visible = !welcomeScreen.classList.contains('hidden');
-  if (visible) {
+  const lanyardIntent = getLanyardIntent(welcomeState);
+  const shouldRunLanyard = visible && lanyardIntent.enabled;
+
+  if (shouldRunLanyard) {
     if (activeInstance) {
-      activeInstance.applyPerformanceProfile?.();
+      activeInstance.applyPerformanceProfile?.(welcomeState);
       return;
     }
     try {
-      await createLanyard();
+      await createLanyard(getLanyardRuntimeOptions(welcomeState));
     } catch (error) {
       console.error(`${LOG_TAG} failed to create instance`, error);
     }
@@ -1061,7 +1189,9 @@ function bootLifecycle() {
     if (!event?.detail) return;
     if (
       Object.prototype.hasOwnProperty.call(event.detail, 'welcomeQuality') ||
-      Object.prototype.hasOwnProperty.call(event.detail, 'welcomeBackground')
+      Object.prototype.hasOwnProperty.call(event.detail, 'welcomeBackground') ||
+      Object.prototype.hasOwnProperty.call(event.detail, 'welcomeLanyardEnabled') ||
+      Object.prototype.hasOwnProperty.call(event.detail, 'welcomeLanyardDebug')
     ) {
       syncLifecycleState();
     }

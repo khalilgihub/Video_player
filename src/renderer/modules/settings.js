@@ -56,6 +56,7 @@ const BG_CONTROLS = [
 
 const WELCOME_QUALITY_LEVELS = Object.freeze(['low', 'medium', 'high', 'custom']);
 const WELCOME_QUALITY_DEFAULT = 'medium';
+const WELCOME_BACKGROUNDS = Object.freeze(['none', 'dither', 'particles', 'faulty', 'dotgrid', 'colorbends', 'lanyard']);
 
 class HybridSettings {
   constructor(player) {
@@ -363,7 +364,7 @@ class HybridSettings {
       }
 
       // Welcome background effect
-      const welcomeBackground = ['none', 'dither', 'particles', 'faulty', 'dotgrid', 'colorbends'].includes(prefs.welcomeBackground)
+      const welcomeBackground = WELCOME_BACKGROUNDS.includes(prefs.welcomeBackground)
         ? prefs.welcomeBackground
         : 'dither';
       await this._applyWelcomeBackground(welcomeBackground, { persist: false });
@@ -551,7 +552,7 @@ class HybridSettings {
   }
 
   async _applyWelcomeBackground(background, { persist = true } = {}) {
-    const value = ['none', 'dither', 'particles', 'faulty', 'dotgrid', 'colorbends'].includes(background) ? background : 'dither';
+    const value = WELCOME_BACKGROUNDS.includes(background) ? background : 'dither';
     this._setValue('welcomeBackgroundSelect', value);
     document.body.dataset.welcomeBackground = value;
     this._emitWelcomeSettings({
