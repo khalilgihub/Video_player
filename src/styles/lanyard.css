@@ -1,0 +1,96 @@
+.faulty-mount {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.faulty-mount canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.particles-mount {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.particles-mount canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.dither-mount {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.dither-mount canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.dotgrid-mount {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.dotgrid-mount canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.colorbends-mount {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.colorbends-mount canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.lanyard-mount {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+}
+
+.lanyard-canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.welcome-screen > .lanyard-mount.lanyard-active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.65;
+  background:
+    radial-gradient(circle at 25% 18%, rgba(255, 255, 255, 0.1), transparent 48%),
+    radial-gradient(circle at 70% 78%, rgba(255, 255, 255, 0.08), transparent 54%);
+}
+
+body[data-welcome-quality='medium'] .welcome-screen > .lanyard-mount.lanyard-active::after {
+  opacity: 0.4;
+}
+
+body[data-welcome-quality='low'] .welcome-screen > .lanyard-mount.lanyard-active::after {
+  opacity: 0;
+}

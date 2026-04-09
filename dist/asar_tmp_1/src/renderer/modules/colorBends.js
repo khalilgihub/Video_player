@@ -1,0 +1,489 @@
+import * as THREE from 'three';
+
+const LOG_TAG = '[ColorBends]';
+const MAX_COLORS = 8;
+
+const frag = `
+#define MAX_COLORS ${MAX_COLORS}
+uniform vec2 uCanvas;
+uniform float uTime;
+uniform float uSpeed;
+uniform vec2 uRot;
+uniform int uColorCount;
+uniform vec3 uColors[MAX_COLORS];
+uniform int uTransparent;
+uniform float uScale;
+uniform float uFrequency;
+uniform float uWarpStrength;
+uniform vec2 uPointer; // in NDC [-1,1]
+uniform float uMouseInfluence;
+uniform float uParallax;
+uniform float uNoise;
+varying vec2 vUv;
+
+void main() {
+  float t = uTime * uSpeed;
+  vec2 p = vUv * 2.0 - 1.0;
+  p += uPointer * uParallax * 0.1;
+  vec2 rp = vec2(p.x * uRot.x - p.y * uRot.y, p.x * uRot.y + p.y * uRot.x);
+  vec2 q = vec2(rp.x * (uCanvas.x / uCanvas.y), rp.y);
+  q /= max(uScale, 0.0001);
+  q /= 0.5 + 0.2 * dot(q, q);
+  q += 0.2 * cos(t) - 7.56;
+  vec2 toward = (uPointer - rp);
+  q += toward * uMouseInfluence * 0.2;
+
+    vec3 col = vec3(0.0);
+    float a = 1.0;
+
+    if (uColorCount > 0) {
+      vec2 s = q;
+      vec3 sumCol = vec3(0.0);
+      float cover = 0.0;
+      for (int i = 0; i < MAX_COLORS; ++i) {
+            if (i >= uColorCount) break;
+            s -= 0.01;
+            vec2 r = sin(1.5 * (s.yx * uFrequency) + 2.0 * cos(s * uFrequency));
+            float m0 = length(r + sin(5.0 * r.y * uFrequency - 3.0 * t + float(i)) / 4.0);
+            float kBelow = clamp(uWarpStrength, 0.0, 1.0);
+            float kMix = pow(kBelow, 0.3); // strong response across 0..1
+            float gain = 1.0 + max(uWarpStrength - 1.0, 0.0); // allow >1 to amplify displacement
+            vec2 disp = (r - s) * kBelow;
+            vec2 warped = s + disp * gain;
+            float m1 = length(warped + sin(5.0 * warped.y * uFrequency - 3.0 * t + float(i)) / 4.0);
+            float m = mix(m0, m1, kMix);
+            float w = 1.0 - exp(-6.0 / exp(6.0 * m));
+            sumCol += uColors[i] * w;
+            cover = max(cover, w);
+      }
+      col = clamp(sumCol, 0.0, 1.0);
+      a = uTransparent > 0 ? cover : 1.0;
+    } else {
+        vec2 s = q;
+        for (int k = 0; k < 3; ++k) {
+            s -= 0.01;
+            vec2 r = sin(1.5 * (s.yx * uFrequency) + 2.0 * cos(s * uFrequency));
+            float m0 = length(r + sin(5.0 * r.y * uFrequency - 3.0 * t + float(k)) / 4.0);
+            float kBelow = clamp(uWarpStrength, 0.0, 1.0);
+            float kMix = pow(kBelow, 0.3);
+            float gain = 1.0 + max(uWarpStrength - 1.0, 0.0);
+            vec2 disp = (r - s) * kBelow;
+            vec2 warped = s + disp * gain;
+            float m1 = length(warped + sin(5.0 * warped.y * uFrequency - 3.0 * t + float(k)) / 4.0);
+            float m = mix(m0, m1, kMix);
+            col[k] = 1.0 - exp(-6.0 / exp(6.0 * m));
+        }
+        a = uTransparent > 0 ? max(max(col.r, col.g), col.b) : 1.0;
+    }
+
+    if (uNoise > 0.0001) {
+      float n = fract(sin(dot(gl_FragCoord.xy + vec2(uTime), vec2(12.9898, 78.233))) * 43758.5453123);
+      col += (n - 0.5) * uNoise;
+      col = clamp(col, 0.0, 1.0);
+    }
+
+    vec3 rgb = (uTransparent > 0) ? col * a : col;
+    gl_FragColor = vec4(rgb, a);
+}
+`;
+
+const vert = `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = vec4(position, 1.0);
+}
+`;
+
+const DEFAULT_OPTIONS = Object.freeze({
+  rotation: 45,
+  speed: 0.2,
+  colors: [],
+  transparent: true,
+  autoRotate: 0,
+  scale: 1,
+  frequency: 1,
+  warpStrength: 1,
+  mouseInfluence: 1,
+  parallax: 0.5,
+  noise: 0.1,
+  dpr: null,
+  pointerEventTarget: null,
+});
+
+let activeInstance = null;
+let createPromise = null;
+let destroyAfterCreate = false;
+let lifecycleObserver = null;
+let lifecycleBooted = false;
+let welcomeSettingsListener = null;
+
+function toVec3(hex) {
+  const h = String(hex || '').replace('#', '').trim();
+  const v =
+    h.length === 3
+      ? [parseInt(h[0] + h[0], 16), parseInt(h[1] + h[1], 16), parseInt(h[2] + h[2], 16)]
+      : [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  return new THREE.Vector3((v[0] || 0) / 255, (v[1] || 0) / 255, (v[2] || 0) / 255);
+}
+
+function applyColorUniforms(material, colors) {
+  const arr = (colors || []).filter(Boolean).slice(0, MAX_COLORS).map(toVec3);
+  for (let i = 0; i < MAX_COLORS; i += 1) {
+    const vec = material.uniforms.uColors.value[i];
+    if (i < arr.length) vec.copy(arr[i]);
+    else vec.set(0, 0, 0);
+  }
+  material.uniforms.uColorCount.value = arr.length;
+}
+
+function resolveDpr(customDpr) {
+  if (typeof customDpr === 'number' && Number.isFinite(customDpr) && customDpr > 0) {
+    return customDpr;
+  }
+  return Math.min(window.devicePixelRatio || 1, 2);
+}
+
+export function initColorBends(containerElement, customOptions = {}) {
+  if (!(containerElement instanceof HTMLElement)) {
+    throw new Error(`${LOG_TAG} initColorBends(container): containerElement must be an HTMLElement.`);
+  }
+
+  const options = { ...DEFAULT_OPTIONS, ...customOptions };
+  const pointerEventTarget = options.pointerEventTarget || containerElement;
+  const dpr = resolveDpr(options.dpr);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const geometry = new THREE.PlaneGeometry(2, 2);
+  const uColorsArray = Array.from({ length: MAX_COLORS }, () => new THREE.Vector3(0, 0, 0));
+
+  const material = new THREE.ShaderMaterial({
+    vertexShader: vert,
+    fragmentShader: frag,
+    uniforms: {
+      uCanvas: { value: new THREE.Vector2(1, 1) },
+      uTime: { value: 0 },
+      uSpeed: { value: options.speed },
+      uRot: { value: new THREE.Vector2(1, 0) },
+      uColorCount: { value: 0 },
+      uColors: { value: uColorsArray },
+      uTransparent: { value: options.transparent ? 1 : 0 },
+      uScale: { value: options.scale },
+      uFrequency: { value: options.frequency },
+      uWarpStrength: { value: options.warpStrength },
+      uPointer: { value: new THREE.Vector2(0, 0) },
+      uMouseInfluence: { value: options.mouseInfluence },
+      uParallax: { value: options.parallax },
+      uNoise: { value: options.noise },
+    },
+    premultipliedAlpha: true,
+    transparent: true,
+  });
+
+  applyColorUniforms(material, options.colors);
+
+  const mesh = new THREE.Mesh(geometry, material);
+  scene.add(mesh);
+
+  const renderer = new THREE.WebGLRenderer({
+    antialias: false,
+    powerPreference: 'high-performance',
+    alpha: true,
+  });
+
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.setPixelRatio(dpr);
+  renderer.setClearColor(0x000000, options.transparent ? 0 : 1);
+  renderer.domElement.style.width = '100%';
+  renderer.domElement.style.height = '100%';
+  renderer.domElement.style.display = 'block';
+
+  containerElement.appendChild(renderer.domElement);
+
+  const pointerTarget = new THREE.Vector2(0, 0);
+  const pointerCurrent = new THREE.Vector2(0, 0);
+  const pointerSmooth = 8;
+  const clock = new THREE.Clock();
+
+  let rafId = 0;
+  let destroyed = false;
+  let resizeObserver = null;
+  let usingWindowResize = false;
+
+  const handleResize = () => {
+    if (destroyed) return;
+    const w = containerElement.clientWidth || 1;
+    const h = containerElement.clientHeight || 1;
+    renderer.setSize(w, h, false);
+    material.uniforms.uCanvas.value.set(w, h);
+  };
+
+  const handlePointerMove = (event) => {
+    if (destroyed) return;
+    const rect = containerElement.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / (rect.width || 1)) * 2 - 1;
+    const y = -(((event.clientY - rect.top) / (rect.height || 1)) * 2 - 1);
+    pointerTarget.set(x, y);
+  };
+
+  const renderLoop = () => {
+    if (destroyed) return;
+    rafId = requestAnimationFrame(renderLoop);
+
+    const dt = clock.getDelta();
+    const elapsed = clock.elapsedTime;
+    material.uniforms.uTime.value = elapsed;
+
+    const deg = (options.rotation % 360) + options.autoRotate * elapsed;
+    const rad = (deg * Math.PI) / 180;
+    const c = Math.cos(rad);
+    const s = Math.sin(rad);
+    material.uniforms.uRot.value.set(c, s);
+
+    const amt = Math.min(1, dt * pointerSmooth);
+    pointerCurrent.lerp(pointerTarget, amt);
+    material.uniforms.uPointer.value.copy(pointerCurrent);
+
+    renderer.render(scene, camera);
+  };
+
+  handleResize();
+  if ('ResizeObserver' in window) {
+    resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(containerElement);
+  } else {
+    usingWindowResize = true;
+    window.addEventListener('resize', handleResize);
+  }
+  pointerEventTarget.addEventListener('pointermove', handlePointerMove, { passive: true });
+
+  console.log(`${LOG_TAG} init`, {
+    canvasAttached: renderer.domElement.parentElement === containerElement,
+    dpr,
+    uniformsReady: Object.keys(material.uniforms),
+    colorCount: material.uniforms.uColorCount.value,
+  });
+
+  rafId = requestAnimationFrame(renderLoop);
+
+  const destroy = () => {
+    if (destroyed) return;
+    destroyed = true;
+
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+      resizeObserver = null;
+    }
+    if (usingWindowResize) {
+      window.removeEventListener('resize', handleResize);
+      usingWindowResize = false;
+    }
+    pointerEventTarget.removeEventListener('pointermove', handlePointerMove);
+
+    scene.remove(mesh);
+    geometry.dispose();
+    material.dispose();
+    renderer.dispose();
+
+    const canvas = renderer.domElement;
+    if (canvas && canvas.parentElement === containerElement) {
+      containerElement.removeChild(canvas);
+    }
+    renderer.forceContextLoss();
+
+    console.log(`${LOG_TAG} destroy`, {
+      rafStopped: true,
+      resizeObserverDisconnected: true,
+      pointerListenerRemoved: true,
+      geometryDisposed: true,
+      materialDisposed: true,
+      rendererDisposed: true,
+      canvasRemoved: !canvas.parentElement,
+      contextLost: true,
+    });
+  };
+
+  return {
+    destroy,
+    renderer,
+    scene,
+    camera,
+    mesh,
+    material,
+    geometry,
+  };
+}
+
+function ensureMount() {
+  const welcomeScreen = document.getElementById('welcomeScreen');
+  if (!welcomeScreen) return null;
+
+  let mount = document.getElementById('colorBendsMount');
+  if (!mount) {
+    mount = document.createElement('div');
+    mount.id = 'colorBendsMount';
+    mount.className = 'colorbends-mount';
+    mount.setAttribute('aria-hidden', 'true');
+
+    const lanyardMount = document.getElementById('lanyardMount');
+    if (lanyardMount && lanyardMount.parentNode === welcomeScreen) {
+      welcomeScreen.insertBefore(mount, lanyardMount);
+    } else {
+      welcomeScreen.prepend(mount);
+    }
+  }
+
+  return mount;
+}
+
+export async function createColorBends(options = {}) {
+  if (activeInstance) return activeInstance;
+  if (createPromise) return createPromise;
+  destroyAfterCreate = false;
+
+  createPromise = (async () => {
+    const mount = options.mount || ensureMount();
+    if (!mount) throw new Error('Could not find #welcomeScreen to mount color bends.');
+
+    const welcomeScreen = document.getElementById('welcomeScreen');
+    const instance = initColorBends(mount, {
+      colors: ['#ff5c7a', '#8a5cff', '#00ffd1'],
+      rotation: 0,
+      speed: 0.2,
+      scale: 1,
+      frequency: 1,
+      warpStrength: 1,
+      mouseInfluence: 1,
+      parallax: 0.5,
+      noise: 0.1,
+      transparent: true,
+      autoRotate: 0,
+      ...options,
+      pointerEventTarget: options.pointerEventTarget || welcomeScreen || mount,
+    });
+
+    activeInstance = instance;
+    if (destroyAfterCreate) {
+      destroyAfterCreate = false;
+      destroyColorBends();
+      return null;
+    }
+
+    return instance;
+  })();
+
+  try {
+    return await createPromise;
+  } finally {
+    createPromise = null;
+  }
+}
+
+export function destroyColorBends() {
+  if (!activeInstance) {
+    if (createPromise) destroyAfterCreate = true;
+    return;
+  }
+
+  activeInstance.destroy();
+  activeInstance = null;
+}
+
+async function syncLifecycleState() {
+  const welcomeScreen = document.getElementById('welcomeScreen');
+  if (!welcomeScreen) return;
+
+  const visible = !welcomeScreen.classList.contains('hidden');
+  const welcomeState = window.__hybridWelcomeEffectsState || {};
+  const background = welcomeState.welcomeBackground || 'dither';
+  const shouldRunColorBends = visible && background === 'colorbends';
+
+  if (shouldRunColorBends) {
+    const userOpts = welcomeState.bgOpts_colorbends || {};
+    const mapped = {};
+    if (userOpts.speed !== undefined) mapped.speed = userOpts.speed;
+    if (userOpts.rotation !== undefined) mapped.rotation = userOpts.rotation;
+    if (userOpts.scale !== undefined) mapped.scale = userOpts.scale;
+    if (userOpts.frequency !== undefined) mapped.frequency = userOpts.frequency;
+    if (userOpts.warp !== undefined) mapped.warpStrength = userOpts.warp;
+    const colors = [];
+    if (userOpts.color1) colors.push(userOpts.color1);
+    if (userOpts.color2) colors.push(userOpts.color2);
+    if (userOpts.color3) colors.push(userOpts.color3);
+    if (colors.length > 0) mapped.colors = colors;
+
+    try {
+      await createColorBends(mapped);
+    } catch (error) {
+      console.error(`${LOG_TAG} failed to create instance`, error);
+    }
+    return;
+  }
+
+  destroyColorBends();
+}
+
+function bootLifecycle() {
+  if (lifecycleBooted) return;
+  lifecycleBooted = true;
+
+  const welcomeScreen = document.getElementById('welcomeScreen');
+  if (!welcomeScreen) {
+    console.warn(`${LOG_TAG} #welcomeScreen not found; skipping auto-bootstrap.`);
+    return;
+  }
+
+  lifecycleObserver = new MutationObserver(() => {
+    syncLifecycleState();
+  });
+  lifecycleObserver.observe(welcomeScreen, {
+    attributes: true,
+    attributeFilter: ['class'],
+  });
+
+  welcomeSettingsListener = (event) => {
+    if (!event?.detail) return;
+    if (Object.prototype.hasOwnProperty.call(event.detail, 'welcomeBackground')) {
+      syncLifecycleState();
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(event.detail, 'bgOpts_colorbends')) {
+      destroyColorBends();
+      syncLifecycleState();
+    }
+  };
+  window.addEventListener('hybrid:welcome-settings-changed', welcomeSettingsListener);
+
+  window.addEventListener('beforeunload', () => {
+    lifecycleObserver?.disconnect();
+    lifecycleObserver = null;
+    if (welcomeSettingsListener) {
+      window.removeEventListener('hybrid:welcome-settings-changed', welcomeSettingsListener);
+      welcomeSettingsListener = null;
+    }
+    destroyColorBends();
+  });
+
+  syncLifecycleState();
+}
+
+if (typeof window !== 'undefined') {
+  window.HybridColorBends = {
+    createColorBends,
+    destroyColorBends,
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootLifecycle, { once: true });
+  } else {
+    bootLifecycle();
+  }
+}
+
+export default initColorBends;

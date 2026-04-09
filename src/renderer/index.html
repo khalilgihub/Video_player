@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' blob: data: file: local-file:; media-src * file: blob: local-file:; img-src * file: blob: data:; script-src 'self' 'unsafe-inline';">
+  <title>Hybrid Player</title>
+  <link rel="stylesheet" href="../styles/themes.css">
+  <link rel="stylesheet" href="../styles/main.css">
+  <link rel="stylesheet" href="../styles/lanyard.css">
+  <link rel="stylesheet" href="../styles/controls.css">
+  <link rel="stylesheet" href="../styles/playlist.css">
+  <link rel="stylesheet" href="../styles/settings.css">
+  <link rel="stylesheet" href="../styles/animations.css">
+</head>
+<body class="app-cold-start" data-theme="dark" data-motion-profile="balanced">
+  
+  <!-- ═══ CUSTOM TITLE BAR ═══ -->
+  <header id="titlebar" class="titlebar">
+    <div class="titlebar-drag">
+      <div class="titlebar-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 2v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M12 5C10.8 7.6 9.2 9.4 7.4 11.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          <path d="M12 5c1.2 2.6 2.8 4.4 4.6 6.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          <rect x="8.2" y="11.2" width="7.6" height="2.4" rx="1.2" fill="currentColor" opacity="0.8"/>
+          <rect x="7" y="13.4" width="10" height="8.6" rx="2" fill="currentColor"/>
+        </svg>
+      </div>
+      <span class="titlebar-title" id="titlebarText">Hybrid Player</span>
+    </div>
+    <div class="titlebar-controls">
+      <button class="titlebar-btn" id="btnMinimize" title="Minimize">
+        <svg width="12" height="12" viewBox="0 0 12 12"><rect y="5" width="12" height="1.5" fill="currentColor"/></svg>
+      </button>
+      <button class="titlebar-btn" id="btnMaximize" title="Maximize">
+        <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+      </button>
+      <button class="titlebar-btn titlebar-btn-close" id="btnClose" title="Close">
+        <svg width="12" height="12" viewBox="0 0 12 12"><line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.5"/><line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.5"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ═══ MAIN CONTENT AREA ═══ -->
+  <main class="app-main">
+
+    <!-- ─── Video Container ─── -->
+    <div class="video-container" id="videoContainer">
+      <!-- mpv renders directly into this container via --wid -->
+      <div id="mpvContainer" class="mpv-container"></div>
+      <div id="video-curtain" class="video-curtain" aria-hidden="true"></div>
+      <div id="networkLoadingSpinner" class="network-loading-spinner hidden" aria-hidden="true">
+        <div class="network-loading-ring"></div>
+      </div>
+
+      <!-- Welcome Screen / Drop Zone -->
+      <div class="welcome-screen" id="welcomeScreen">
+        <div id="particlesMount" class="particles-mount" aria-hidden="true"></div>
+        <div id="faultyMount" class="faulty-mount" aria-hidden="true"></div>
+        <div id="ditherMount" class="dither-mount" aria-hidden="true"></div>
+        <div id="dotGridMount" class="dotgrid-mount" aria-hidden="true"></div>
+        <div id="colorBendsMount" class="colorbends-mount" aria-hidden="true"></div>
+        <div id="lanyardMount" class="lanyard-mount" aria-hidden="true"></div>
+        <div class="welcome-bg-settings">
+          <div class="welcome-bg-control">
+            <div class="welcome-bg-select-wrap">
+              <select id="welcomeBackgroundSelect" class="welcome-bg-select" aria-label="Background">
+                <option value="dither">Dither</option>
+                <option value="particles">Particles</option>
+                <option value="faulty">Faulty Terminal</option>
+                <option value="dotgrid">Dot Grid</option>
+                <option value="colorbends">Color Bends</option>
+                <option value="lanyard">Lanyard</option>
+                <option value="none">Default</option>
+              </select>
+            </div>
+            <button class="welcome-bg-gear" id="bgSettingsToggle" type="button" title="Background Settings" aria-label="Background Settings">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>
+            </button>
+          </div>
+
+          <!-- ─── Per-Background Settings Panel ─── -->
+          <div class="bg-settings-panel" id="bgSettingsPanel" hidden>
+            <div class="bg-settings-global">
+              <div class="bg-setting-row bg-setting-row-quality">
+                <label>Quality</label>
+                <select id="welcomeQualitySelect" class="bg-setting-select" aria-label="Welcome Background Quality">
+                  <option value="low">Low</option>
+                  <option value="medium" selected>Medium</option>
+                  <option value="high">High</option>
+                  <option value="custom" hidden>Custom</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- DITHER settings -->
+            <div class="bg-settings-group" data-bg="dither">
+              <div class="bg-setting-row">
+                <label>Speed</label>
+                <input type="range" id="bgDitherSpeed" min="0.01" max="0.2" step="0.01" value="0.05">
+                <span class="bg-setting-value">0.05</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Frequency</label>
+                <input type="range" id="bgDitherFrequency" min="1" max="8" step="0.5" value="3">
+                <span class="bg-setting-value">3</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Amplitude</label>
+                <input type="range" id="bgDitherAmplitude" min="0.1" max="0.8" step="0.05" value="0.3">
+                <span class="bg-setting-value">0.3</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Color</label>
+                <input type="color" id="bgDitherColor" value="#808080" class="bg-color-input">
+              </div>
+              <div class="bg-setting-row">
+                <label>Pixel Size</label>
+                <input type="range" id="bgDitherPixelSize" min="1" max="8" step="1" value="2">
+                <span class="bg-setting-value">2</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Color Depth</label>
+                <input type="range" id="bgDitherColorNum" min="2" max="8" step="1" value="4">
+                <span class="bg-setting-value">4</span>
+              </div>
+            </div>
+
+            <!-- PARTICLES settings -->
+            <div class="bg-settings-group" data-bg="particles">
+              <div class="bg-setting-row">
+                <label>Count</label>
+                <input type="range" id="bgParticlesCount" min="50" max="800" step="50" value="300">
+                <span class="bg-setting-value">300</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Speed</label>
+                <input type="range" id="bgParticlesSpeed" min="0.02" max="0.5" step="0.02" value="0.1">
+                <span class="bg-setting-value">0.1</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Spread</label>
+                <input type="range" id="bgParticlesSpread" min="2" max="20" step="1" value="10">
+                <span class="bg-setting-value">10</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Color</label>
+                <input type="color" id="bgParticlesColor" value="#ffffff" class="bg-color-input">
+              </div>
+              <div class="bg-setting-row">
+                <label>Size</label>
+                <input type="range" id="bgParticlesSize" min="20" max="300" step="10" value="100">
+                <span class="bg-setting-value">100</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Alpha</label>
+                <label class="bg-toggle">
+                  <input type="checkbox" id="bgParticlesAlpha">
+                  <span class="bg-toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <!-- FAULTY TERMINAL settings -->
+            <div class="bg-settings-group" data-bg="faulty">
+              <div class="bg-setting-row">
+                <label>Glitch</label>
+                <input type="range" id="bgFaultyGlitch" min="0" max="3" step="0.1" value="1">
+                <span class="bg-setting-value">1</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Scanlines</label>
+                <input type="range" id="bgFaultyScanlines" min="0" max="1.5" step="0.05" value="0.7">
+                <span class="bg-setting-value">0.7</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Flicker</label>
+                <input type="range" id="bgFaultyFlicker" min="0" max="2" step="0.1" value="1">
+                <span class="bg-setting-value">1</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Aberration</label>
+                <input type="range" id="bgFaultyAberration" min="0" max="5" step="0.5" value="0">
+                <span class="bg-setting-value">0</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Curvature</label>
+                <input type="range" id="bgFaultyCurvature" min="0" max="0.3" step="0.02" value="0.1">
+                <span class="bg-setting-value">0.1</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Tint</label>
+                <input type="color" id="bgFaultyTint" value="#A7EF9E" class="bg-color-input">
+              </div>
+              <div class="bg-setting-row">
+                <label>Brightness</label>
+                <input type="range" id="bgFaultyBrightness" min="0.2" max="1.5" step="0.05" value="0.8">
+                <span class="bg-setting-value">0.8</span>
+              </div>
+            </div>
+
+            <!-- DOT GRID settings -->
+            <div class="bg-settings-group" data-bg="dotgrid">
+              <div class="bg-setting-row">
+                <label>Dot Size</label>
+                <input type="range" id="bgDotgridDotSize" min="2" max="12" step="1" value="5">
+                <span class="bg-setting-value">5</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Gap</label>
+                <input type="range" id="bgDotgridGap" min="4" max="30" step="2" value="10">
+                <span class="bg-setting-value">10</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Base Color</label>
+                <input type="color" id="bgDotgridBaseColor" value="#271E37" class="bg-color-input">
+              </div>
+              <div class="bg-setting-row">
+                <label>Active Color</label>
+                <input type="color" id="bgDotgridActiveColor" value="#5227FF" class="bg-color-input">
+              </div>
+              <div class="bg-setting-row">
+                <label>Proximity</label>
+                <input type="range" id="bgDotgridProximity" min="40" max="300" step="10" value="120">
+                <span class="bg-setting-value">120</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Shock Radius</label>
+                <input type="range" id="bgDotgridShockRadius" min="100" max="500" step="25" value="250">
+                <span class="bg-setting-value">250</span>
+              </div>
+            </div>
+
+            <!-- COLOR BENDS settings -->
+            <div class="bg-settings-group" data-bg="colorbends">
+              <div class="bg-setting-row">
+                <label>Speed</label>
+                <input type="range" id="bgColorbendsSpeed" min="0.05" max="1" step="0.05" value="0.2">
+                <span class="bg-setting-value">0.2</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Rotation</label>
+                <input type="range" id="bgColorbendsRotation" min="0" max="360" step="5" value="0">
+                <span class="bg-setting-value">0</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Scale</label>
+                <input type="range" id="bgColorbendsScale" min="0.3" max="3" step="0.1" value="1">
+                <span class="bg-setting-value">1</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Frequency</label>
+                <input type="range" id="bgColorbendsFrequency" min="0.3" max="3" step="0.1" value="1">
+                <span class="bg-setting-value">1</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Warp</label>
+                <input type="range" id="bgColorbendsWarp" min="0" max="3" step="0.1" value="1">
+                <span class="bg-setting-value">1</span>
+              </div>
+              <div class="bg-setting-row">
+                <label>Color 1</label>
+                <input type="color" id="bgColorbendsColor1" value="#ff5c7a" class="bg-color-input">
+              </div>
+              <div class="bg-setting-row">
+                <label>Color 2</label>
+                <input type="color" id="bgColorbendsColor2" value="#8a5cff" class="bg-color-input">
+              </div>
+              <div class="bg-setting-row">
+                <label>Color 3</label>
+                <input type="color" id="bgColorbendsColor3" value="#00ffd1" class="bg-color-input">
+              </div>
+            </div>
+
+            <!-- DEFAULT (none) - no settings -->
+            <div class="bg-settings-group" data-bg="none">
+              <p class="bg-settings-empty">No settings for default background.</p>
+            </div>
+
+          </div>
+        </div>
+        <div class="welcome-content">
+          <div class="welcome-actions">
+            <button class="btn-primary" id="btnOpenFile">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              Open File
+            </button>
+            <button class="btn-secondary btn-open-link" id="btnOpenLink" type="button">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 14a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 1 0-7.07-7.07L11 6"/><path d="M14 10a5 5 0 0 0-7.07 0L4.1 12.83a5 5 0 0 0 7.07 7.07L13 18"/></svg>
+              Open Link
+            </button>
+          </div>
+          <div class="welcome-recent" id="recentFiles"></div>
+        </div>
+      </div>
+
+      <!-- Subtitle Overlay -->
+      <div class="subtitle-overlay" id="subtitleOverlay"></div>
+
+      <!-- Stats Overlay -->
+      <div class="stats-overlay" id="statsOverlay" hidden>
+        <div class="stats-content">
+          <div class="stat-row"><span>Resolution:</span><span id="statResolution">-</span></div>
+          <div class="stat-row"><span>Bitrate:</span><span id="statBitrate">-</span></div>
+          <div class="stat-row"><span>Dropped Frames:</span><span id="statDropped">-</span></div>
+          <div class="stat-row"><span>FPS:</span><span id="statFps">-</span></div>
+          <div class="stat-row"><span>Codec:</span><span id="statCodec">-</span></div>
+          <div class="stat-row"><span>Speed:</span><span id="statSpeed">-</span></div>
+          <div class="stat-row"><span>Buffer:</span><span id="statBuffer">-</span></div>
+        </div>
+      </div>
+
+      <!-- A-B Loop Indicator -->
+      <div class="ab-loop-indicator" id="abLoopIndicator" hidden>
+        <span>A-B Loop Active</span>
+      </div>
+
+      <div id="skip-indicator" class="osd-hidden" aria-hidden="true"></div>
+
+      <div class="recording-indicator" id="recordingIndicator" hidden>
+        <span class="recording-dot" aria-hidden="true"></span>
+        <span id="recordingIndicatorText">Recording started</span>
+      </div>
+
+      <button class="unlock-overlay" id="unlockOverlay" type="button" aria-hidden="true" title="Unlock (U)">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-7V6a3 3 0 1 1 6 0v1h2V6a5 5 0 0 0-5-5zm-6 10h12v9H6v-9z"/></svg>
+        <span>Unlock</span>
+      </button>
+
+      <!-- ─── Control Bar ─── -->
+      <div class="controls-wrapper" id="controlsWrapper">
+        <!-- Progress Bar -->
+        <div class="progress-bar-container" id="progressContainer">
+          <div class="progress-buffer" id="progressBuffer"></div>
+          <div class="progress-fill" id="progressFill">
+            <div class="progress-handle" id="progressHandle"></div>
+          </div>
+          <div class="progress-hover-thumb" id="hoverThumb" hidden>
+            <img id="hoverThumbImg" width="160" height="90" alt="">
+            <span id="hoverThumbTime">0:00</span>
+          </div>
+          <!-- Chapter markers -->
+          <div class="chapter-markers" id="chapterMarkers"></div>
+        </div>
+
+        <!-- Control Buttons -->
+        <div class="controls-bar">
+          <!-- Left Controls -->
+          <div class="controls-left">
+            <button class="ctrl-btn" id="btnPrev" title="Previous (P)">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+            </button>
+            <button class="ctrl-btn ctrl-btn-play" id="btnPlay" title="Play (Space)">
+              <svg class="icon-play" viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              <svg class="icon-pause" viewBox="0 0 24 24" width="32" height="32" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+            </button>
+            <button class="ctrl-btn" id="btnNext" title="Next (N)">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+            </button>
+
+            <!-- Volume (YouTube-style: icon + horizontal slider) -->
+            <div class="volume-container" id="volumeContainer">
+              <button class="ctrl-btn" id="btnVolume" title="Volume (M)">
+                <svg class="icon-vol-high" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                <svg class="icon-vol-low" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" style="display:none"><path d="M18.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"/></svg>
+                <svg class="icon-vol-mute" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" style="display:none"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+              </button>
+              <div class="volume-slider-track" id="volumeSliderTrack">
+                <input type="range" id="volumeSlider" class="volume-slider-horizontal" min="0" max="100" value="100">
+              </div>
+              <span class="volume-value" id="volumeValue">100%</span>
+            </div>
+
+            <div class="time-display">
+              <span id="currentTime">0:00</span>
+              <span class="time-separator">/</span>
+              <span id="totalTime">0:00</span>
+            </div>
+          </div>
+
+          <!-- Right Controls -->
+          <div class="controls-right">
+            <!-- Speed -->
+            <button class="ctrl-btn ctrl-btn-text" id="btnSpeed" title="Playback Speed">
+              <span id="speedLabel">1x</span>
+            </button>
+
+            <!-- Volume is now in controls-left (YouTube-style) -->
+
+            <!-- Equalizer -->
+            <button class="ctrl-btn" id="btnEqualizer" title="Equalizer (E)">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z"/></svg>
+            </button>
+
+            <!-- Subtitles -->
+            <button class="ctrl-btn" id="btnSubtitles" title="Subtitles (C)">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 10h2v2H6v-2zm0 4h8v2H6v-2zm10 0h2v2h-2v-2zm-6-4h8v2h-8v-2z"/></svg>
+            </button>
+
+            <!-- A-B Loop -->
+            <button class="ctrl-btn" id="btnABLoop" title="A-B Loop (L)">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+            </button>
+
+            <!-- Screenshot -->
+            <button class="ctrl-btn" id="btnScreenshot" title="Screenshot (S)">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+            </button>
+
+            <!-- Playlist Toggle -->
+            <button class="ctrl-btn" id="btnPlaylist" title="Playlist (Ctrl+L)">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
+            </button>
+
+            <button class="ctrl-btn" id="btnLock" title="Lock Controls">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M17 8h-1V6a4 4 0 1 0-8 0v2H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-7-2a2 2 0 1 1 4 0v2h-4V6zm7 14H7V10h10v10z"/></svg>
+            </button>
+
+            <!-- Settings -->
+            <div class="youtube-quality-control" id="youtubeQualityControl" hidden>
+              <button class="ctrl-btn ctrl-btn-text" id="btnYoutubeQuality" title="Quality">Auto</button>
+              <div class="quality-dropdown" id="youtubeQualityDropdown" hidden>
+                <div class="quality-dropdown-list" id="youtubeQualityList"></div>
+              </div>
+            </div>
+
+            <!-- Settings -->
+            <button class="ctrl-btn" id="btnSettings" title="Settings (Ctrl+,)">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>
+            </button>
+
+            <!-- Fullscreen -->
+            <button class="ctrl-btn" id="btnFullscreen" title="Fullscreen (F)">
+              <svg class="icon-fullscreen-enter" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+              <svg class="icon-fullscreen-exit" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" style="display:none"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── Sidebar Playlist ─── -->
+    <aside class="sidebar-playlist collapsed" id="sidebarPlaylist">
+      <div class="sidebar-header">
+        <h3>Playlist</h3>
+        <div class="sidebar-actions">
+          <button class="sidebar-btn" id="btnAddToPlaylist" title="Add Files">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+          </button>
+          <button class="sidebar-btn" id="btnClearPlaylist" title="Clear Playlist">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          </button>
+          <button class="sidebar-btn" id="btnClosePlaylist" title="Close">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="sidebar-search">
+        <input type="text" id="playlistSearch" placeholder="Search playlist..." class="sidebar-search-input">
+      </div>
+      <div class="playlist-items" id="playlistItems"></div>
+      <div class="sidebar-footer">
+        <span id="playlistCount">0 items</span>
+      </div>
+    </aside>
+  </main>
+
+  <!-- ═══ EQUALIZER PANEL ═══ -->
+  <div class="modal-overlay" id="equalizerModal" hidden>
+    <div class="modal-panel equalizer-panel">
+      <div class="modal-header">
+        <h3>Audio Equalizer</h3>
+        <button class="modal-close" data-close-modal="equalizerModal">&times;</button>
+      </div>
+      <div class="equalizer-presets">
+        <select id="eqPresetSelect" class="select-input">
+          <option value="flat">Flat</option>
+          <option value="bass-boost">Bass Boost</option>
+          <option value="treble-boost">Treble Boost</option>
+          <option value="vocal">Vocal</option>
+          <option value="rock">Rock</option>
+          <option value="pop">Pop</option>
+          <option value="jazz">Jazz</option>
+          <option value="classical">Classical</option>
+          <option value="electronic">Electronic</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      <div class="equalizer-bands" id="equalizerBands">
+        <!-- 10 bands generated by JS -->
+      </div>
+      <div class="equalizer-actions">
+        <button class="btn-secondary" id="eqReset">Reset</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SPEED PANEL ═══ -->
+  <div class="modal-overlay speed-panel-overlay" id="speedModal" hidden>
+    <div class="modal-panel speed-panel">
+      <div class="modal-header">
+        <h3>Playback Speed</h3>
+        <button class="modal-close" data-close-modal="speedModal">&times;</button>
+      </div>
+      <div class="speed-options">
+        <button class="speed-btn" data-speed="0.25">0.25x</button>
+        <button class="speed-btn" data-speed="0.5">0.5x</button>
+        <button class="speed-btn" data-speed="0.75">0.75x</button>
+        <button class="speed-btn active" data-speed="1">Normal</button>
+        <button class="speed-btn" data-speed="1.25">1.25x</button>
+        <button class="speed-btn" data-speed="1.5">1.5x</button>
+        <button class="speed-btn" data-speed="1.75">1.75x</button>
+        <button class="speed-btn" data-speed="2">2x</button>
+        <button class="speed-btn" data-speed="3">3x</button>
+        <button class="speed-btn" data-speed="4">4x</button>
+      </div>
+      <div class="speed-custom">
+        <label>Custom Speed</label>
+        <input type="range" id="customSpeedSlider" min="0.1" max="4" step="0.05" value="1" class="range-input">
+        <span id="customSpeedValue">1.00x</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SUBTITLE PANEL ═══ -->
+  <div class="modal-overlay" id="subtitleModal" hidden>
+    <div class="modal-panel subtitle-panel">
+      <div class="modal-header">
+        <h3>Subtitles</h3>
+        <button class="modal-close" data-close-modal="subtitleModal">&times;</button>
+      </div>
+      <div class="subtitle-options">
+        <div class="subtitle-section">
+          <h4>Subtitle Track</h4>
+          <div id="subtitleTracks" class="subtitle-track-list">
+            <button class="subtitle-track-btn active" data-track="off">Off</button>
+          </div>
+          <button class="btn-secondary" id="btnLoadSubtitle">Load External Subtitle</button>
+        </div>
+        <div class="subtitle-section">
+          <h4>Sync Adjustment</h4>
+          <div class="subtitle-sync">
+            <button class="btn-small" id="subSyncMinus">-100ms</button>
+            <span id="subSyncValue">0ms</span>
+            <button class="btn-small" id="subSyncPlus">+100ms</button>
+          </div>
+        </div>
+        <div class="subtitle-section">
+          <h4>Appearance</h4>
+          <div class="setting-row">
+            <label>Font Size</label>
+            <input type="range" id="subFontSize" min="12" max="64" value="28" class="range-input">
+            <span id="subFontSizeVal">28px</span>
+          </div>
+          <div class="setting-row">
+            <label>Font Color</label>
+            <input type="color" id="subFontColor" value="#ffffff" class="color-input">
+          </div>
+          <div class="setting-row">
+            <label>Background</label>
+            <input type="color" id="subBgColor" value="#000000" class="color-input">
+            <input type="range" id="subBgOpacity" min="0" max="100" value="60" class="range-input range-small">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SETTINGS MODAL ═══ -->
+  <div class="modal-overlay" id="settingsModal" hidden>
+    <div class="modal-panel settings-modal">
+      <div class="modal-header">
+        <h3>Settings</h3>
+        <button class="modal-close" data-close-modal="settingsModal">&times;</button>
+      </div>
+      <div class="settings-body">
+        <div class="settings-content">
+          <div class="settings-pane active" data-pane="general">
+            <div class="setting-group">
+              <h4>Appearance</h4>
+              <div class="setting-row">
+                <label>Theme</label>
+                <select id="settTheme" class="select-input">
+                  <option value="dark">Dark</option>
+                  <option value="oled">OLED Black</option>
+                  <option value="light">Light</option>
+                </select>
+              </div>
+              <div class="setting-row">
+                <label>Accent Color</label>
+                <input type="color" id="settAccentColor" value="#e50914" class="color-input">
+              </div>
+              <div class="setting-row">
+                <label>Brand Fonts</label>
+                <label class="toggle">
+                  <input type="checkbox" id="settBrandFontEnabled" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="setting-group">
+              <h4>Behavior</h4>
+              <div class="setting-row">
+                <label>Auto Resume Playback</label>
+                <label class="toggle">
+                  <input type="checkbox" id="settAutoResume" checked>
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="setting-row">
+                <label>Motion Profile</label>
+                <select id="settMotionProfile" class="select-input">
+                  <option value="reduced">Reduced</option>
+                  <option value="balanced" selected>Balanced</option>
+                  <option value="showcase">Showcase</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="setting-group">
+              <h4>Player Actions</h4>
+              <div class="settings-actions-list">
+                <button type="button" class="settings-action-btn" id="settingsOpenFile">Open File</button>
+                <button type="button" class="settings-action-btn" id="settingsOpenMultiple">Open Multiple Files</button>
+                <button type="button" class="settings-action-btn" id="settingsOpenFolder">Open Folder</button>
+                <button type="button" class="settings-action-btn" id="settingsOpenStream">Open Network Stream</button>
+                <button type="button" class="settings-action-btn settings-action-btn-danger" id="settingsQuitPlayer">Quit Player</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ NETWORK STREAM MODAL ═══ -->
+  <div class="modal-overlay" id="networkStreamModal" hidden>
+    <div class="modal-panel modal-small network-stream-modal">
+      <div class="modal-header">
+        <h3>Open Link</h3>
+        <button class="modal-close" data-close-modal="networkStreamModal">&times;</button>
+      </div>
+      <form id="networkStreamForm" class="network-stream-body">
+        <label for="networkStreamInput" class="network-stream-label">YouTube / Stream URL</label>
+        <input
+          id="networkStreamInput"
+          class="network-stream-input"
+          type="url"
+          placeholder="https://www.youtube.com/watch?v=..."
+          autocomplete="off"
+          required
+        >
+        <div class="network-stream-actions">
+          <button type="button" class="btn-secondary" id="btnCancelNetworkStream">Cancel</button>
+          <button type="submit" class="btn-primary">Play</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ═══ TOAST NOTIFICATIONS ═══ -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- ═══ SCRIPTS ═══ -->
+  <script src="../components/toast.js"></script>
+  <script src="../renderer/modules/cursor-manager.js"></script>
+  <script src="../renderer/modules/player.js"></script>
+  <script src="../renderer/modules/controls.js"></script>
+  <script src="../renderer/modules/playlist.js"></script>
+  <script src="../renderer/modules/subtitles.js"></script>
+  <script src="../renderer/modules/equalizer.js"></script>
+  <script src="../renderer/modules/settings.js"></script>
+  <script src="../renderer/modules/shortcuts.js"></script>
+  <script src="../renderer/modules/thumbnails.js"></script>
+  <script src="../renderer/modules/gestures.js"></script>
+  <script src="../renderer/app.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../../node_modules/three/build/three.module.js",
+        "three/examples/jsm/": "../../node_modules/three/examples/jsm/",
+        "cannon-es": "../../node_modules/cannon-es/dist/cannon-es.js",
+        "meshline": "../../node_modules/meshline/dist/index.js",
+        "postprocessing": "../../node_modules/postprocessing/build/index.js",
+        "ogl": "../../node_modules/ogl/src/index.js",
+        "gsap": "../../node_modules/gsap/index.js",
+        "gsap/InertiaPlugin": "../../node_modules/gsap/InertiaPlugin.js",
+        "gsap/": "../../node_modules/gsap/"
+      }
+    }
+  </script>
+  <script type="module" src="../renderer/modules/faultyTerminal.js"></script>
+  <script type="module" src="../renderer/modules/ditherWaves.js"></script>
+  <script type="module" src="../renderer/modules/dotGrid.js"></script>
+  <script type="module" src="../renderer/modules/particles.js"></script>
+  <script type="module" src="../renderer/modules/colorBends.js"></script>
+  <script type="module" src="../renderer/modules/lanyard.js"></script>
+</body>
+</html>
