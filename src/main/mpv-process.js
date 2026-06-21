@@ -7,13 +7,15 @@
  * JSON-based IPC protocol over a Windows named pipe.
  */
 
-const { spawn, spawnSync } = require('child_process');
+const { spawn } = require('child_process');
+const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
 const EventEmitter = require('events');
+const { resolveMpvBinary, resolveYtDlpBinary } = require('./binary-resolver');
 
-// TEMP DEBUG: fullscreen/input tracing
+// Fullscreen/input trace logging.
 const FS_DEBUG = false;
 function fsdbg(...args) {
   if (!FS_DEBUG) return;
@@ -57,58 +59,20 @@ class MpvProcess extends EventEmitter {
     this.observeDefaults = options.observeDefaults !== false;
     this._screenshotDir = '';
     this._screenshotFormat = 'png';
+    this._inputConfDir = null;
   }
 
   // ─── Resolve mpv binary ────────────────────────────────
   static findBinary() {
-    // 1. Bundled with app  (resources/mpv/mpv.exe)
-    const bundled = path.join(
-      process.resourcesPath || path.join(__dirname, '../../'),
-      'mpv', 'mpv.exe'
-    );
-    if (fs.existsSync(bundled)) return bundled;
-
-    // 2. Next to app exe
-    const beside = path.join(path.dirname(process.execPath), 'mpv', 'mpv.exe');
-    if (fs.existsSync(beside)) return beside;
-
-    // 3. Project-local (development)
-    const local = path.join(__dirname, '../../mpv/mpv.exe');
-    if (fs.existsSync(local)) return local;
-
-    // 4. Rely on PATH
-    return 'mpv';
+    return resolveMpvBinary(process.resourcesPath, process.execPath, __dirname, {
+      allowPathLookup: !app.isPackaged
+    });
   }
 
   static findYtDlpBinary() {
-    const localCandidates = [
-      path.join(process.resourcesPath || path.join(__dirname, '../../'), 'mpv', 'yt-dlp.exe'),
-      path.join(path.dirname(process.execPath), 'mpv', 'yt-dlp.exe'),
-      path.join(__dirname, '../../mpv/yt-dlp.exe'),
-      path.join(__dirname, '../../mpv/yt-dlp')
-    ];
-
-    for (const candidate of localCandidates) {
-      if (fs.existsSync(candidate)) {
-        return candidate;
-      }
-    }
-
-    const locator = process.platform === 'win32' ? 'where' : 'which';
-    const names = process.platform === 'win32' ? ['yt-dlp.exe', 'yt-dlp'] : ['yt-dlp'];
-
-    for (const name of names) {
-      try {
-        const found = spawnSync(locator, [name], { windowsHide: true, encoding: 'utf8' });
-        if (found.status === 0 && found.stdout) {
-          const first = String(found.stdout).split(/\r?\n/).map((line) => line.trim()).find(Boolean);
-          if (first) return first;
-        }
-      } catch {
-      }
-    }
-
-    return null;
+    return resolveYtDlpBinary(process.resourcesPath, process.execPath, __dirname, {
+      allowPathLookup: !app.isPackaged
+    });
   }
 
   // ─── Spawn mpv ─────────────────────────────────────────
@@ -145,6 +109,9 @@ class MpvProcess extends EventEmitter {
     }
 
     const mpvBin = opts.mpvPath || MpvProcess.findBinary();
+    if (!mpvBin) {
+      throw new Error('mpv binary not found');
+    }
     const ytDlpPath = opts.ytdlPath || MpvProcess.findYtDlpBinary();
     const cookiesPath = opts.cookiesPath || path.join(__dirname, '../../cookies.txt');
     const defaultUserAgent =
@@ -161,7 +128,9 @@ class MpvProcess extends EventEmitter {
 
     // ── Generate input.conf that relays key/mouse to Electron via script-message ──
     const os = require('os');
-    const inputConfPath = path.join(os.tmpdir(), `hybrid-player-input-${process.pid}.conf`);
+    const inputConfDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybrid-player-input-'));
+    this._inputConfDir = inputConfDir;
+    const inputConfPath = path.join(inputConfDir, 'input.conf');
     const inputConfContent = [
       '# Hybrid Player – mpv input bindings',
       '# Relays input from mpv VO back to Electron main process',
@@ -186,7 +155,7 @@ class MpvProcess extends EventEmitter {
       'MOUSE_BTN0    script-message hybrid-mouse-click',
       'MOUSE_BTN0_DBL script-message hybrid-mouse-dblclick',
     ].join('\n');
-    try { fs.writeFileSync(inputConfPath, inputConfContent, 'utf-8'); } catch {}
+    try { fs.writeFileSync(inputConfPath, inputConfContent, { encoding: 'utf-8', flag: 'wx' }); } catch {}
     fsdbg('input.conf written', { inputConfPath });
 
     const args = [
@@ -607,6 +576,10 @@ class MpvProcess extends EventEmitter {
     if (this.process) {
       this.process.kill();
       this.process = null;
+    }
+    if (this._inputConfDir) {
+      fs.rm(this._inputConfDir, { recursive: true, force: true }, () => {});
+      this._inputConfDir = null;
     }
     this.ready = false;
     this._pending.forEach(p => {

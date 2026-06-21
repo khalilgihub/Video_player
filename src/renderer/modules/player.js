@@ -39,6 +39,8 @@ class HybridPlayer {
     this._resumeSaveInFlight   = false;
     this._screenshotPreviewHideTimer = null;
     this._screenshotPreviewRemoveTimer = null;
+    this._lastEndedMediaKey = null;
+    this._lastEndedAt = 0;
 
     // ── Callback hooks (same signature as old player) ───
     /** @type {Function|null} */ this.onPlayStateChanged = null;
@@ -127,10 +129,7 @@ class HybridPlayer {
 
         case 'eof-reached':
           if (value) {
-            this.isPlaying = false;
-            this._autoSaveResume({ force: true });
-            this.onPlayStateChanged?.(false);
-            this.onEnded?.();
+            this._handlePlaybackEnded('eof-reached');
           }
           break;
 
@@ -148,10 +147,7 @@ class HybridPlayer {
           break;
         case 'end-file':
           if (data === 'eof' || data?.reason === 'eof') {
-            this.isPlaying = false;
-            this._autoSaveResume({ force: true });
-            this.onPlayStateChanged?.(false);
-            this.onEnded?.();
+            this._handlePlaybackEnded('end-file');
           }
           break;
         case 'error':
@@ -166,7 +162,20 @@ class HybridPlayer {
   _setupDragAndDrop() {
     const dropOverlay = document.createElement('div');
     dropOverlay.className = 'drop-overlay';
-    dropOverlay.innerHTML = '<div class="drop-overlay-content"><div class="drop-overlay-icon">📂</div><p>Drop media file to play</p></div>';
+
+    const dropContent = document.createElement('div');
+    dropContent.className = 'drop-overlay-content';
+
+    const dropIcon = document.createElement('div');
+    dropIcon.className = 'drop-overlay-icon';
+    dropIcon.setAttribute('aria-hidden', 'true');
+    dropIcon.textContent = '📂';
+
+    const dropText = document.createElement('p');
+    dropText.textContent = 'Drop media file to play';
+
+    dropContent.append(dropIcon, dropText);
+    dropOverlay.appendChild(dropContent);
     document.body.appendChild(dropOverlay);
 
     let dragCounter = 0;
@@ -198,13 +207,14 @@ class HybridPlayer {
   // ─── Resume-save debounce ──────────────────────────────
   _maybeSaveResume() {
     const sec = Math.floor(this.currentTime);
-    if (this.currentFilePath && sec > 5 && sec - this._lastResumeSaveSecond >= 5) {
+    if (this.currentFilePath && sec > 5 && !this._isNearEnd() && sec - this._lastResumeSaveSecond >= 5) {
       this._autoSaveResume();
     }
   }
 
   async _autoSaveResume({ force = false } = {}) {
     if (!this.currentFilePath || this.currentTime <= 5) return;
+    if (this._isNearEnd()) return;
     if (this._resumeSaveInFlight) return;
     const sec = Math.floor(this.currentTime);
     if (!force && sec - this._lastResumeSaveSecond < 5) return;
@@ -215,6 +225,50 @@ class HybridPlayer {
       await window.hybridAPI.resume.save(this.currentFilePath, this.currentTime);
     } finally {
       this._resumeSaveInFlight = false;
+    }
+  }
+
+  _isNearEnd(thresholdSeconds = 2) {
+    return Number.isFinite(this.duration) &&
+      this.duration > 0 &&
+      Number.isFinite(this.currentTime) &&
+      this.currentTime >= Math.max(0, this.duration - thresholdSeconds);
+  }
+
+  async _clearResumePosition() {
+    if (!this.currentFilePath) return;
+    try {
+      await window.hybridAPI.resume.clear?.(this.currentFilePath);
+    } catch (error) {
+      console.warn('Failed to clear resume position:', error);
+    }
+  }
+
+  _handlePlaybackEnded(source = 'unknown') {
+    const mediaKey = this.currentFilePath || this.currentFile || 'unknown';
+    const now = Date.now();
+    if (this._lastEndedMediaKey === mediaKey && now - this._lastEndedAt < 1500) {
+      return;
+    }
+
+    this._lastEndedMediaKey = mediaKey;
+    this._lastEndedAt = now;
+    this.isPlaying = false;
+    this._clearResumePosition();
+    this.onPlayStateChanged?.(false);
+    this.onEnded?.({ source, mediaKey });
+  }
+
+  async _loadRememberedSubtitleDelay(filePath) {
+    if (!filePath || !window.hybridAPI?.subtitleDelay?.get) return;
+    try {
+      const savedDelayMs = Number(await window.hybridAPI.subtitleDelay.get(filePath));
+      if (!Number.isFinite(savedDelayMs)) return;
+      this.subDelay = savedDelayMs / 1000;
+      await window.hybridAPI.mpv.setSubDelay(this.subDelay);
+      window.HybridApp?.subtitleModule?.setSyncOffset?.(savedDelayMs, { apply: false, persist: false });
+    } catch (error) {
+      console.warn('Failed to restore subtitle delay:', error);
     }
   }
 
@@ -231,6 +285,8 @@ class HybridPlayer {
 
       this._lastResumeSaveSecond = -1;
       this._resumeSaveInFlight   = false;
+      this._lastEndedMediaKey = null;
+      this._lastEndedAt = 0;
       this.currentFilePath = filePath;
 
       // Ensure video track selection isn't left disabled by previous media state.
@@ -268,6 +324,8 @@ class HybridPlayer {
         window.hybridAPI.mpv.setSpeed(savedSpeed);
       }
 
+      await this._loadRememberedSubtitleDelay(filePath);
+
       // History
       await window.hybridAPI.history.add({
         path: filePath,
@@ -290,6 +348,8 @@ class HybridPlayer {
     window.HybridApp?.handleMediaSourceChange?.(url);
 
     this.currentFilePath = url;
+    this._lastEndedMediaKey = null;
+    this._lastEndedAt = 0;
     this.welcomeScreen.classList.add('hidden');
     document.getElementById('titlebarText').textContent = 'Network Stream — Hybrid Player';
     window.hybridAPI.mpv.setProperty('vid', 'auto');
@@ -425,7 +485,9 @@ class HybridPlayer {
       preview = document.createElement('div');
       preview.id = 'screenshotPreview';
       preview.className = 'screenshot-preview';
-      preview.innerHTML = '<img alt="">';
+      const imageEl = document.createElement('img');
+      imageEl.alt = '';
+      preview.appendChild(imageEl);
       this.videoContainer.appendChild(preview);
     }
 
@@ -458,6 +520,7 @@ class HybridPlayer {
   // ── Stats ──────────────────────────────────────────────
   getStats() {
     const vp = this.videoParams || {};
+    const selectedVideoTrack = (this.trackList || []).find((track) => track.type === 'video' && track.selected);
     return {
       resolution: vp.w && vp.h ? `${vp.w}x${vp.h}` : '-',
       droppedFrames: '-',   // updated async below
@@ -465,7 +528,9 @@ class HybridPlayer {
       fps: vp.fps || '-',
       speed: `${this.speed}x`,
       buffered: '-',
-      duration: this.formatTime(this.duration)
+      duration: this.formatTime(this.duration),
+      codec: selectedVideoTrack?.codec || vp.codec || '-',
+      bitrate: '-'
     };
   }
 
@@ -473,14 +538,21 @@ class HybridPlayer {
   async getStatsAsync() {
     const base = this.getStats();
     try {
-      const [dropped, fps, vBitrate] = await Promise.all([
+      const [dropped, fps, vBitrate, videoCodec, cacheState] = await Promise.all([
         window.hybridAPI.mpv.getProperty('drop-frame-count').catch(() => '-'),
         window.hybridAPI.mpv.getProperty('estimated-vf-fps').catch(() => base.fps),
         window.hybridAPI.mpv.getProperty('video-bitrate').catch(() => null),
+        window.hybridAPI.mpv.getProperty('video-codec').catch(() => null),
+        window.hybridAPI.mpv.getProperty('demuxer-cache-state').catch(() => null),
       ]);
       base.droppedFrames = dropped;
       base.fps = typeof fps === 'number' ? fps.toFixed(1) : fps;
       base.bitrate = vBitrate ? `${(vBitrate / 1000).toFixed(0)} kbps` : '-';
+      base.codec = videoCodec || base.codec || '-';
+      if (cacheState && cacheState['cache-end'] != null && Number.isFinite(Number(cacheState['cache-end']))) {
+        const secondsAhead = Math.max(0, Number(cacheState['cache-end']) - (Number(this.currentTime) || 0));
+        base.buffered = `${secondsAhead.toFixed(1)}s`;
+      }
     } catch { /* ignore */ }
     return base;
   }
@@ -546,7 +618,7 @@ class HybridPlayer {
   }
 
   destroy() {
-    if (this.currentFilePath && this.currentTime > 5) {
+    if (this.currentFilePath && this.currentTime > 5 && !this._isNearEnd()) {
       window.hybridAPI.resume.save(this.currentFilePath, this.currentTime);
     }
   }

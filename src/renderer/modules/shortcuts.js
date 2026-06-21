@@ -32,6 +32,7 @@ class HybridShortcuts {
       'KeyE': 'toggle-equalizer',
       'KeyT': 'toggle-time-format',
       'KeyS': 'screenshot',
+      'KeyB': 'toggle-bg-settings',
       'Digit0': 'seek-0',
       'Digit1': 'seek-10',
       'Digit2': 'seek-20',
@@ -212,6 +213,10 @@ class HybridShortcuts {
       
       case 'toggle-playlist':
         this.controls.togglePlaylist();
+        break;
+
+      case 'toggle-bg-settings':
+        this.controls.toggleModal('bgSettingsModal');
         break;
       
       case 'open-file':

@@ -7,9 +7,16 @@ const { app, BrowserWindow, ipcMain, dialog, globalShortcut, screen, Menu, proto
 const path = require('path');
 const fs = require('fs');
 const { execFile, spawn } = require('child_process');
+const { fileURLToPath } = require('url');
 const { setupIpcHandlers } = require('./ipc-handlers');
 const { MpvProcess } = require('./mpv-process');
 const { setupMpvIpc } = require('./mpv-ipc-bridge');
+const {
+  resolveBundledBinaryPath: resolveBundledBinaryPathFromResolver,
+  resolveFfmpegBinary: resolveFfmpegBinaryFromResolver,
+  resolveMpvBinary,
+  resolveYtDlpBinary,
+} = require('./binary-resolver');
 
 const YT_DEBUG = false;
 function ytdbg(...args) {
@@ -28,35 +35,135 @@ const MEDIA_EXTENSIONS = new Set([
   '.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.wma', '.opus', '.aiff', '.alac',
   '.m3u8', '.mpd'
 ]);
+const MEDIA_DIALOG_EXTENSIONS = Array.from(MEDIA_EXTENSIONS, (ext) => ext.slice(1));
+const FOLDER_SCAN_MAX_DEPTH = 8;
+const FOLDER_SCAN_MAX_FILES = 2000;
+const FOLDER_SCAN_MAX_DIRS = 5000;
 
-const PLAYLIST_VIDEO_EXTENSIONS = new Set([
-  '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.m4v', '.wmv', '.ts', '.m2ts', '.mts'
+const YOUTUBE_HOSTS = new Set([
+  'youtube.com',
+  'www.youtube.com',
+  'm.youtube.com',
+  'music.youtube.com',
+  'youtu.be',
+  'youtube-nocookie.com',
+  'www.youtube-nocookie.com',
 ]);
+
+const YT_DLP_TIMEOUT_MS = 20000;
+const CLIP_EXPORT_TIMEOUT_MS = 5 * 60 * 1000;
+const CLIP_MAX_DURATION_SECONDS = 6 * 60 * 60;
+const CLIP_MAX_START_SECONDS = 30 * 24 * 60 * 60;
+
+function isDevToolsEnabled() {
+  return !app.isPackaged || process.env.HYBRID_ENABLE_DEVTOOLS === '1';
+}
+
+function normalizeYoutubeUrl(value) {
+  const target = typeof value === 'string' ? value.trim() : '';
+  if (!target || target.length > 4096) return null;
+
+  try {
+    const parsed = new URL(target);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    const host = parsed.hostname.toLowerCase();
+    if (!YOUTUBE_HOSTS.has(host)) return null;
+    return parsed.href;
+  } catch {
+    return null;
+  }
+}
+
+function isTrustedRendererUrl(targetUrl) {
+  try {
+    const parsed = new URL(targetUrl);
+    if (parsed.protocol !== 'file:') return false;
+    return path.resolve(fileURLToPath(parsed)) === path.resolve(__dirname, '../renderer/index.html');
+  } catch {
+    return false;
+  }
+}
+
+function hardenWebContents(win) {
+  if (!win || win.isDestroyed()) return;
+
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+  win.webContents.on('will-navigate', (event, targetUrl) => {
+    if (!isTrustedRendererUrl(targetUrl)) {
+      event.preventDefault();
+    }
+  });
+
+  win.webContents.on('will-attach-webview', (event) => {
+    event.preventDefault();
+  });
+
+  win.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
+}
 
 function createMediaFilters() {
   return [
     {
       name: 'Media Files',
-      extensions: [
-        'mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'm4v', 'wmv', 'ts', 'm2ts', 'mts',
-        'mp3', 'flac', 'wav', 'aac', 'ogg', 'm4a', 'wma', 'opus', 'aiff', 'alac',
-        'm3u8', 'mpd'
-      ]
-    },
-    { name: 'All Files', extensions: ['*'] }
+      extensions: MEDIA_DIALOG_EXTENSIONS
+    }
   ];
 }
 
 async function collectFolderMediaFiles(folderPath) {
+  const root = resolveExistingLocalDirectory(folderPath);
+  if (!root) return [];
+
+  const mediaFiles = [];
+  let visitedDirs = 0;
+
+  async function walk(dirPath, depth) {
+    if (mediaFiles.length >= FOLDER_SCAN_MAX_FILES) return;
+    if (depth > FOLDER_SCAN_MAX_DEPTH) return;
+    visitedDirs += 1;
+    if (visitedDirs > FOLDER_SCAN_MAX_DIRS) return;
+
+    let entries = [];
+    try {
+      entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+
+    for (const entry of entries) {
+      if (mediaFiles.length >= FOLDER_SCAN_MAX_FILES || visitedDirs > FOLDER_SCAN_MAX_DIRS) return;
+      const entryPath = path.join(dirPath, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) {
+        await walk(entryPath, depth + 1);
+        continue;
+      }
+      if (entry.isFile() && MEDIA_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+        mediaFiles.push(entryPath);
+      }
+    }
+  }
+
+  await walk(root, 0);
+  return mediaFiles.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+}
+
+function resolveExistingLocalDirectory(dirPath) {
+  if (typeof dirPath !== 'string') return null;
+  const source = dirPath.trim();
+  if (!source || source.length > 4096 || source.includes('\0')) return null;
+
   try {
-    const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isFile())
-      .filter((entry) => PLAYLIST_VIDEO_EXTENSIONS.has(path.extname(entry.name).toLowerCase()))
-      .map((entry) => path.join(folderPath, entry.name))
-      .sort((a, b) => path.basename(a).localeCompare(path.basename(b), undefined, { numeric: true, sensitivity: 'base' }));
+    const resolved = path.resolve(source);
+    const stat = fs.statSync(resolved);
+    return stat.isDirectory() ? resolved : null;
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -91,41 +198,13 @@ function parseJsonObjectFromStdout(stdout) {
 }
 
 function resolveBundledBinaryPath(binaryName) {
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'mpv', binaryName);
-  }
-  return path.join(__dirname, '../../mpv', binaryName);
+  return resolveBundledBinaryPathFromResolver(binaryName, app.isPackaged, process.resourcesPath, __dirname);
 }
 
 function resolveFfmpegBinary() {
-  const candidates = process.platform === 'win32'
-    ? [
-        path.join(process.resourcesPath || '', 'ffmpeg', 'ffmpeg.exe'),
-        path.join(process.resourcesPath || '', 'mpv', 'ffmpeg.exe'),
-        path.join(path.dirname(process.execPath), 'ffmpeg', 'ffmpeg.exe'),
-        path.join(__dirname, '../../ffmpeg/ffmpeg.exe'),
-        'ffmpeg.exe',
-        'ffmpeg',
-      ]
-    : [
-        path.join(process.resourcesPath || '', 'ffmpeg', 'ffmpeg'),
-        path.join(process.resourcesPath || '', 'mpv', 'ffmpeg'),
-        path.join(path.dirname(process.execPath), 'ffmpeg', 'ffmpeg'),
-        path.join(__dirname, '../../ffmpeg/ffmpeg'),
-        'ffmpeg',
-      ];
-
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    if (candidate === 'ffmpeg' || candidate === 'ffmpeg.exe') {
-      return candidate;
-    }
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  return resolveFfmpegBinaryFromResolver(process.resourcesPath, process.execPath, __dirname, {
+    allowPathLookup: !app.isPackaged
+  });
 }
 
 function formatFfmpegTimestamp(seconds) {
@@ -158,22 +237,46 @@ function createClipOutputPath(filePath) {
   return candidate;
 }
 
+function resolveExistingLocalFile(filePath, allowedExtensions = null) {
+  if (typeof filePath !== 'string') return null;
+  const source = filePath.trim();
+  if (!source || source.length > 4096 || source.includes('\0')) return null;
+
+  try {
+    const resolved = path.resolve(source);
+    const stat = fs.statSync(resolved);
+    if (!stat.isFile()) return null;
+    if (allowedExtensions && !allowedExtensions.has(path.extname(resolved).toLowerCase())) return null;
+    return resolved;
+  } catch {
+    return null;
+  }
+}
+
 async function clipMediaSegment({ filePath, startTime, duration }) {
-  const targetPath = typeof filePath === 'string' ? filePath.trim() : '';
-  const safeStartTime = Math.max(0, Number(startTime) || 0);
-  const safeDuration = Math.max(0, Number(duration) || 0);
+  const targetPath = resolveExistingLocalFile(filePath, MEDIA_EXTENSIONS);
+  const numericStartTime = Number(startTime);
+  const numericDuration = Number(duration);
 
   if (!targetPath) {
-    throw new Error('Missing source file path');
+    throw new Error('Source media file not found or unsupported');
   }
-  if (!fs.existsSync(targetPath)) {
-    throw new Error('Source file not found');
+  if (!Number.isFinite(numericStartTime) || numericStartTime < 0 || numericStartTime > CLIP_MAX_START_SECONDS) {
+    throw new Error('Clip start time is invalid');
   }
-  if (!Number.isFinite(safeDuration) || safeDuration <= 0) {
+  if (!Number.isFinite(numericDuration) || numericDuration <= 0) {
     throw new Error('Clip duration must be greater than zero');
+  }
+  if (numericDuration > CLIP_MAX_DURATION_SECONDS) {
+    throw new Error('Clip duration is too long');
   }
 
   const ffmpegBinary = resolveFfmpegBinary();
+  if (!ffmpegBinary) {
+    throw new Error('ffmpeg binary not found');
+  }
+  const safeStartTime = Math.max(0, numericStartTime);
+  const safeDuration = Math.max(0, numericDuration);
   const outputPath = createClipOutputPath(targetPath);
   const ffmpegArgs = [
     '-hide_banner',
@@ -187,58 +290,88 @@ async function clipMediaSegment({ filePath, startTime, duration }) {
   ];
 
   return new Promise((resolve, reject) => {
+    let settled = false;
     const ffmpeg = spawn(ffmpegBinary, ffmpegArgs, {
       windowsHide: true,
       stdio: ['ignore', 'ignore', 'pipe'],
     });
 
     let stderr = '';
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        ffmpeg.kill('SIGKILL');
+      } catch {}
+      reject(new Error('Clip export timed out'));
+    }, CLIP_EXPORT_TIMEOUT_MS);
+
+    const finish = (fn) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      fn();
+    };
 
     ffmpeg.stderr.on('data', (chunk) => {
       stderr += chunk.toString();
     });
 
     ffmpeg.on('error', (error) => {
-      reject(new Error(`Failed to start ffmpeg: ${error.message}`));
+      finish(() => reject(new Error(`Failed to start ffmpeg: ${error.message}`)));
     });
 
     ffmpeg.on('close', (code) => {
       if (code === 0) {
-        resolve({
+        finish(() => resolve({
           outputPath,
           startTime: safeStartTime,
           duration: safeDuration,
-        });
+        }));
         return;
       }
 
       const message = stderr.trim() || `ffmpeg exited with code ${code}`;
-      reject(new Error(message));
+      finish(() => reject(new Error(message)));
     });
   });
 }
 
 async function getYoutubeQualityHeights(url) {
-  const target = typeof url === 'string' ? url.trim() : '';
+  const target = normalizeYoutubeUrl(url);
   if (!target) {
-    ytdbg('getYoutubeQualityHeights skipped: empty URL');
+    ytdbg('getYoutubeQualityHeights skipped: invalid or non-YouTube URL');
     return [];
   }
 
   ytdbg('extract qualities start', { url: target });
 
+  const resolvedYtDlp = resolveYtDlpBinary(process.resourcesPath, process.execPath, __dirname, {
+    allowPathLookup: !app.isPackaged
+  });
   const candidates = process.platform === 'win32'
     ? [
+      resolvedYtDlp,
       resolveBundledBinaryPath('yt-dlp.exe'),
-      resolveBundledBinaryPath('yt-dlp'),
-      'yt-dlp.exe',
-      'yt-dlp'
+      resolveBundledBinaryPath('yt-dlp')
     ]
     : [
-      resolveBundledBinaryPath('yt-dlp'),
-      'yt-dlp'
+      resolvedYtDlp,
+      resolveBundledBinaryPath('yt-dlp')
     ];
-  const uniqueCandidates = Array.from(new Set(candidates));
+  const uniqueCandidates = Array.from(new Set(candidates.filter((candidate) => {
+    if (!candidate) return false;
+    try {
+      return fs.statSync(candidate).isFile();
+    } catch {
+      return false;
+    }
+  })));
+
+  if (uniqueCandidates.length === 0) {
+    ytdbg('extract qualities failed: yt-dlp binary not found');
+    return [];
+  }
 
   let payload = null;
   const args = ['-J', '--no-warnings', '--no-playlist', target];
@@ -248,6 +381,7 @@ async function getYoutubeQualityHeights(url) {
       ytdbg('running yt-dlp', { bin, args });
       const { stdout, stderr } = await execFileAsync(bin, args, {
         windowsHide: true,
+        timeout: YT_DLP_TIMEOUT_MS,
         maxBuffer: 25 * 1024 * 1024
       });
       if (stderr && String(stderr).trim()) {
@@ -296,6 +430,8 @@ async function getYoutubeQualityHeights(url) {
 }
 
 function registerSystemDialogHandlers(win) {
+  ipcMain.handle('app:get-startup-diagnostics', async () => startupDiagnostics.slice());
+
   ipcMain.handle('dialog:openFile', async () => {
     const result = await dialog.showOpenDialog(win, {
       title: 'Open Media File',
@@ -377,7 +513,7 @@ const HTBOTTOMLEFT = 16;
 const HTBOTTOMRIGHT = 17;
 const RESIZE_BORDER_DIP = 8;
 
-// TEMP DEBUG: fullscreen/input tracing
+// Fullscreen/input trace logging.
 const FS_DEBUG = false;
 function fsdbg(...args) {
   if (!FS_DEBUG) return;
@@ -684,9 +820,20 @@ function clampWindowToVisibleArea(win) {
 }
 
 const DB_PATH = path.join(app.getPath('userData'), 'hybrid-player-db.json');
+const startupDiagnostics = [];
 
-function loadDatabase() {
-  const defaults = {
+function addStartupDiagnostic(level, code, message, detail = null) {
+  startupDiagnostics.push({
+    level,
+    code,
+    message,
+    detail,
+    timestamp: Date.now(),
+  });
+}
+
+function createDefaultDatabase() {
+  return {
     preferences: {
       theme: 'dark',
       accentColor: '#e50914',
@@ -704,28 +851,77 @@ function loadDatabase() {
     subtitleDelayMemory: {},
     recentFiles: []
   };
+}
+
+function normalizeDatabase(parsed, defaults) {
+  const source = parsed && typeof parsed === 'object' ? parsed : {};
+  const preferences = source.preferences && typeof source.preferences === 'object' ? source.preferences : {};
+
+  return {
+    ...defaults,
+    ...source,
+    preferences: {
+      ...defaults.preferences,
+      ...preferences,
+    },
+    history: Array.isArray(source.history) ? source.history : defaults.history,
+    playlists: Array.isArray(source.playlists) ? source.playlists : defaults.playlists,
+    recentFiles: Array.isArray(source.recentFiles) ? source.recentFiles : defaults.recentFiles,
+    resumePositions: source.resumePositions && typeof source.resumePositions === 'object'
+      ? source.resumePositions
+      : defaults.resumePositions,
+    speedMemory: source.speedMemory && typeof source.speedMemory === 'object'
+      ? source.speedMemory
+      : defaults.speedMemory,
+    subtitleDelayMemory: source.subtitleDelayMemory && typeof source.subtitleDelayMemory === 'object'
+      ? source.subtitleDelayMemory
+      : defaults.subtitleDelayMemory,
+  };
+}
+
+function loadDatabase() {
+  const defaults = createDefaultDatabase();
 
   try {
     if (fs.existsSync(DB_PATH)) {
       const parsed = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
-      return {
-        ...defaults,
-        ...parsed,
-        preferences: {
-          ...defaults.preferences,
-          ...(parsed?.preferences || {})
-        }
-      };
+      return normalizeDatabase(parsed, defaults);
     }
   } catch (e) {
     console.error('Failed to load database:', e);
+    const backupPath = backupUnreadableDatabase();
+    addStartupDiagnostic(
+      'warning',
+      'DATABASE_REPAIRED',
+      'Settings database could not be read. Hybrid Player loaded defaults and saved a backup of the old file.',
+      backupPath ? `Backup: ${backupPath}` : 'Backup could not be created.'
+    );
   }
   return defaults;
 }
 
+function backupUnreadableDatabase() {
+  try {
+    if (!fs.existsSync(DB_PATH)) return null;
+    const dir = path.dirname(DB_PATH);
+    const parsed = path.parse(DB_PATH);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupPath = path.join(dir, `${parsed.name}.corrupt-${stamp}${parsed.ext}`);
+    fs.renameSync(DB_PATH, backupPath);
+    return backupPath;
+  } catch (error) {
+    console.error('Failed to back up unreadable database:', error);
+    return null;
+  }
+}
+
 function saveDatabase(db) {
   try {
-    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf-8');
+    const dir = path.dirname(DB_PATH);
+    fs.mkdirSync(dir, { recursive: true });
+    const tmpPath = path.join(dir, `.${path.basename(DB_PATH)}.${process.pid}.${Date.now()}.tmp`);
+    fs.writeFileSync(tmpPath, JSON.stringify(normalizeDatabase(db, createDefaultDatabase()), null, 2), 'utf-8');
+    fs.renameSync(tmpPath, DB_PATH);
   } catch (e) {
     console.error('Failed to save database:', e);
   }
@@ -1070,14 +1266,15 @@ function createMainWindow() {
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
       contextIsolation: true,
-      sandbox: false,
+      sandbox: true,
       nodeIntegration: false,
       webSecurity: true,
       allowRunningInsecureContent: false,
-      experimentalFeatures: true
+      experimentalFeatures: false
     },
     show: false
   });
+  hardenWebContents(mainWindow);
   mainWindow.__hybridFullscreenState = false;
   mainWindow.__hybridUiLocked = false;
   mainWindow.__hybridFakeMaximized = false;
@@ -1150,6 +1347,7 @@ function createMainWindow() {
       ((input.control || input.meta) && input.shift && key === 'i');
     if (wantsDevtools) {
       event.preventDefault();
+      if (!isDevToolsEnabled()) return;
       if (mainWindow.webContents.isDevToolsOpened()) {
         mainWindow.webContents.closeDevTools();
       } else {
@@ -1204,13 +1402,16 @@ function createMainWindow() {
 
     // Get native window handle and spawn mpv into it
     const nativeHandle = mainWindow.getNativeWindowHandle();
-    const resolvedMpvPath = process.platform === 'win32'
-      ? resolveBundledBinaryPath('mpv.exe')
-      : resolveBundledBinaryPath('mpv');
-    const resolvedYtdlpPath = process.platform === 'win32'
-      ? resolveBundledBinaryPath('yt-dlp.exe')
-      : resolveBundledBinaryPath('yt-dlp');
+    const resolvedMpvPath = resolveMpvBinary(process.resourcesPath, process.execPath, __dirname, {
+      allowPathLookup: !app.isPackaged
+    });
+    const resolvedYtdlpPath = resolveYtDlpBinary(process.resourcesPath, process.execPath, __dirname, {
+      allowPathLookup: !app.isPackaged
+    });
     try {
+      if (!resolvedMpvPath) {
+        throw new Error('mpv binary not found');
+      }
       maindbg('spawning mpv', {
         handleBytes: nativeHandle?.length || 0,
         handleHex: Buffer.isBuffer(nativeHandle) ? nativeHandle.toString('hex') : null,
@@ -1227,6 +1428,11 @@ function createMainWindow() {
       maindbg('mpv process spawned and IPC bridge ready');
     } catch (err) {
       console.error('Failed to spawn mpv:', err);
+      mainWindow.webContents.send('mpv:event', 'error', {
+        code: 'MPV_UNAVAILABLE',
+        fatal: true,
+        message: err?.message || 'Playback engine could not be started',
+      });
     }
   });
 
@@ -1419,11 +1625,58 @@ function setupGlobalShortcuts() {
   sync();
 }
 
+function isPathInside(childPath, parentPath) {
+  const child = path.resolve(childPath);
+  const parent = path.resolve(parentPath);
+  const relative = path.relative(parent, child);
+  return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function getLocalFileProtocolRoots() {
+  return [
+    path.join(app.getPath('userData'), 'screenshots'),
+    path.join(app.getPath('temp'), 'hybrid-player-thumbs'),
+    path.join(app.getPath('temp'), 'hybrid-player-paused-frames'),
+    path.join(__dirname, '../../assets'),
+  ];
+}
+
+function resolveLocalFileProtocolPath(url) {
+  let rawPath = '';
+  try {
+    const parsed = new URL(url);
+    rawPath = decodeURIComponent(`${parsed.host || ''}${parsed.pathname || ''}`);
+  } catch {
+    rawPath = decodeURIComponent(String(url || '').replace(/^local-file:\/\//i, ''));
+  }
+
+  if (process.platform === 'win32') {
+    rawPath = rawPath.replace(/^\/([a-zA-Z]:)/, '$1');
+  }
+
+  const filePath = path.resolve(rawPath);
+  const allowedRoots = getLocalFileProtocolRoots();
+
+  if (!allowedRoots.some((root) => isPathInside(filePath, root))) {
+    return null;
+  }
+
+  try {
+    const stat = fs.statSync(filePath);
+    return stat.isFile() ? filePath : null;
+  } catch {
+    return null;
+  }
+}
+
 // Initialize
 app.whenReady().then(() => {
   // Register custom protocol for local files
   protocol.handle('local-file', (request) => {
-    const filePath = decodeURIComponent(request.url.replace('local-file://', ''));
+    const filePath = resolveLocalFileProtocolPath(request.url);
+    if (!filePath) {
+      return new Response('Not found', { status: 404 });
+    }
     return new Response(fs.createReadStream(filePath), {
       headers: { 'Content-Type': getMimeType(filePath) }
     });
@@ -1464,8 +1717,10 @@ if (!gotLock) {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
-      // Open file from argv if provided
-      const filePath = argv.find(arg => /\.(mp4|mkv|avi|mov|webm|flv|m3u8)$/i.test(arg));
+      // Open a trusted local media file from argv if provided.
+      const filePath = argv
+        .map((arg) => resolveExistingLocalFile(arg, MEDIA_EXTENSIONS))
+        .find(Boolean);
       if (filePath) {
         mainWindow.webContents.send('open-file-from-args', filePath);
       }

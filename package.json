@@ -6,6 +6,12 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --enable-logging",
+    "lint": "node scripts/static-check.js",
+    "check:static": "node scripts/static-check.js",
+    "test": "playwright test",
+    "test:release": "node scripts/packaged-smoke.js",
+    "verify": "npm run check:static && npm test && npm audit",
+    "verify:release": "npm run verify && npm run build:win && npm run test:release",
     "build": "electron-builder --win",
     "build:win": "electron-builder --win --config electron-builder.json",
     "build:mac": "electron-builder --mac --config electron-builder.json",
@@ -14,18 +20,20 @@
   "author": "Hybrid Player Team",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^40.8.0",
-    "electron-builder": "^26.8.1"
+    "@playwright/test": "^1.60.0",
+    "electron": "^40.10.2",
+    "electron-builder": "^26.15.2"
   },
   "build": {
     "extends": "./electron-builder.json"
   },
   "dependencies": {
     "cannon-es": "^0.20.0",
-    "gsap": "^3.14.2",
+    "ffmpeg-static": "^5.3.0",
+    "gsap": "^3.15.0",
     "meshline": "^3.3.1",
     "ogl": "^1.0.11",
-    "postprocessing": "^6.38.3",
+    "postprocessing": "^6.39.1",
     "three": "^0.183.2"
   }
 }

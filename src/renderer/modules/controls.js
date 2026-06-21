@@ -4,6 +4,11 @@
  * Cursor hiding is delegated to CursorManager.
  */
 
+const CONTROLS_DEBUG = false;
+function controlsdbg(...args) {
+  if (CONTROLS_DEBUG) console.log(...args);
+}
+
 class HybridControls {
   constructor(player) {
     this.player = player;
@@ -15,6 +20,7 @@ class HybridControls {
     this.progressFill      = document.getElementById('progressFill');
     this.progressBuffer    = document.getElementById('progressBuffer');
     this.progressHandle    = document.getElementById('progressHandle');
+    this.chapterMarkers    = document.getElementById('chapterMarkers');
     this.currentTimeEl     = document.getElementById('currentTime');
     this.totalTimeEl       = document.getElementById('totalTime');
     this.volumeSlider      = document.getElementById('volumeSlider');
@@ -62,6 +68,16 @@ class HybridControls {
     this._setupProgressBar();
     this._setupVolumeControl();
     this._setupPlayerCallbacks();
+
+    // Setup observer for welcomeScreen visibility to dynamically show/hide toolbar buttons
+    const welcomeScreen = document.getElementById('welcomeScreen');
+    if (welcomeScreen) {
+      const observer = new MutationObserver(() => {
+        this.updateToolbarVisibility();
+      });
+      observer.observe(welcomeScreen, { attributes: true, attributeFilter: ['class'] });
+    }
+    this.updateToolbarVisibility();
   }
 
   _bindControls() {
@@ -75,7 +91,7 @@ class HybridControls {
     const handleFullscreenDblClick = (e, source = 'unknown') => {
       if (shouldIgnoreFullscreenDblClick(e.target)) return;
       e.preventDefault();
-      console.log(`[FSDBG][renderer-controls] ${source} dblclick`);
+      controlsdbg(`[FSDBG][renderer-controls] ${source} dblclick`);
       this.toggleFullscreen();
     };
 
@@ -138,8 +154,6 @@ class HybridControls {
         const speed = parseFloat(btn.dataset.speed);
         this.player.setSpeed(speed);
         this._updateSpeedUI(speed);
-        document.querySelectorAll('.speed-btn[data-speed]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
       });
     });
 
@@ -157,29 +171,29 @@ class HybridControls {
 
     // Window controls
     document.getElementById('btnMinimize').addEventListener('click', async () => {
-      console.log('[WINCTRL][renderer] minimize click');
+      controlsdbg('[WINCTRL][renderer] minimize click');
       try {
         await window.hybridAPI.window.minimize();
-        console.log('[WINCTRL][renderer] minimize invoke success');
+        controlsdbg('[WINCTRL][renderer] minimize invoke success');
       } catch (error) {
         console.error('[WINCTRL][renderer] minimize invoke failed', error);
       }
     });
     document.getElementById('btnMaximize').addEventListener('click', async () => {
-      console.log('[WINCTRL][renderer] toggle-maximize click');
+      controlsdbg('[WINCTRL][renderer] toggle-maximize click');
       try {
         const maximized = await window.hybridAPI.window.toggleMaximize();
-        console.log('[WINCTRL][renderer] toggle-maximize invoke success', { maximized });
+        controlsdbg('[WINCTRL][renderer] toggle-maximize invoke success', { maximized });
       } catch (error) {
         console.error('[WINCTRL][renderer] toggle-maximize invoke failed', error);
       }
     });
     document.getElementById('btnClose').addEventListener('click', async () => {
-      console.log('[WINCTRL][renderer] close click');
+      controlsdbg('[WINCTRL][renderer] close click');
       try {
         this.player?.destroy?.();
         await window.hybridAPI.window.close();
-        console.log('[WINCTRL][renderer] close invoke success');
+        controlsdbg('[WINCTRL][renderer] close invoke success');
       } catch (error) {
         console.error('[WINCTRL][renderer] close invoke failed', error);
       }
@@ -331,6 +345,7 @@ class HybridControls {
     this.player.onPlayStateChanged = (playing) => {
       this.iconPlay.style.display  = playing ? 'none' : 'block';
       this.iconPause.style.display = playing ? 'block' : 'none';
+      document.getElementById('btnPlay')?.setAttribute('aria-label', playing ? 'Pause' : 'Play');
       // Update cursor manager
       window.HybridApp?.cursorManager?.setPlaying(playing);
     };
@@ -346,6 +361,7 @@ class HybridControls {
     this.player.onMetadataLoaded = () => {
       this.totalTimeEl.textContent = this.player.formatTime(this.player.duration);
       this._updateSpeedUI(this.player.speed);
+      this._renderChapterMarkers();
     };
 
     this.player.onBufferUpdate = (cacheState) => {
@@ -372,6 +388,14 @@ class HybridControls {
 
     this.player.onEnded = () => {
       window.HybridApp?.playlistModule?.playNext();
+    };
+
+    this.player.onChapterListChanged = () => {
+      this._renderChapterMarkers();
+    };
+
+    this.player.onChapterChanged = () => {
+      this._syncActiveChapterMarker();
     };
 
     this.player.onFilesDropped = async (files) => {
@@ -408,8 +432,7 @@ class HybridControls {
       if (this._mouseOverControls || this.isDraggingProgress || this._isDragging) return;
       if (this.player.isPlaying) {
         this.controlsWrapper.classList.add('hidden');
-        // Keep window controls visible at all times.
-        this.titlebar.classList.remove('hidden');
+        this.titlebar.classList.add('hidden');
         this.controlsVisible = false;
       }
     };
@@ -578,29 +601,78 @@ class HybridControls {
     this.iconVolHigh.style.display = (!muted && volume > 0.5) ? 'block' : 'none';
     this.iconVolLow.style.display  = (!muted && volume > 0 && volume <= 0.5) ? 'block' : 'none';
     this.iconVolMute.style.display = (muted || volume === 0) ? 'block' : 'none';
+    document.getElementById('btnVolume')?.setAttribute('aria-label', (muted || volume === 0) ? 'Unmute' : 'Mute');
   }
 
   _updateSpeedUI(speed) {
     this.speedLabel.textContent = speed === 1 ? '1x' : speed.toFixed(2).replace(/\.?0+$/, '') + 'x';
+    document.querySelectorAll('.speed-btn[data-speed]').forEach((button) => {
+      const buttonSpeed = Number(button.dataset.speed);
+      const isActive = Number.isFinite(buttonSpeed) && Math.abs(buttonSpeed - Number(speed)) < 0.001;
+      button.classList.toggle('active', isActive);
+      button.setAttribute('aria-pressed', String(isActive));
+    });
   }
 
   _updateABLoopButton() {
     const btn = document.getElementById('btnABLoop');
-    btn.classList.toggle('active', this.player.abLoop.active || this.player.abLoop.a !== null);
+    const isActive = this.player.abLoop.active || this.player.abLoop.a !== null;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-pressed', String(isActive));
+  }
+
+  _renderChapterMarkers() {
+    if (!this.chapterMarkers) return;
+    this.chapterMarkers.replaceChildren();
+
+    const duration = Number(this.player.duration) || 0;
+    if (duration <= 0) return;
+
+    const chapters = this.player.getChapters()
+      .filter((chapter) => Number.isFinite(Number(chapter.time)) && chapter.time > 0 && chapter.time < duration);
+
+    const fragment = document.createDocumentFragment();
+    chapters.forEach((chapter) => {
+      const marker = document.createElement('button');
+      marker.type = 'button';
+      marker.className = 'chapter-marker';
+      marker.dataset.chapterIndex = String(chapter.index);
+      marker.style.left = `${Math.min(100, Math.max(0, (chapter.time / duration) * 100))}%`;
+      marker.title = `${chapter.title} - ${this.player.formatTime(chapter.time)}`;
+      marker.setAttribute('aria-label', `Go to ${chapter.title}`);
+      marker.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.player.goToChapter(chapter.index);
+      });
+      fragment.appendChild(marker);
+    });
+
+    this.chapterMarkers.appendChild(fragment);
+    this._syncActiveChapterMarker();
+  }
+
+  _syncActiveChapterMarker() {
+    if (!this.chapterMarkers) return;
+    this.chapterMarkers.querySelectorAll('.chapter-marker').forEach((marker) => {
+      marker.classList.toggle('active', Number(marker.dataset.chapterIndex) === Number(this.player.chapter));
+    });
   }
 
   async toggleFullscreen() {
-    console.log('[FSDBG][renderer-controls] toggleFullscreen start');
+    controlsdbg('[FSDBG][renderer-controls] toggleFullscreen start');
     const current = await window.hybridAPI.window.isFullScreen();
     const isFs = await window.hybridAPI.window.fullscreen(!current);
-    console.log('[FSDBG][renderer-controls] toggleFullscreen done', { from: current, to: isFs });
+    controlsdbg('[FSDBG][renderer-controls] toggleFullscreen done', { from: current, to: isFs });
     this.iconFsEnter.style.display = isFs ? 'none' : 'block';
     this.iconFsExit.style.display  = isFs ? 'block' : 'none';
+    document.getElementById('btnFullscreen')?.setAttribute('aria-label', isFs ? 'Exit fullscreen' : 'Fullscreen');
   }
 
   togglePlaylist() {
     const sidebar = document.getElementById('sidebarPlaylist');
     sidebar.classList.toggle('collapsed');
+    document.getElementById('btnPlaylist')?.setAttribute('aria-expanded', String(!sidebar.classList.contains('collapsed')));
   }
 
   revealChromeAfterWindowStateChange() {
@@ -629,10 +701,16 @@ class HybridControls {
     const icon = isForward ? '⏩' : '⏪';
     const label = `${isForward ? '+' : '-'}${roundedSeconds}s`;
 
-    this.skipIndicator.innerHTML = `
-      <span class="skip-indicator-icon" aria-hidden="true">${icon}</span>
-      <span class="skip-indicator-text">${label}</span>
-    `;
+    const iconEl = document.createElement('span');
+    iconEl.className = 'skip-indicator-icon';
+    iconEl.setAttribute('aria-hidden', 'true');
+    iconEl.textContent = icon;
+
+    const labelEl = document.createElement('span');
+    labelEl.className = 'skip-indicator-text';
+    labelEl.textContent = label;
+
+    this.skipIndicator.replaceChildren(iconEl, labelEl);
 
     clearTimeout(this.skipIndicatorTimer);
     this.skipIndicator.classList.remove('osd-hidden', 'osd-animate');
@@ -650,6 +728,8 @@ class HybridControls {
   setLockState(locked) {
     const isLocked = !!locked;
     this.lockButton?.classList.toggle('active', isLocked);
+    this.lockButton?.setAttribute('aria-pressed', String(isLocked));
+    this.lockButton?.setAttribute('aria-label', isLocked ? 'Controls locked' : 'Lock controls');
     this.unlockOverlay?.classList.toggle('visible', isLocked);
     this.unlockOverlay?.setAttribute('aria-hidden', isLocked ? 'false' : 'true');
   }
@@ -682,10 +762,34 @@ class HybridControls {
   async updateStats() {
     const stats = await this.player.getStatsAsync();
     document.getElementById('statResolution').textContent = stats.resolution;
+    document.getElementById('statBitrate').textContent    = stats.bitrate ?? '-';
     document.getElementById('statDropped').textContent    = stats.droppedFrames;
     document.getElementById('statFps').textContent        = stats.fps;
+    document.getElementById('statCodec').textContent      = stats.codec ?? '-';
     document.getElementById('statSpeed').textContent      = stats.speed;
-    document.getElementById('statBuffer').textContent     = stats.bitrate ?? '-';
+    document.getElementById('statBuffer').textContent     = stats.buffered ?? '-';
+  }
+
+  updateToolbarVisibility() {
+    const welcomeScreen = document.getElementById('welcomeScreen');
+    if (!welcomeScreen) return;
+
+    const noMediaLoaded = !welcomeScreen.classList.contains('hidden');
+
+    const toggleButton = (id, show) => {
+      const btn = document.getElementById(id);
+      if (btn) {
+        btn.style.display = show ? '' : 'none';
+      }
+    };
+
+    toggleButton('bgSettingsToggle', noMediaLoaded);
+    toggleButton('btnSpeed', !noMediaLoaded);
+    toggleButton('btnEqualizer', !noMediaLoaded);
+    toggleButton('btnSubtitles', !noMediaLoaded);
+    toggleButton('btnABLoop', !noMediaLoaded);
+    toggleButton('btnScreenshot', !noMediaLoaded);
+    toggleButton('btnLock', !noMediaLoaded);
   }
 }
 

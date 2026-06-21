@@ -7,6 +7,10 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('hybridAPI', {
+  app: {
+    getStartupDiagnostics: () => ipcRenderer.invoke('app:get-startup-diagnostics')
+  },
+
   // ─── Window Controls ───────────────────────────────────
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),
@@ -21,7 +25,11 @@ contextBridge.exposeInMainWorld('hybridAPI', {
     isFullScreen: () => ipcRenderer.invoke('window:isFullScreen'),
     isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
     setUiLocked: (state) => ipcRenderer.invoke('window:set-ui-locked', state),
-    onStateChanged: (cb) => ipcRenderer.on('window-state-changed', (_, state) => cb(state))
+    onStateChanged: (cb) => {
+      const listener = (_, state) => cb(state);
+      ipcRenderer.on('window-state-changed', listener);
+      return () => ipcRenderer.removeListener('window-state-changed', listener);
+    }
   },
 
   // ─── mpv Engine ────────────────────────────────────────
@@ -81,10 +89,14 @@ contextBridge.exposeInMainWorld('hybridAPI', {
 
     // Events from main → renderer
     onPropertyChange: (cb) => {
-      ipcRenderer.on('mpv:property-change', (_, name, value) => cb(name, value));
+      const listener = (_, name, value) => cb(name, value);
+      ipcRenderer.on('mpv:property-change', listener);
+      return () => ipcRenderer.removeListener('mpv:property-change', listener);
     },
     onEvent: (cb) => {
-      ipcRenderer.on('mpv:event', (_, event, data) => cb(event, data));
+      const listener = (_, event, data) => cb(event, data);
+      ipcRenderer.on('mpv:event', listener);
+      return () => ipcRenderer.removeListener('mpv:event', listener);
     },
   },
 
@@ -123,7 +135,8 @@ contextBridge.exposeInMainWorld('hybridAPI', {
 
   resume: {
     save: (filePath, time) => ipcRenderer.invoke('resume:save', filePath, time),
-    get: (filePath) => ipcRenderer.invoke('resume:get', filePath)
+    get: (filePath) => ipcRenderer.invoke('resume:get', filePath),
+    clear: (filePath) => ipcRenderer.invoke('resume:clear', filePath)
   },
 
   speed: {
@@ -165,7 +178,10 @@ contextBridge.exposeInMainWorld('hybridAPI', {
       'mpv:property-change', 'mpv:event'
     ];
     if (validChannels.includes(channel)) {
-      ipcRenderer.on(channel, (_, ...args) => callback(...args));
+      const listener = (_, ...args) => callback(...args);
+      ipcRenderer.on(channel, listener);
+      return () => ipcRenderer.removeListener(channel, listener);
     }
+    return () => {};
   },
 });

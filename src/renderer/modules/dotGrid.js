@@ -4,6 +4,11 @@ import { InertiaPlugin } from 'gsap/InertiaPlugin';
 gsap.registerPlugin(InertiaPlugin);
 
 const LOG_TAG = '[DotGrid]';
+const DOT_GRID_DEBUG = false;
+
+function dotGriddbg(...args) {
+  if (DOT_GRID_DEBUG) console.log(...args);
+}
 
 const throttle = (func, limit) => {
   let lastCall = 0;
@@ -356,7 +361,7 @@ export function initDotGrid(containerElement, customOptions = {}) {
     }
   };
 
-  console.log(`${LOG_TAG} init`, {
+  dotGriddbg(`${LOG_TAG} init`, {
     dots: dots.length,
     canvasWidth: canvas.width,
     canvasHeight: canvas.height,
@@ -398,7 +403,7 @@ export function initDotGrid(containerElement, customOptions = {}) {
       containerElement.removeChild(section);
     }
 
-    console.log(`${LOG_TAG} destroy`, {
+    dotGriddbg(`${LOG_TAG} destroy`, {
       rafStopped: true,
       resizeObserverDisconnected: true,
       listenersRemoved: true,

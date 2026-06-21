@@ -7,18 +7,24 @@ files:
   - filter:
       - src/**/*
       - assets/**/*
+      - package.json
+      - '!node_modules/ffmpeg-static/**/*'
 extraResources:
   - from: mpv/
     to: mpv/
     filter:
       - '**/*'
+  - from: node_modules/ffmpeg-static/
+    to: ffmpeg/
+    filter:
+      - ffmpeg*
 win:
   target:
     - target: nsis
       arch:
         - x64
   icon: icons/icon.ico
-  signAndEditExecutable: false
+  signAndEditExecutable: true
 mac:
   target:
     - dmg
@@ -35,4 +41,4 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-electronVersion: 35.7.5
+electronVersion: 40.10.2

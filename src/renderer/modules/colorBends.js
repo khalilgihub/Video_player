@@ -2,6 +2,11 @@ import * as THREE from 'three';
 
 const LOG_TAG = '[ColorBends]';
 const MAX_COLORS = 8;
+const COLOR_BENDS_DEBUG = false;
+
+function colorBendsdbg(...args) {
+  if (COLOR_BENDS_DEBUG) console.log(...args);
+}
 
 const frag = `
 #define MAX_COLORS ${MAX_COLORS}
@@ -303,7 +308,7 @@ export function initColorBends(containerElement, customOptions = {}) {
   }
   pointerEventTarget.addEventListener('pointermove', handlePointerMove, { passive: true });
 
-  console.log(`${LOG_TAG} init`, {
+  colorBendsdbg(`${LOG_TAG} init`, {
     canvasAttached: renderer.domElement.parentElement === containerElement,
     dpr,
     uniformsReady: Object.keys(material.uniforms),
@@ -374,7 +379,7 @@ export function initColorBends(containerElement, customOptions = {}) {
     }
     renderer.forceContextLoss();
 
-    console.log(`${LOG_TAG} destroy`, {
+    colorBendsdbg(`${LOG_TAG} destroy`, {
       rafStopped: true,
       resizeObserverDisconnected: true,
       pointerListenerRemoved: true,

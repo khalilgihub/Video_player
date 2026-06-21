@@ -49,8 +49,12 @@ class HybridSubtitles {
     const fontSize    = document.getElementById('subFontSize');
     const fontSizeVal = document.getElementById('subFontSizeVal');
     fontSize?.addEventListener('input', () => {
-      this.style.fontSize = parseInt(fontSize.value);
-      fontSizeVal.textContent = fontSize.value + 'px';
+      const nextSize = parseInt(fontSize.value, 10);
+      if (Number.isFinite(nextSize)) {
+        this.style.fontSize = Math.max(12, Math.min(96, nextSize));
+      }
+      fontSize.value = String(this.style.fontSize);
+      if (fontSizeVal) fontSizeVal.textContent = fontSize.value + 'px';
       this._applyMpvStyle();
     });
 
@@ -65,7 +69,8 @@ class HybridSubtitles {
     });
 
     document.getElementById('subBgOpacity')?.addEventListener('input', (e) => {
-      this.style.bgOpacity = parseInt(e.target.value) / 100;
+      const value = parseInt(e.target.value, 10);
+      this.style.bgOpacity = Number.isFinite(value) ? Math.max(0, Math.min(1, value / 100)) : this.style.bgOpacity;
       this._applyMpvStyle();
     });
 
@@ -74,21 +79,32 @@ class HybridSubtitles {
   }
 
   adjustSync(deltaMs) {
-    this.syncOffset += deltaMs;
-    document.getElementById('subSyncValue').textContent = this.syncOffset + 'ms';
+    const nextOffset = this.setSyncOffset(this.syncOffset + deltaMs);
+    window.HybridToast?.show(`Subtitle sync: ${nextOffset > 0 ? '+' : ''}${nextOffset}ms`);
+  }
+
+  setSyncOffset(offsetMs, { apply = true, persist = true } = {}) {
+    this.syncOffset = this._clampSyncOffset(offsetMs);
+    const syncValue = document.getElementById('subSyncValue');
+    if (syncValue) {
+      syncValue.textContent = this.syncOffset + 'ms';
+    }
 
     // Convert ms → seconds for mpv
-    window.hybridAPI.mpv.setSubDelay(this.syncOffset / 1000);
-
-    if (this.player.currentFilePath) {
-      window.hybridAPI.subtitleDelay.save(this.player.currentFilePath, this.syncOffset);
+    if (apply) {
+      window.hybridAPI?.mpv?.setSubDelay?.(this.syncOffset / 1000);
     }
-    window.HybridToast?.show(`Subtitle sync: ${this.syncOffset > 0 ? '+' : ''}${this.syncOffset}ms`);
+
+    if (persist && this.player.currentFilePath) {
+      window.hybridAPI?.subtitleDelay?.save?.(this.player.currentFilePath, this.syncOffset);
+    }
+
+    return this.syncOffset;
   }
 
   disable() {
     window.hybridAPI.mpv.setSubVisibility(false);
-    this.overlay.innerHTML = '';
+    this.overlay.replaceChildren();
     this._updateTrackList(this.player.trackList);
   }
 
@@ -98,12 +114,27 @@ class HybridSubtitles {
 
   /** Send subtitle appearance props to mpv */
   _applyMpvStyle() {
-    // mpv expects hex colour as &HBBGGRR (ASS style). We send as options.
     window.hybridAPI.mpv.command('set_property', 'sub-font-size', this.style.fontSize);
     window.hybridAPI.mpv.command('set_property', 'sub-font', this.style.fontFamily);
-    // sub-color is in &HAABBGGRR format; for simplicity keep hex strings
-    const fc = this.style.fontColor;
-    window.hybridAPI.mpv.command('set_property', 'sub-color', fc);
+    window.hybridAPI.mpv.command('set_property', 'sub-color', this._sanitizeHexColor(this.style.fontColor, '#ffffff'));
+    window.hybridAPI.mpv.command('set_property', 'sub-back-color', this._colorWithAlpha(this.style.bgColor, this.style.bgOpacity));
+  }
+
+  _clampSyncOffset(offsetMs) {
+    const value = Math.round(Number(offsetMs));
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(-10 * 60 * 1000, Math.min(10 * 60 * 1000, value));
+  }
+
+  _sanitizeHexColor(value, fallback) {
+    return /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
+  }
+
+  _colorWithAlpha(hexColor, opacity) {
+    const color = this._sanitizeHexColor(hexColor, '#000000');
+    const safeOpacity = Number.isFinite(Number(opacity)) ? Math.max(0, Math.min(1, Number(opacity))) : 0.6;
+    const alpha = Math.round(safeOpacity * 255).toString(16).padStart(2, '0');
+    return `#${alpha}${color.slice(1)}`;
   }
 
   /** Rebuild the subtitle track list in the UI from mpv track-list */
@@ -114,18 +145,31 @@ class HybridSubtitles {
     const subTracks = (trackList || []).filter(t => t.type === 'sub');
     const isVisible = this.player.subVisible;
 
-    let html = `<button class="subtitle-track-btn ${!isVisible ? 'active' : ''}" data-track="off">Off</button>`;
+    const offButton = document.createElement('button');
+    offButton.type = 'button';
+    offButton.className = `subtitle-track-btn ${!isVisible ? 'active' : ''}`;
+    offButton.dataset.track = 'off';
+    offButton.setAttribute('aria-pressed', String(!isVisible));
+    offButton.textContent = 'Off';
+
+    const fragment = document.createDocumentFragment();
+    fragment.appendChild(offButton);
 
     subTracks.forEach(t => {
       const label = t.title || t.lang || `Sub ${t.id}`;
-      const active = t.selected && isVisible ? 'active' : '';
-      html += `<button class="subtitle-track-btn ${active}" data-track="${t.id}">${label}${t.external ? ' (ext)' : ''}</button>`;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `subtitle-track-btn ${t.selected && isVisible ? 'active' : ''}`;
+      button.dataset.track = String(t.id);
+      button.setAttribute('aria-pressed', String(!!(t.selected && isVisible)));
+      button.textContent = `${label}${t.external ? ' (ext)' : ''}`;
+      fragment.appendChild(button);
     });
 
-    container.innerHTML = html;
+    container.replaceChildren(fragment);
 
     // Bind
-    container.querySelector('[data-track="off"]')?.addEventListener('click', () => this.disable());
+    offButton.addEventListener('click', () => this.disable());
     container.querySelectorAll('[data-track]:not([data-track="off"])').forEach(btn => {
       btn.addEventListener('click', () => {
         const id = parseInt(btn.dataset.track);

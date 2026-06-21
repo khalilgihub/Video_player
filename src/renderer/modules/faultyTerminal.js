@@ -1,6 +1,11 @@
 import { Renderer, Program, Mesh, Color, Triangle } from 'ogl';
 
 const LOG_TAG = '[FaultyTerminal]';
+const FAULTY_TERMINAL_DEBUG = false;
+
+function faultyTerminaldbg(...args) {
+  if (FAULTY_TERMINAL_DEBUG) console.log(...args);
+}
 
 const vertexShader = `
 attribute vec2 position;
@@ -447,7 +452,7 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
     applyOptionUniforms();
   };
 
-  console.log(`${LOG_TAG} init`, {
+  faultyTerminaldbg(`${LOG_TAG} init`, {
     canvasWidth: gl.canvas.width,
     canvasHeight: gl.canvas.height,
     dpr: options.dpr,
@@ -482,7 +487,7 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
 
     loadAnimationStart = 0;
 
-    console.log(`${LOG_TAG} destroy`, {
+    faultyTerminaldbg(`${LOG_TAG} destroy`, {
       rafStopped: true,
       resizeObserverDisconnected: true,
       mouseListenerRemoved: !!options.mouseReact,

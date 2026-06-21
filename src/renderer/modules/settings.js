@@ -66,6 +66,8 @@ class HybridSettings {
     this.prefersReducedMotion = window.matchMedia
       ? window.matchMedia('(prefers-reduced-motion: reduce)')
       : null;
+    this.activeModal = null;
+    this.previousFocus = null;
 
     // Live background options state
     this._bgOpts = {};
@@ -87,12 +89,147 @@ class HybridSettings {
     }
   }
 
+  _getModalOverlays() {
+    return Array.from(document.querySelectorAll('.modal-overlay'));
+  }
+
+  _getFocusableElements(container) {
+    if (!container) return [];
+    const selector = [
+      'button:not([disabled])',
+      'input:not([disabled])',
+      'select:not([disabled])',
+      'textarea:not([disabled])',
+      'a[href]',
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(',');
+
+    return Array.from(container.querySelectorAll(selector))
+      .filter((el) => {
+        if (!(el instanceof HTMLElement)) return false;
+        if (el.hidden || el.getAttribute('aria-hidden') === 'true') return false;
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+  }
+
+  _setPageInert(activeModal) {
+    Array.from(document.body.children).forEach((child) => {
+      if (!(child instanceof HTMLElement)) return;
+      const shouldInert = !!activeModal &&
+        child !== activeModal &&
+        !child.classList.contains('modal-overlay') &&
+        child.id !== 'toastContainer';
+
+      if (shouldInert) {
+        child.inert = true;
+        child.setAttribute('aria-hidden', 'true');
+        child.dataset.hybridModalInert = 'true';
+      } else if (child.dataset.hybridModalInert === 'true') {
+        child.inert = false;
+        child.removeAttribute('aria-hidden');
+        delete child.dataset.hybridModalInert;
+      }
+    });
+  }
+
+  _activateModal(modal) {
+    if (!(modal instanceof HTMLElement) || modal.hidden) return;
+    if (!this.activeModal) {
+      this.previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
+    this.activeModal = modal;
+    this._setPageInert(modal);
+
+    requestAnimationFrame(() => {
+      if (modal.hidden) return;
+      const focusable = this._getFocusableElements(modal);
+      const preferred = modal.querySelector('[data-initial-focus], [autofocus]');
+      const focusTarget = focusable.includes(preferred) ? preferred : focusable[0] || modal;
+      focusTarget.focus({ preventScroll: true });
+    });
+  }
+
+  _deactivateModal(modal) {
+    if (this.activeModal !== modal) return;
+    const nextActive = this._getModalOverlays().find((overlay) => !overlay.hidden && overlay !== modal);
+    if (nextActive) {
+      this.activeModal = null;
+      this._activateModal(nextActive);
+      return;
+    }
+
+    this.activeModal = null;
+    this._setPageInert(null);
+    const restoreTarget = this.previousFocus;
+    this.previousFocus = null;
+    if (restoreTarget?.isConnected) {
+      restoreTarget.focus({ preventScroll: true });
+    }
+  }
+
+  _closeModal(modal) {
+    if (modal instanceof HTMLElement) {
+      modal.hidden = true;
+    }
+  }
+
+  _trapModalFocus(event, modal) {
+    const focusable = this._getFocusableElements(modal);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      modal.focus({ preventScroll: true });
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+
+    if (!modal.contains(active)) {
+      event.preventDefault();
+      first.focus({ preventScroll: true });
+      return;
+    }
+
+    if (event.shiftKey && active === first) {
+      event.preventDefault();
+      last.focus({ preventScroll: true });
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus({ preventScroll: true });
+    }
+  }
+
   _bindCloseModals() {
     // Close modals on overlay click
     document.querySelectorAll('.modal-overlay').forEach(overlay => {
+      const observer = new MutationObserver(() => {
+        if (overlay.hidden) {
+          this._deactivateModal(overlay);
+          if (overlay.id === 'bgSettingsModal') {
+            const gearBtn = document.getElementById('bgSettingsToggle');
+            if (gearBtn) {
+              gearBtn.classList.remove('active');
+              gearBtn.setAttribute('aria-expanded', 'false');
+            }
+          }
+        } else {
+          this._activateModal(overlay);
+          if (overlay.id === 'bgSettingsModal') {
+            const gearBtn = document.getElementById('bgSettingsToggle');
+            if (gearBtn) {
+              gearBtn.classList.add('active');
+              gearBtn.setAttribute('aria-expanded', 'true');
+            }
+          }
+        }
+      });
+      observer.observe(overlay, { attributes: true, attributeFilter: ['hidden'] });
+
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) {
-          overlay.hidden = true;
+          this._closeModal(overlay);
         }
       });
     });
@@ -102,21 +239,25 @@ class HybridSettings {
       btn.addEventListener('click', () => {
         const modalId = btn.dataset.closeModal;
         const modal = document.getElementById(modalId);
-        if (modal) modal.hidden = true;
+        this._closeModal(modal);
       });
     });
 
-    // Escape key
     document.addEventListener('keydown', (e) => {
+      const activeModal = this.activeModal || this._getModalOverlays().find((m) => !m.hidden);
+      if (!activeModal) return;
+
       if (e.key === 'Escape') {
-        document.querySelectorAll('.modal-overlay').forEach(m => {
-          if (!m.hidden) {
-            m.hidden = true;
-            e.stopPropagation();
-          }
-        });
+        this._closeModal(activeModal);
+        e.preventDefault();
+        e.stopPropagation();
+        return;
       }
-    });
+
+      if (e.key === 'Tab') {
+        this._trapModalFocus(e, activeModal);
+      }
+    }, true);
   }
 
   _bindSettings() {
@@ -164,22 +305,52 @@ class HybridSettings {
   }
 
   _bindBgSettings() {
-    // Gear button toggles the panel
+    // Trigger button toggles the panel (popover in the controls bar)
     const gearBtn = document.getElementById('bgSettingsToggle');
-    const panel = document.getElementById('bgSettingsPanel');
-    const wrapper = document.querySelector('.welcome-bg-settings');
+    const panel = document.getElementById('bgSettingsModal');
+    const wrapper = document.getElementById('bgSettingsControl');
+
+    const closePanel = () => {
+      if (panel.hidden) return;
+      panel.hidden = true;
+      gearBtn.classList.remove('active');
+      gearBtn.setAttribute('aria-expanded', 'false');
+      wrapper?.classList.remove('bg-panel-open');
+    };
 
     if (gearBtn && panel) {
-      gearBtn.addEventListener('click', () => {
+      gearBtn.addEventListener('click', (e) => {
+        // stopPropagation so the document outside-click listener (below)
+        // doesn't immediately re-close the panel on the same click.
+        e.stopPropagation();
         const isOpen = !panel.hidden;
         panel.hidden = isOpen;
         gearBtn.classList.toggle('active', !isOpen);
+        gearBtn.setAttribute('aria-expanded', String(!isOpen));
         wrapper?.classList.toggle('bg-panel-open', !isOpen);
 
         if (!isOpen) {
           const bgSelect = document.getElementById('welcomeBackgroundSelect');
           this._showBgSettingsGroupFor(bgSelect?.value || 'dither');
         }
+      });
+
+      // Outside-click dismissal (mirrors the YouTube quality dropdown in app.js)
+      document.addEventListener('click', (e) => {
+        if (wrapper && !wrapper.contains(e.target)) {
+          closePanel();
+        }
+      });
+
+      // Escape-to-close for keyboard accessibility
+      panel.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          closePanel();
+          gearBtn.focus();
+        }
+      });
+      gearBtn.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closePanel();
       });
     }
 

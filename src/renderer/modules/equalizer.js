@@ -37,17 +37,39 @@ class HybridEqualizer {
     const container = document.getElementById('equalizerBands');
     if (!container) return;
 
-    container.innerHTML = this.bandLabels.map((label, i) => `
-      <div class="eq-band">
-        <span class="eq-band-value" id="eqVal${i}">0 dB</span>
-        <div class="eq-slider-wrap">
-          <input type="range" class="eq-slider" data-band="${i}"
-                 min="-12" max="12" step="0.5" value="0"
-                 aria-label="${label} equalizer band">
-        </div>
-        <span class="eq-band-label">${label}</span>
-      </div>
-    `).join('');
+    const fragment = document.createDocumentFragment();
+    this.bandLabels.forEach((label, i) => {
+      const band = document.createElement('div');
+      band.className = 'eq-band';
+
+      const value = document.createElement('span');
+      value.className = 'eq-band-value';
+      value.id = `eqVal${i}`;
+      value.textContent = '0 dB';
+
+      const sliderWrap = document.createElement('div');
+      sliderWrap.className = 'eq-slider-wrap';
+
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.className = 'eq-slider';
+      slider.dataset.band = String(i);
+      slider.min = '-12';
+      slider.max = '12';
+      slider.step = '0.5';
+      slider.value = '0';
+      slider.setAttribute('aria-label', `${label} equalizer band`);
+
+      const labelEl = document.createElement('span');
+      labelEl.className = 'eq-band-label';
+      labelEl.textContent = label;
+
+      sliderWrap.appendChild(slider);
+      band.append(value, sliderWrap, labelEl);
+      fragment.appendChild(band);
+    });
+
+    container.replaceChildren(fragment);
   }
 
   _bindEvents() {

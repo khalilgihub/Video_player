@@ -4,6 +4,11 @@
  * Uses debouncing to avoid flooding mpv with capture requests.
  */
 
+const THUMBNAILS_DEBUG = false;
+function thumbdbg(...args) {
+  if (THUMBNAILS_DEBUG) console.debug(...args);
+}
+
 class HybridThumbnails {
   constructor(player) {
     this.player = player;
@@ -38,26 +43,26 @@ class HybridThumbnails {
     // If a capture is already in-flight, queue this one to retry when it finishes
     if (this._pending) {
       this._queuedCapture = { time, token };
-      console.debug('[thumbnails] queued capture for', time.toFixed(2), '(pending)');
+      thumbdbg('[thumbnails] queued capture for', time.toFixed(2), '(pending)');
       return;
     }
     this._pending = true;
 
     try {
-      console.debug('[thumbnails] capturing at', time.toFixed(2));
+      thumbdbg('[thumbnails] capturing at', time.toFixed(2));
       const result = await window.hybridAPI.mpv.captureThumbnail(time);
 
       // Only apply if this token is still the latest
       if (token !== this._requestToken) {
-        console.debug('[thumbnails] stale token, discarding result');
+        thumbdbg('[thumbnails] stale token, discarding result');
         return;
       }
       if (result && result.dataUrl) {
         this.imgEl.src = result.dataUrl;
-        console.debug('[thumbnails] image updated for time', time.toFixed(2));
+        thumbdbg('[thumbnails] image updated for time', time.toFixed(2));
       }
     } catch (err) {
-      console.debug('[thumbnails] capture failed:', err.message);
+      thumbdbg('[thumbnails] capture failed:', err.message);
     } finally {
       this._pending = false;
 
@@ -67,7 +72,7 @@ class HybridThumbnails {
         this._queuedCapture = null;
         // Only run if its token is still the latest
         if (queued.token === this._requestToken) {
-          console.debug('[thumbnails] draining queued capture for', queued.time.toFixed(2));
+          thumbdbg('[thumbnails] draining queued capture for', queued.time.toFixed(2));
           this._capture(queued.time, queued.token);
         }
       }

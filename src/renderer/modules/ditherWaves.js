@@ -2,6 +2,11 @@ import * as THREE from 'three';
 import { EffectComposer, RenderPass, EffectPass, Effect } from 'postprocessing';
 
 const LOG_TAG = '[DitherWaves]';
+const DITHER_WAVES_DEBUG = false;
+
+function ditherWavesdbg(...args) {
+  if (DITHER_WAVES_DEBUG) console.log(...args);
+}
 
 const waveVertexShader = `
 precision highp float;
@@ -348,7 +353,7 @@ export function initDitherWaves(containerElement, customOptions = {}) {
   mouseEventTarget.addEventListener('mousemove', onMouseMove, { passive: true });
   window.addEventListener('resize', onResize);
 
-  console.log(`${LOG_TAG} init`, {
+  ditherWavesdbg(`${LOG_TAG} init`, {
     container: containerElement.id || '(no-id)',
     passes: composer.passes.map((pass) => pass.constructor.name),
     rendererSize: renderer.getSize(new THREE.Vector2()).toArray(),
@@ -399,7 +404,7 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     canvas.parentNode?.removeChild(canvas);
     gl.getExtension('WEBGL_lose_context')?.loseContext();
 
-    console.log(`${LOG_TAG} destroy`, {
+    ditherWavesdbg(`${LOG_TAG} destroy`, {
       canvasRemoved: !canvas.parentNode,
       passesDisposed: true,
       rendererDisposed: true,

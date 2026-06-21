@@ -8,9 +8,10 @@ const { ipcMain, shell, app } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { fileURLToPath } = require('url');
 const { MpvProcess } = require('./mpv-process');
 
-// TEMP DEBUG: fullscreen/input tracing
+// Fullscreen/input trace logging.
 const FS_DEBUG = false;
 function fsdbg(...args) {
   if (!FS_DEBUG) return;
@@ -62,10 +63,21 @@ function setupMpvIpc(win, mpv) {
   let previewLoadedPath = null;
   let previewQueue = Promise.resolve();
   const previewCache = new Map();
+  const previewCacheFiles = new Map();
   const previewDir = path.join(app.getPath('temp'), 'hybrid-player-thumbs');
   const pausedFrameDir = path.join(app.getPath('temp'), 'hybrid-player-paused-frames');
   const pausedFrameFiles = [];
   const PAUSED_FRAME_MAX_FILES = 12;
+  const MAX_INLINE_PREVIEW_BYTES = 12 * 1024 * 1024;
+  const NETWORK_MEDIA_PROTOCOLS = new Set(['http:', 'https:', 'rtsp:', 'rtmp:', 'rtmps:', 'srt:']);
+  const LOCAL_MEDIA_EXTENSIONS = new Set([
+    '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.m4v', '.wmv', '.ts', '.m2ts', '.mts',
+    '.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.wma', '.opus', '.aiff', '.alac',
+    '.m3u8', '.mpd'
+  ]);
+  const LOCAL_SUBTITLE_EXTENSIONS = new Set([
+    '.srt', '.ass', '.ssa', '.vtt', '.sub', '.idx', '.sup'
+  ]);
 
   if (!fs.existsSync(previewDir)) {
     fs.mkdirSync(previewDir, { recursive: true });
@@ -117,6 +129,12 @@ function setupMpvIpc(win, mpv) {
       try {
         previewMpv.destroy();
       } catch {}
+      for (const filePath of previewCacheFiles.values()) {
+        fs.unlink(filePath, () => {});
+      }
+      previewCache.clear();
+      previewCacheFiles.clear();
+      fs.rm(previewDir, { recursive: true, force: true }, () => {});
     });
   }
 
@@ -125,11 +143,19 @@ function setupMpvIpc(win, mpv) {
     return previewQueue;
   };
 
-  const cacheSet = (key, value) => {
+  const cacheSet = (key, value, filePath = null) => {
     previewCache.set(key, value);
+    if (filePath) {
+      previewCacheFiles.set(key, filePath);
+    }
     if (previewCache.size > 180) {
       const oldest = previewCache.keys().next().value;
       previewCache.delete(oldest);
+      const staleFile = previewCacheFiles.get(oldest);
+      previewCacheFiles.delete(oldest);
+      if (staleFile) {
+        fs.unlink(staleFile, () => {});
+      }
     }
   };
 
@@ -169,6 +195,159 @@ function setupMpvIpc(win, mpv) {
     }
   };
 
+  const rendererGetPropertyAllowlist = new Set([
+    'time-pos',
+    'drop-frame-count',
+    'estimated-vf-fps',
+    'video-bitrate',
+    'video-codec',
+    'demuxer-cache-state',
+  ]);
+
+  const rendererSetPropertyAllowlist = new Set([
+    'vid',
+    'ytdl-format',
+    'af',
+    'sub-font-size',
+    'sub-font',
+    'sub-color',
+    'sub-back-color',
+  ]);
+
+  const seekFlagsAllowlist = new Set([
+    'absolute',
+    'absolute+exact',
+    'relative',
+    'absolute-percent',
+    'absolute+keyframes',
+  ]);
+
+  const sanitizeMpvString = (value, maxLength = 4096) => {
+    if (typeof value !== 'string') return null;
+    const text = value.trim();
+    if (!text || text.length > maxLength || text.includes('\0')) return null;
+    return text;
+  };
+
+  const isLikelyAbsoluteLocalPath = (source) => (
+    path.isAbsolute(source) ||
+    /^[a-zA-Z]:[\\/]/.test(source) ||
+    /^\\\\[^\\]/.test(source)
+  );
+
+  const sanitizeLocalMediaPath = (source, { mustExist = false, allowedExtensions = null } = {}) => {
+    try {
+      const resolved = path.resolve(source);
+      if (!resolved || resolved.includes('\0')) return null;
+      if (allowedExtensions && !allowedExtensions.has(path.extname(resolved).toLowerCase())) return null;
+      if (mustExist) {
+        const stat = fs.statSync(resolved);
+        if (!stat.isFile()) return null;
+      }
+      return resolved;
+    } catch {
+      return null;
+    }
+  };
+
+  const sanitizeMediaSource = (value, options = {}) => {
+    const source = sanitizeMpvString(value, 8192);
+    if (!source) return null;
+
+    if (isLikelyAbsoluteLocalPath(source)) {
+      return sanitizeLocalMediaPath(source, options);
+    }
+
+    try {
+      const parsed = new URL(source);
+      if (NETWORK_MEDIA_PROTOCOLS.has(parsed.protocol)) {
+        return parsed.href;
+      }
+      if (parsed.protocol === 'file:') {
+        return sanitizeLocalMediaPath(fileURLToPath(parsed), options);
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  const sanitizeNumber = (value, min, max, fallback = null) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return fallback;
+    return Math.min(max, Math.max(min, numeric));
+  };
+
+  const isPathInside = (childPath, parentPath) => {
+    const child = path.resolve(childPath);
+    const parent = path.resolve(parentPath);
+    const relative = path.relative(parent, child);
+    return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+  };
+
+  const sanitizeMpvPropertyValue = (name, value) => {
+    if (!rendererSetPropertyAllowlist.has(name)) return null;
+
+    switch (name) {
+      case 'vid':
+        if (value === 'auto' || value === 'no') return value;
+        return Number.isInteger(Number(value)) ? Number(value) : null;
+      case 'ytdl-format':
+        return sanitizeMpvString(value, 512);
+      case 'af': {
+        if (value === '') return '';
+        const filter = sanitizeMpvString(value, 512);
+        return /^lavfi=\[superequalizer=[0-9:.\-]+\]$/.test(filter || '') ? filter : null;
+      }
+      case 'sub-font-size':
+        return sanitizeNumber(value, 8, 96, null);
+      case 'sub-font':
+        return sanitizeMpvString(value, 100);
+      case 'sub-color':
+      case 'sub-back-color':
+        return /^#(?:[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value) ? value : null;
+      default:
+        return null;
+    }
+  };
+
+  const sanitizeRendererMpvCommand = (args) => {
+    if (!Array.isArray(args) || args.length === 0) return null;
+    const command = args[0];
+
+    switch (command) {
+      case 'loadfile': {
+        const source = sanitizeMediaSource(args[1], {
+          mustExist: true,
+          allowedExtensions: LOCAL_MEDIA_EXTENSIONS,
+        });
+        const mode = args[2] === 'append' ? 'append' : 'replace';
+        return source ? ['loadfile', source, mode] : null;
+      }
+      case 'seek': {
+        const seconds = sanitizeNumber(args[1], 0, 30 * 24 * 60 * 60, null);
+        const flags = seekFlagsAllowlist.has(args[2]) ? args[2] : 'absolute';
+        return seconds === null ? null : ['seek', seconds, flags];
+      }
+      case 'add': {
+        if (args[1] !== 'volume') return null;
+        const delta = sanitizeNumber(args[2], -100, 100, null);
+        return delta === null ? null : ['add', 'volume', delta];
+      }
+      case 'set_property': {
+        const name = sanitizeMpvString(args[1], 80);
+        const value = sanitizeMpvPropertyValue(name, args[2]);
+        return value === null ? null : ['set_property', name, value];
+      }
+      default:
+        return null;
+    }
+  };
+
+  const sanitizeScreenshotMode = (mode) => (
+    mode === 'subtitles' || mode === 'window' || mode === 'video' ? mode : 'video'
+  );
+
   const getImageMimeType = (filePath) => {
     const ext = path.extname(filePath).toLowerCase();
     if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
@@ -179,7 +358,7 @@ function setupMpvIpc(win, mpv) {
   const buildScreenshotPayload = (filePath) => {
     const mimeType = getImageMimeType(filePath);
     const normalizedPath = path.resolve(filePath).replace(/\\/g, '/');
-    const fileUrl = `file:///${encodeURI(normalizedPath)}`;
+    const fileUrl = `local-file:///${encodeURI(normalizedPath)}`;
     return {
       filePath,
       mimeType,
@@ -189,6 +368,8 @@ function setupMpvIpc(win, mpv) {
 
   const buildInlinePreviewDataUrl = (filePath, mimeType) => {
     try {
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile() || stat.size > MAX_INLINE_PREVIEW_BYTES) return null;
       const raw = fs.readFileSync(filePath);
       if (!raw || raw.length === 0) return null;
       return `data:${mimeType};base64,${raw.toString('base64')}`;
@@ -216,7 +397,7 @@ function setupMpvIpc(win, mpv) {
 
   const capturePausedFrameSilent = async (mode = 'video') => {
     const stamp = Date.now();
-    const nonce = Math.floor(Math.random() * 1e9);
+    const nonce = crypto.randomBytes(8).toString('hex');
     const framePath = path.join(pausedFrameDir, `paused-frame-${stamp}-${nonce}.jpg`);
     await mpv.command('screenshot-to-file', framePath, mode || 'video');
     if (!fs.existsSync(framePath)) {
@@ -488,20 +669,27 @@ function setupMpvIpc(win, mpv) {
 
   // ── Generic command passthrough ────────────────────────
   ipcMain.handle('mpv:command', async (_, ...args) => {
-    return withReady(() => mpv.command(...args), null);
+    const cleanArgs = sanitizeRendererMpvCommand(args);
+    if (!cleanArgs) return null;
+    return withReady(() => mpv.command(...cleanArgs), null);
   });
 
   ipcMain.handle('mpv:set-property', async (_, name, value) => {
-    return withReady(() => mpv.setProperty(name, value), false);
+    const cleanName = sanitizeMpvString(name, 80);
+    const cleanValue = sanitizeMpvPropertyValue(cleanName, value);
+    if (cleanValue === null) return false;
+    return withReady(() => mpv.setProperty(cleanName, cleanValue), false);
   });
 
   ipcMain.handle('mpv:get-property', async (_, name) => {
+    const cleanName = sanitizeMpvString(name, 80);
+    if (!cleanName || !rendererGetPropertyAllowlist.has(cleanName)) return null;
     try {
-      return await withReady(() => mpv.getProperty(name), null);
+      return await withReady(() => mpv.getProperty(cleanName), null);
     } catch (err) {
       const msg = String(err?.message || '').toLowerCase();
       if (msg.includes('property unavailable')) {
-        ytdbg('mpv:get-property unavailable', { name });
+        ytdbg('mpv:get-property unavailable', { name: cleanName });
         return null;
       }
       throw err;
@@ -510,12 +698,17 @@ function setupMpvIpc(win, mpv) {
 
   // ── File loading ───────────────────────────────────────
   ipcMain.handle('mpv:load-file', async (_, filePath) => {
-    playdbg('load-file request', { filePath });
+    const cleanFilePath = sanitizeMediaSource(filePath, {
+      mustExist: true,
+      allowedExtensions: LOCAL_MEDIA_EXTENSIONS,
+    });
+    if (!cleanFilePath) return false;
+    playdbg('load-file request', { filePath: cleanFilePath });
     await waitForReady(7000);
-    const result = await mpv.loadFile(filePath);
-    playdbg('load-file command sent', { filePath, result });
-    setTimeout(() => { void logPlaybackSnapshot('probe:1s', { filePath }); }, 1000);
-    setTimeout(() => { void logPlaybackSnapshot('probe:3s', { filePath }); }, 3000);
+    const result = await mpv.loadFile(cleanFilePath);
+    playdbg('load-file command sent', { filePath: cleanFilePath, result });
+    setTimeout(() => { void logPlaybackSnapshot('probe:1s', { filePath: cleanFilePath }); }, 1000);
+    setTimeout(() => { void logPlaybackSnapshot('probe:3s', { filePath: cleanFilePath }); }, 3000);
     return result;
   });
 
@@ -524,52 +717,94 @@ function setupMpvIpc(win, mpv) {
   ipcMain.handle('mpv:pause', async () => withReady(() => mpv.pause(), false));
   ipcMain.handle('mpv:toggle-pause', async () => withReady(() => mpv.togglePause(), false));
   ipcMain.handle('mpv:stop', async () => withReady(() => mpv.stop(), false));
-  ipcMain.handle('mpv:seek', async (_, time, flags) => withReady(() => mpv.seek(time, flags), false));
-  ipcMain.handle('mpv:seek-relative', async (_, sec) => withReady(() => mpv.seekRelative(sec), false));
-  ipcMain.handle('mpv:seek-percent', async (_, pct) => withReady(() => mpv.seekPercent(pct), false));
+  ipcMain.handle('mpv:seek', async (_, time, flags) => {
+    const safeTime = sanitizeNumber(time, 0, 30 * 24 * 60 * 60, null);
+    const safeFlags = seekFlagsAllowlist.has(flags) ? flags : 'absolute';
+    if (safeTime === null) return false;
+    return withReady(() => mpv.seek(safeTime, safeFlags), false);
+  });
+  ipcMain.handle('mpv:seek-relative', async (_, sec) => {
+    const safeSeconds = sanitizeNumber(sec, -24 * 60 * 60, 24 * 60 * 60, null);
+    return safeSeconds === null ? false : withReady(() => mpv.seekRelative(safeSeconds), false);
+  });
+  ipcMain.handle('mpv:seek-percent', async (_, pct) => {
+    const safePercent = sanitizeNumber(pct, 0, 100, null);
+    return safePercent === null ? false : withReady(() => mpv.seekPercent(safePercent), false);
+  });
 
   // ── Volume / speed ─────────────────────────────────────
-  ipcMain.handle('mpv:set-volume', async (_, v) => withReady(() => mpv.setVolume(v), false));
-  ipcMain.handle('mpv:set-mute', async (_, m) => withReady(() => mpv.setMute(m), false));
-  ipcMain.handle('mpv:set-speed', async (_, s) => withReady(() => mpv.setSpeed(s), false));
+  ipcMain.handle('mpv:set-volume', async (_, v) => {
+    const safeVolume = sanitizeNumber(v, 0, 100, null);
+    return safeVolume === null ? false : withReady(() => mpv.setVolume(safeVolume), false);
+  });
+  ipcMain.handle('mpv:set-mute', async (_, m) => withReady(() => mpv.setMute(!!m), false));
+  ipcMain.handle('mpv:set-speed', async (_, s) => {
+    const safeSpeed = sanitizeNumber(s, 0.1, 16, null);
+    return safeSpeed === null ? false : withReady(() => mpv.setSpeed(safeSpeed), false);
+  });
 
   // ── Subtitles ──────────────────────────────────────────
-  ipcMain.handle('mpv:set-sub', async (_, id) => withReady(() => mpv.setSub(id), false));
-  ipcMain.handle('mpv:set-sub-delay', async (_, sec) => withReady(() => mpv.setSubDelay(sec), false));
+  ipcMain.handle('mpv:set-sub', async (_, id) => {
+    const safeId = Number.isInteger(Number(id)) ? Number(id) : null;
+    return safeId === null ? false : withReady(() => mpv.setSub(safeId), false);
+  });
+  ipcMain.handle('mpv:set-sub-delay', async (_, sec) => {
+    const safeDelay = sanitizeNumber(sec, -600, 600, null);
+    return safeDelay === null ? false : withReady(() => mpv.setSubDelay(safeDelay), false);
+  });
   ipcMain.handle('mpv:set-sub-visibility', async (_, vis) => withReady(() => mpv.setSubVisibility(vis), false));
-  ipcMain.handle('mpv:add-sub-file', async (_, p) => withReady(() => mpv.addSubFile(p), false));
+  ipcMain.handle('mpv:add-sub-file', async (_, p) => {
+    const subtitlePath = sanitizeMediaSource(p, {
+      mustExist: true,
+      allowedExtensions: LOCAL_SUBTITLE_EXTENSIONS,
+    });
+    return subtitlePath ? withReady(() => mpv.addSubFile(subtitlePath), false) : false;
+  });
 
   // ── Audio tracks ───────────────────────────────────────
-  ipcMain.handle('mpv:set-audio', async (_, id) => withReady(() => mpv.setAudio(id), false));
+  ipcMain.handle('mpv:set-audio', async (_, id) => {
+    const safeId = Number.isInteger(Number(id)) ? Number(id) : null;
+    return safeId === null ? false : withReady(() => mpv.setAudio(safeId), false);
+  });
 
   // ── Chapters ───────────────────────────────────────────
-  ipcMain.handle('mpv:set-chapter', async (_, idx) => withReady(() => mpv.setChapter(idx), false));
+  ipcMain.handle('mpv:set-chapter', async (_, idx) => {
+    const safeIndex = Number.isInteger(Number(idx)) ? Number(idx) : null;
+    return safeIndex === null ? false : withReady(() => mpv.setChapter(safeIndex), false);
+  });
 
   // ── Frame stepping ─────────────────────────────────────
   ipcMain.handle('mpv:frame-step', async () => withReady(() => mpv.frameStep(), false));
   ipcMain.handle('mpv:frame-back-step', async () => withReady(() => mpv.frameBackStep(), false));
 
   // ── A-B loop ───────────────────────────────────────────
-  ipcMain.handle('mpv:set-ab-loop-a', async (_, t) => withReady(() => mpv.setABLoopA(t), false));
-  ipcMain.handle('mpv:set-ab-loop-b', async (_, t) => withReady(() => mpv.setABLoopB(t), false));
+  ipcMain.handle('mpv:set-ab-loop-a', async (_, t) => {
+    const safeTime = sanitizeNumber(t, 0, 30 * 24 * 60 * 60, null);
+    return safeTime === null ? false : withReady(() => mpv.setABLoopA(safeTime), false);
+  });
+  ipcMain.handle('mpv:set-ab-loop-b', async (_, t) => {
+    const safeTime = sanitizeNumber(t, 0, 30 * 24 * 60 * 60, null);
+    return safeTime === null ? false : withReady(() => mpv.setABLoopB(safeTime), false);
+  });
   ipcMain.handle('mpv:clear-ab-loop', async () => withReady(() => mpv.clearABLoop(), false));
 
   // ── Screenshot ─────────────────────────────────────────
   ipcMain.handle('mpv:screenshot-fast', async (_, mode, debugMeta) => {
-    return withReady(() => captureScreenshotWithAck(mode, debugMeta), null);
+    return withReady(() => captureScreenshotWithAck(sanitizeScreenshotMode(mode), debugMeta), null);
   });
 
   ipcMain.handle('mpv:screenshot', async (_, mode, debugMeta) => {
-    return withReady(() => captureScreenshotWithAck(mode, debugMeta), null);
+    return withReady(() => captureScreenshotWithAck(sanitizeScreenshotMode(mode), debugMeta), null);
   });
 
   ipcMain.handle('mpv:capture-paused-frame', async (_, mode) => {
-    return withReady(() => capturePausedFrameSilent(mode || 'video'), null);
+    return withReady(() => capturePausedFrameSilent(sanitizeScreenshotMode(mode)), null);
   });
 
   ipcMain.handle('mpv:screenshot-open-folder', async () => {
     const dir = await withReady(() => mpv.getProperty('screenshot-directory'), null);
-    if (typeof dir === 'string' && dir && fs.existsSync(dir)) {
+    const screenshotRoot = path.join(app.getPath('userData'), 'screenshots');
+    if (typeof dir === 'string' && dir && fs.existsSync(dir) && isPathInside(dir, screenshotRoot)) {
       shell.openPath(dir);
     }
     return true;
@@ -628,7 +863,7 @@ function setupMpvIpc(win, mpv) {
         const fileData = fs.readFileSync(thumbPath);
         const dataUrl = `data:image/jpeg;base64,${fileData.toString('base64')}`;
         const payload = { dataUrl, time: rounded };
-        cacheSet(cacheKey, payload);
+        cacheSet(cacheKey, payload, thumbPath);
         seekdbg('done', { rounded, bytes: fileData.length });
         return payload;
       });

@@ -11,12 +11,61 @@ const MEDIA_EXTENSIONS = new Set([
   '.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.wma', '.opus', '.aiff', '.alac',
   '.m3u8', '.mpd'
 ]);
+const MEDIA_DIALOG_EXTENSIONS = Array.from(MEDIA_EXTENSIONS, (ext) => ext.slice(1));
+const FOLDER_SCAN_MAX_DEPTH = 8;
+const FOLDER_SCAN_MAX_FILES = 2000;
+const FOLDER_SCAN_MAX_DIRS = 5000;
 
 function createMediaFilters() {
   return [
-    { name: 'Media Files', extensions: ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'm4v', 'wmv', 'ts', 'm2ts', 'mts', 'mp3', 'flac', 'wav', 'aac', 'ogg', 'm4a', 'wma', 'opus', 'aiff', 'alac', 'm3u8', 'mpd'] },
-    { name: 'All Files', extensions: ['*'] }
+    { name: 'Media Files', extensions: MEDIA_DIALOG_EXTENSIONS }
   ];
+}
+
+function collectFolderMediaFiles(folderPath) {
+  const root = typeof folderPath === 'string' ? path.resolve(folderPath) : null;
+  if (!root) return [];
+
+  const mediaFiles = [];
+  let visitedDirs = 0;
+
+  function walk(dirPath, depth) {
+    if (mediaFiles.length >= FOLDER_SCAN_MAX_FILES) return;
+    if (depth > FOLDER_SCAN_MAX_DEPTH) return;
+    visitedDirs += 1;
+    if (visitedDirs > FOLDER_SCAN_MAX_DIRS) return;
+
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+
+    for (const entry of entries) {
+      if (mediaFiles.length >= FOLDER_SCAN_MAX_FILES || visitedDirs > FOLDER_SCAN_MAX_DIRS) return;
+      const entryPath = path.join(dirPath, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) {
+        walk(entryPath, depth + 1);
+        continue;
+      }
+      if (entry.isFile() && MEDIA_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+        mediaFiles.push(entryPath);
+      }
+    }
+  }
+
+  try {
+    if (!fs.statSync(root).isDirectory()) return [];
+  } catch {
+    return [];
+  }
+
+  walk(root, 0);
+  return mediaFiles.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 }
 
 async function handleOpenFile(win) {
@@ -50,20 +99,7 @@ async function handleOpenFolder(win) {
   if (result.canceled || result.filePaths.length === 0) return;
 
   const folderPath = result.filePaths[0];
-  let mediaFiles = [];
-
-  try {
-    const entries = fs.readdirSync(folderPath, { withFileTypes: true });
-    mediaFiles = entries
-      .filter((entry) => entry.isFile())
-      .filter((entry) => MEDIA_EXTENSIONS.has(path.extname(entry.name).toLowerCase()))
-      .map((entry) => path.join(folderPath, entry.name))
-      .sort((a, b) => path.basename(a).localeCompare(path.basename(b), undefined, { numeric: true, sensitivity: 'base' }));
-  } catch {
-    mediaFiles = [];
-  }
-
-  win.webContents.send('menu-action', 'media-open-folder', mediaFiles);
+  win.webContents.send('menu-action', 'media-open-folder', collectFolderMediaFiles(folderPath));
 }
 
 function createApplicationMenu(win) {

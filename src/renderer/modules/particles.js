@@ -1,6 +1,11 @@
 import { Renderer, Camera, Geometry, Program, Mesh } from 'ogl';
 
 const LOG_TAG = '[Particles]';
+const PARTICLES_DEBUG = false;
+
+function particlesdbg(...args) {
+  if (PARTICLES_DEBUG) console.log(...args);
+}
 
 const defaultColors = ['#ffffff', '#ffffff', '#ffffff'];
 
@@ -305,7 +310,7 @@ export function initParticles(containerElement, customOptions = {}) {
     return true;
   };
 
-  console.log(`${LOG_TAG} init`, {
+  particlesdbg(`${LOG_TAG} init`, {
     particleCount: count,
     pixelRatio: options.pixelRatio,
     canvasAttached: gl.canvas.parentElement === containerElement,
@@ -337,7 +342,7 @@ export function initParticles(containerElement, customOptions = {}) {
 
     gl.getExtension('WEBGL_lose_context')?.loseContext();
 
-    console.log(`${LOG_TAG} destroy`, {
+    particlesdbg(`${LOG_TAG} destroy`, {
       rafStopped: true,
       listenersRemoved: true,
       canvasRemoved: !gl.canvas.parentElement,

@@ -34,6 +34,7 @@ const DEFAULT_OPTIONS = Object.freeze({
   hoverRaycastIntervalMs: 24,
   dragRaycastIntervalMs: 12,
   renderEveryNFrames: 1,
+  lineWidth: 0.15,
 });
 
 let activeInstance = null;
@@ -383,7 +384,7 @@ class VanillaLanyard {
     this.bandGeometry = new MeshLineGeometry();
     this.bandMaterial = new MeshLineMaterial({
       color: new THREE.Color('white'),
-      lineWidth: 1,
+      lineWidth: this.options.lineWidth,
       depthTest: false,
       transparent: true,
       opacity: 1,

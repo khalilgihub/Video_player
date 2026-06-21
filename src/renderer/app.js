@@ -21,6 +21,12 @@ function appdbg(...args) {
   console.log('[APPDBG][renderer]', ...args);
 }
 
+const PERF_REPORT_DEBUG = false;
+function perfdbg(...args) {
+  if (!PERF_REPORT_DEBUG) return;
+  console.info(...args);
+}
+
 class HybridPerfMonitorImpl {
   constructor({ sampleIntervalMs = 5000 } = {}) {
     this.sampleIntervalMs = sampleIntervalMs;
@@ -159,7 +165,7 @@ class HybridPerfMonitorImpl {
     this._reports.push(report);
     if (this._reports.length > 120) this._reports.shift();
 
-    console.info('[PERF][renderer] window report', {
+    perfdbg('[PERF][renderer] window report', {
       windowMs: report.windowMs,
       p95FrameMs: report.p95FrameMs,
       scopes: report.scopes,
@@ -294,9 +300,11 @@ class HybridApp {
       this.shortcutModule = new HybridShortcuts(this.player, this.controlsModule);
       this.thumbnailModule = new HybridThumbnails(this.player);
       this.gestureModule = new HybridGestures(this.player, this.controlsModule);
+      this.player.onError = (data) => this._handlePlaybackError(data);
       
       // Load saved EQ
       await this.equalizerModule.loadSavedSettings();
+      await this._showStartupDiagnostics();
       
       // Load recent files for welcome screen
       await this._loadRecentFiles();
@@ -305,7 +313,7 @@ class HybridApp {
       // Start sidebar as collapsed
       const sidebar = document.getElementById('sidebarPlaylist');
       if (sidebar && !sidebar.classList.contains('collapsed')) {
-        console.log('[LAYOUTDBG][renderer] sidebar not collapsed on init; forcing collapsed state');
+        appdbg('[LAYOUTDBG][renderer] sidebar not collapsed on init; forcing collapsed state');
       }
       sidebar?.classList.add('collapsed');
       
@@ -616,15 +624,29 @@ class HybridApp {
       const recent = await window.hybridAPI.history.getRecent(5);
       const container = document.getElementById('recentFiles');
       if (!container || !recent || recent.length === 0) return;
-      
-      container.innerHTML = '<h4>Recently Played</h4>';
+
+      const heading = document.createElement('h4');
+      heading.textContent = 'Recently Played';
+      container.replaceChildren(heading);
       recent.forEach(item => {
         const btn = document.createElement('button');
         btn.className = 'recent-item';
-        btn.innerHTML = `
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-          <span>${item.name}</span>
-        `;
+        btn.type = 'button';
+
+        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        icon.setAttribute('width', '16');
+        icon.setAttribute('height', '16');
+        icon.setAttribute('viewBox', '0 0 24 24');
+        icon.setAttribute('fill', 'currentColor');
+        icon.setAttribute('aria-hidden', 'true');
+        const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        pathEl.setAttribute('d', 'M8 5v14l11-7z');
+        icon.appendChild(pathEl);
+
+        const label = document.createElement('span');
+        label.textContent = item.name || 'Untitled';
+
+        btn.append(icon, label);
         btn.addEventListener('click', () => {
           this.openFiles([item.path]);
         });
@@ -636,6 +658,35 @@ class HybridApp {
   }
 
   // ─── Public Methods ────────────────────────────────────
+
+  async _showStartupDiagnostics() {
+    try {
+      const diagnostics = await window.hybridAPI.app?.getStartupDiagnostics?.();
+      if (!Array.isArray(diagnostics)) return;
+
+      diagnostics.forEach((item) => {
+        if (!item || typeof item !== 'object') return;
+        const message = typeof item.message === 'string' && item.message.trim()
+          ? item.message.trim()
+          : 'Hybrid Player recovered from a startup issue.';
+        window.HybridToast?.show(message);
+        if (item.detail) {
+          console.warn('[startup diagnostic]', item.code || item.level || 'diagnostic', item.detail);
+        }
+      });
+    } catch (error) {
+      console.warn('Failed to read startup diagnostics:', error);
+    }
+  }
+
+  _handlePlaybackError(data) {
+    const payload = data && typeof data === 'object' ? data : {};
+    const message = typeof payload.message === 'string' && payload.message.trim()
+      ? payload.message.trim()
+      : String(data || 'Playback error');
+    const prefix = payload.fatal ? 'Playback engine unavailable' : 'Playback error';
+    window.HybridToast?.show(`${prefix}: ${message}`);
+  }
 
   async openFiles(filePaths, { replacePlaylist = false, playFirst = false } = {}) {
     const clean = Array.from(new Set((filePaths || []).filter((filePath) => typeof filePath === 'string' && filePath.trim())));
@@ -681,6 +732,13 @@ class HybridApp {
     const filePath = await window.hybridAPI.dialog.openFile();
     if (filePath) {
       this.openFiles([filePath]);
+    }
+  }
+
+  async promptOpenMultipleFiles() {
+    const paths = await window.hybridAPI.dialog.openMultiple();
+    if (Array.isArray(paths) && paths.length > 0) {
+      this.openFiles(paths, { replacePlaylist: true, playFirst: true });
     }
   }
 
@@ -764,7 +822,7 @@ class HybridApp {
     this.player.currentFilePath = filePathOrUrl;
     this.player.welcomeScreen?.classList.add('hidden');
 
-    const isUrl = /^https?:\/\//i.test(filePathOrUrl) || /^rtsp:\/\//i.test(filePathOrUrl);
+    const isUrl = this._isNetworkMediaUrl(filePathOrUrl);
     this.currentStreamUrl = isUrl ? filePathOrUrl : null;
     this.currentPlaybackType = this._isYoutubeUrl(filePathOrUrl) ? 'youtube' : 'local';
 
@@ -1032,8 +1090,71 @@ class HybridApp {
   }
 
   _isYoutubeUrl(url) {
+    const normalized = this._normalizeNetworkMediaUrl(url);
+    if (!normalized) return false;
+    try {
+      const host = new URL(normalized).hostname.toLowerCase();
+      return [
+        'youtube.com',
+        'www.youtube.com',
+        'm.youtube.com',
+        'music.youtube.com',
+        'youtu.be',
+        'youtube-nocookie.com',
+        'www.youtube-nocookie.com',
+      ].includes(host);
+    } catch {
+      return false;
+    }
+  }
+
+  _normalizeNetworkMediaUrl(url) {
     const value = typeof url === 'string' ? url.trim() : '';
-    return /(?:youtube\.com|youtu\.be)/i.test(value);
+    if (!value || value.length > 4096) return null;
+
+    try {
+      const parsed = new URL(value);
+      const allowedProtocols = new Set(['http:', 'https:', 'rtsp:', 'rtmp:', 'rtmps:', 'srt:']);
+      return allowedProtocols.has(parsed.protocol) ? parsed.href : null;
+    } catch {
+      return null;
+    }
+  }
+
+  _isNetworkMediaUrl(url) {
+    return !!this._normalizeNetworkMediaUrl(url);
+  }
+
+  _isPrivateNetworkUrl(url) {
+    const normalized = this._normalizeNetworkMediaUrl(url);
+    if (!normalized) return false;
+
+    try {
+      const host = new URL(normalized).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+      if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
+      if (host === '::1' || host.startsWith('fe80:') || host.startsWith('fc') || host.startsWith('fd')) return true;
+
+      const parts = host.split('.').map((part) => Number(part));
+      if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+        return false;
+      }
+
+      const [a, b] = parts;
+      return (
+        a === 10 ||
+        a === 127 ||
+        (a === 169 && b === 254) ||
+        (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && b === 168)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  _confirmPrivateNetworkStream(url) {
+    if (!this._isPrivateNetworkUrl(url)) return true;
+    return window.confirm('This stream points to a local or private network address. Open it only if you trust the source.');
   }
 
   _mapQualityLabel(height) {
@@ -1050,7 +1171,7 @@ class HybridApp {
     const dropdown = document.getElementById('youtubeQualityDropdown');
     if (!wrap || !btn || !list || !dropdown) return;
 
-    list.innerHTML = '';
+    list.replaceChildren();
     const options = ['auto', ...heights];
 
     options.forEach((item) => {
@@ -1227,8 +1348,17 @@ class HybridApp {
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const url = input.value.trim();
-      if (!url) return;
+      const url = this._normalizeNetworkMediaUrl(input.value);
+      if (!url) {
+        window.HybridToast?.show('Enter a valid HTTP, RTSP, RTMP, or SRT URL');
+        input.focus();
+        return;
+      }
+
+      if (!this._confirmPrivateNetworkStream(url)) {
+        input.focus();
+        return;
+      }
 
       this._closeSettingsModal();
       this._beginVideoLoadSpinner();
@@ -1286,26 +1416,15 @@ class HybridApp {
     const quitBtn = document.getElementById('settingsQuitPlayer');
 
     openFileBtn?.addEventListener('click', async () => {
-      const filePath = await window.hybridAPI.dialog.openFile();
-      if (filePath) {
-        await this._loadMediaReplace(filePath);
-      }
+      await this.promptOpenFile();
     });
 
     openMultipleBtn?.addEventListener('click', async () => {
-      const paths = await window.hybridAPI.dialog.openMultiple();
-      if (Array.isArray(paths) && paths.length > 0) {
-        await this._loadMediaReplaceAppend(paths);
-      }
+      await this.promptOpenMultipleFiles();
     });
 
     openFolderBtn?.addEventListener('click', async () => {
-      const paths = await window.hybridAPI.dialog.openFolder();
-      if (Array.isArray(paths) && paths.length > 0) {
-        await this.openFiles(paths, { replacePlaylist: true, playFirst: true });
-      } else {
-        window.HybridToast?.show('No media files found in folder');
-      }
+      await this.promptOpenFolder();
     });
 
     openStreamBtn?.addEventListener('click', () => {
@@ -1326,6 +1445,7 @@ class HybridApp {
     if (nextState) {
       this.controlsModule?.closeAllModals();
       document.getElementById('sidebarPlaylist')?.classList.add('collapsed');
+      document.getElementById('btnPlaylist')?.setAttribute('aria-expanded', 'false');
       this.cursorManager?.show();
     } else {
       this.cursorManager?.resume();

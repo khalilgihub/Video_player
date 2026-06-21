@@ -15,6 +15,14 @@ const TITLEBAR_DRAG_VERTICAL_OFFSET = 14;
 const TITLEBAR_DRAG_MIN_VISIBLE_HEIGHT = 80;
 const MIN_RESTORE_WIDTH = 800;
 const MIN_RESTORE_HEIGHT = 500;
+const MAX_DEBUG_PAYLOAD_BYTES = 8 * 1024;
+const MAX_DEBUG_LOG_BYTES = 1024 * 1024;
+const MAX_DEBUG_LOG_RETAIN_BYTES = 384 * 1024;
+const MAX_DEBUG_TAIL_BYTES = 256 * 1024;
+const MAX_DEBUG_TAIL_LINES = 1000;
+const MEMORY_MAP_LIMIT = 1000;
+const SUBTITLE_DELAY_MIN_MS = -10 * 60 * 1000;
+const SUBTITLE_DELAY_MAX_MS = 10 * 60 * 1000;
 
 function clamp(value, min, max) {
   if (value < min) return min;
@@ -25,6 +33,178 @@ function clamp(value, min, max) {
 function toFiniteNumber(value, fallback = 0) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+const INVALID_PREF = Symbol('invalid-pref');
+const WELCOME_BACKGROUNDS = new Set(['none', 'dither', 'particles', 'faulty', 'dotgrid', 'colorbends', 'lanyard']);
+const WELCOME_QUALITIES = new Set(['low', 'medium', 'high', 'custom']);
+const MOTION_PROFILES = new Set(['reduced', 'balanced', 'showcase']);
+const THEMES = new Set(['dark', 'oled', 'light']);
+const EQ_PRESETS = new Set([
+  'flat',
+  'bass-boost',
+  'treble-boost',
+  'vocal',
+  'rock',
+  'pop',
+  'jazz',
+  'classical',
+  'electronic',
+  'custom',
+]);
+const BG_OPTION_PREFS = new Set([
+  'bgOpts_dither',
+  'bgOpts_particles',
+  'bgOpts_faulty',
+  'bgOpts_dotgrid',
+  'bgOpts_colorbends',
+]);
+
+function normalizeString(value, { max = 4096, trim = true } = {}) {
+  if (typeof value !== 'string') return null;
+  const text = trim ? value.trim() : value;
+  if (!text || text.length > max) return null;
+  return text;
+}
+
+function isPlainObject(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isHexColor(value) {
+  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
+}
+
+function clampNumber(value, min, max, fallback = min) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(max, Math.max(min, numeric));
+}
+
+function sanitizeEqualizerBands(value) {
+  if (!Array.isArray(value)) return INVALID_PREF;
+  return value.slice(0, 10).map((band) => clampNumber(band, -12, 12, 0));
+}
+
+function sanitizeBackgroundOptions(value) {
+  if (typeof value === 'string') {
+    if (value.length > 8192) return INVALID_PREF;
+    try {
+      const parsed = JSON.parse(value);
+      if (!isPlainObject(parsed)) return INVALID_PREF;
+      return JSON.stringify(parsed);
+    } catch {
+      return INVALID_PREF;
+    }
+  }
+
+  if (isPlainObject(value)) {
+    return JSON.stringify(value);
+  }
+
+  return INVALID_PREF;
+}
+
+function sanitizePreference(key, value) {
+  const prefKey = normalizeString(key, { max: 80 });
+  if (!prefKey) return INVALID_PREF;
+
+  if (BG_OPTION_PREFS.has(prefKey)) {
+    return sanitizeBackgroundOptions(value);
+  }
+
+  switch (prefKey) {
+    case 'theme':
+      return THEMES.has(value) ? value : INVALID_PREF;
+    case 'accentColor':
+      return isHexColor(value) ? value : INVALID_PREF;
+    case 'autoResume':
+    case 'brandFontEnabled':
+      return !!value;
+    case 'volume':
+      return clampNumber(value, 0, 1, 1);
+    case 'equalizerPreset':
+      return EQ_PRESETS.has(value) ? value : INVALID_PREF;
+    case 'equalizerBands':
+      return sanitizeEqualizerBands(value);
+    case 'motionProfile':
+      return MOTION_PROFILES.has(value) ? value : INVALID_PREF;
+    case 'welcomeBackground':
+      return WELCOME_BACKGROUNDS.has(value) ? value : INVALID_PREF;
+    case 'welcomeQuality':
+      return WELCOME_QUALITIES.has(value) ? value : INVALID_PREF;
+    default:
+      return INVALID_PREF;
+  }
+}
+
+function sanitizePreferencePatch(prefs) {
+  if (!isPlainObject(prefs)) return {};
+  const clean = {};
+  for (const [key, value] of Object.entries(prefs)) {
+    const sanitized = sanitizePreference(key, value);
+    if (sanitized !== INVALID_PREF) {
+      clean[key] = sanitized;
+    }
+  }
+  return clean;
+}
+
+function sanitizeMediaKey(value) {
+  return normalizeString(value, { max: 4096 });
+}
+
+function setBoundedMemoryValue(map, key, value, limit = MEMORY_MAP_LIMIT) {
+  if (!map || typeof map !== 'object' || !key) return;
+  if (Object.prototype.hasOwnProperty.call(map, key)) {
+    delete map[key];
+  }
+  map[key] = value;
+
+  const keys = Object.keys(map);
+  const overflow = keys.length - limit;
+  if (overflow > 0) {
+    keys.slice(0, overflow).forEach((oldKey) => {
+      delete map[oldKey];
+    });
+  }
+}
+
+function sanitizeHistoryEntry(entry) {
+  if (!isPlainObject(entry)) return null;
+  const mediaPath = sanitizeMediaKey(entry.path);
+  if (!mediaPath) return null;
+  const fallbackName = path.basename(mediaPath) || 'Untitled';
+  const name = normalizeString(entry.name, { max: 260 }) || fallbackName;
+  return {
+    path: mediaPath,
+    name,
+    duration: clampNumber(entry.duration, 0, 30 * 24 * 60 * 60, 0),
+  };
+}
+
+function sanitizePlaylist(playlist) {
+  if (!isPlainObject(playlist)) return null;
+  const id = normalizeString(playlist.id, { max: 128 }) || Date.now().toString(36);
+  const name = normalizeString(playlist.name, { max: 200 }) || 'Untitled Playlist';
+  const items = Array.isArray(playlist.items)
+    ? playlist.items.slice(0, 1000).map((item) => {
+        if (!isPlainObject(item)) return null;
+        const itemPath = sanitizeMediaKey(item.path);
+        if (!itemPath) return null;
+        return {
+          path: itemPath,
+          name: normalizeString(item.name, { max: 260 }) || path.basename(itemPath) || 'Untitled',
+        };
+      }).filter(Boolean)
+    : [];
+
+  return {
+    id,
+    name,
+    items,
+    created: clampNumber(playlist.created, 0, Date.now(), Date.now()),
+  };
 }
 
 function normalizeScreenPoint(payload) {
@@ -527,14 +707,42 @@ function normalizeScope(scope) {
   return value.replace(/[^a-z0-9:_-]/gi, '').slice(0, 42) || 'renderer';
 }
 
+function truncateDebugString(value, maxBytes = MAX_DEBUG_PAYLOAD_BYTES) {
+  const text = String(value || '');
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return text;
+  return `${Buffer.from(text, 'utf8').subarray(0, maxBytes).toString('utf8')}...[truncated]`;
+}
+
 function formatDebugPayload(payload) {
   if (payload == null) return '';
-  if (typeof payload === 'string') return payload;
+  if (typeof payload === 'string') return truncateDebugString(payload);
   try {
-    return JSON.stringify(payload);
+    return truncateDebugString(JSON.stringify(payload));
   } catch {
-    return String(payload);
+    return truncateDebugString(payload);
   }
+}
+
+function readFileTail(filePath, maxBytes) {
+  const stat = fs.statSync(filePath);
+  const bytesToRead = Math.min(Math.max(1, maxBytes), stat.size);
+  const buffer = Buffer.alloc(bytesToRead);
+  const start = Math.max(0, stat.size - bytesToRead);
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    fs.readSync(fd, buffer, 0, bytesToRead, start);
+  } finally {
+    fs.closeSync(fd);
+  }
+  return buffer.toString('utf8');
+}
+
+function trimDebugLogIfNeeded(logFile) {
+  if (!fs.existsSync(logFile)) return;
+  const stat = fs.statSync(logFile);
+  if (stat.size <= MAX_DEBUG_LOG_BYTES) return;
+  const tail = readFileTail(logFile, MAX_DEBUG_LOG_RETAIN_BYTES);
+  fs.writeFileSync(logFile, tail.replace(/^[^\n]*\n?/, ''), 'utf8');
 }
 
 function appendDebugLog(scope, payload) {
@@ -546,6 +754,7 @@ function appendDebugLog(scope, payload) {
   const line = `${new Date().toISOString()} [${safeScope}] ${message}\n`;
   const { logDir, logFile } = getDebugLogFilePath();
   fs.mkdirSync(logDir, { recursive: true });
+  trimDebugLogIfNeeded(logFile);
   fs.appendFileSync(logFile, line, 'utf8');
   if (DWM_DIAG_ECHO_CONSOLE && safeScope.startsWith('dwm-')) {
     console.log(`[DWMDBG][ipc][${safeScope}]`, message);
@@ -556,9 +765,10 @@ function appendDebugLog(scope, payload) {
 function tailDebugLog(maxLines = 120) {
   const { logFile } = getDebugLogFilePath();
   if (!fs.existsSync(logFile)) return '';
-  const text = fs.readFileSync(logFile, 'utf8');
+  const text = readFileTail(logFile, MAX_DEBUG_TAIL_BYTES);
   const lines = text.split(/\r?\n/);
-  return lines.slice(-Math.max(1, maxLines)).join('\n');
+  const safeMaxLines = Math.round(clampNumber(maxLines, 1, MAX_DEBUG_TAIL_LINES, 120));
+  return lines.slice(-safeMaxLines).join('\n');
 }
 
 function logWindowIpcState(win, source, extra = {}) {
@@ -641,19 +851,22 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
       title: 'Load Subtitle File',
       properties: ['openFile'],
       filters: [
-        { name: 'Subtitle Files', extensions: ['srt', 'vtt', 'ass', 'ssa'] },
-        { name: 'All Files', extensions: ['*'] }
+        { name: 'Subtitle Files', extensions: ['srt', 'vtt', 'ass', 'ssa', 'sub', 'idx', 'sup'] }
       ]
     });
     return result.canceled ? null : result.filePaths[0];
   });
 
   ipcMain.handle('db:getPreference', async (_, key) => {
-    return db.preferences[key];
+    const prefKey = normalizeString(key, { max: 80 });
+    return prefKey ? db.preferences[prefKey] : undefined;
   });
 
   ipcMain.handle('db:setPreference', async (_, key, value) => {
-    db.preferences[key] = value;
+    const prefKey = normalizeString(key, { max: 80 });
+    const sanitized = sanitizePreference(prefKey, value);
+    if (!prefKey || sanitized === INVALID_PREF) return false;
+    db.preferences[prefKey] = sanitized;
     saveDatabase(db);
     return true;
   });
@@ -663,7 +876,8 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
   });
 
   ipcMain.handle('db:saveAllPreferences', async (_, prefs) => {
-    db.preferences = { ...db.preferences, ...prefs };
+    const cleanPrefs = sanitizePreferencePatch(prefs);
+    db.preferences = { ...db.preferences, ...cleanPrefs };
     saveDatabase(db);
     return true;
   });
@@ -671,57 +885,91 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
   // ─── History & Resume ──────────────────────────────────
   ipcMain.handle('history:add', async (_, entry) => {
     // entry: { path, name, duration, timestamp }
-    db.history = db.history.filter(h => h.path !== entry.path);
-    db.history.unshift({ ...entry, timestamp: Date.now() });
+    const cleanEntry = sanitizeHistoryEntry(entry);
+    if (!cleanEntry) return false;
+    db.history = db.history.filter(h => h.path !== cleanEntry.path);
+    db.history.unshift({ ...cleanEntry, timestamp: Date.now() });
     if (db.history.length > 200) db.history = db.history.slice(0, 200);
     // Also update recent files
-    db.recentFiles = db.recentFiles.filter(r => r !== entry.path);
-    db.recentFiles.unshift(entry.path);
+    db.recentFiles = db.recentFiles.filter(r => r !== cleanEntry.path);
+    db.recentFiles.unshift(cleanEntry.path);
     if (db.recentFiles.length > 50) db.recentFiles = db.recentFiles.slice(0, 50);
     saveDatabase(db);
     return true;
   });
 
-  ipcMain.handle('history:getRecent', async (_, count) => db.history.slice(0, count || 20));
+  ipcMain.handle('history:getRecent', async (_, count) => {
+    const limit = Math.round(clampNumber(count || 20, 1, 100, 20));
+    return db.history.slice(0, limit);
+  });
 
   ipcMain.handle('resume:save', async (_, filePath, time) => {
-    db.resumePositions[filePath] = time;
+    const mediaPath = sanitizeMediaKey(filePath);
+    if (!mediaPath) return false;
+    setBoundedMemoryValue(
+      db.resumePositions,
+      mediaPath,
+      clampNumber(time, 0, 30 * 24 * 60 * 60, 0)
+    );
     saveDatabase(db);
     return true;
   });
 
   ipcMain.handle('resume:get', async (_, filePath) => {
-    return db.resumePositions[filePath] || 0;
+    const mediaPath = sanitizeMediaKey(filePath);
+    return mediaPath ? db.resumePositions[mediaPath] || 0 : 0;
+  });
+
+  ipcMain.handle('resume:clear', async (_, filePath) => {
+    const mediaPath = sanitizeMediaKey(filePath);
+    if (!mediaPath) return false;
+    if (Object.prototype.hasOwnProperty.call(db.resumePositions, mediaPath)) {
+      delete db.resumePositions[mediaPath];
+      saveDatabase(db);
+    }
+    return true;
   });
 
   // ─── Speed Memory ──────────────────────────────────────
   ipcMain.handle('speed:save', async (_, filePath, speed) => {
-    db.speedMemory[filePath] = speed;
+    const mediaPath = sanitizeMediaKey(filePath);
+    if (!mediaPath) return false;
+    setBoundedMemoryValue(db.speedMemory, mediaPath, clampNumber(speed, 0.1, 4, 1));
     saveDatabase(db);
     return true;
   });
 
   ipcMain.handle('speed:get', async (_, filePath) => {
-    return db.speedMemory[filePath] || null;
+    const mediaPath = sanitizeMediaKey(filePath);
+    return mediaPath ? db.speedMemory[mediaPath] || null : null;
   });
 
   // ─── Subtitle Delay Memory ────────────────────────────
   ipcMain.handle('subtitleDelay:save', async (_, filePath, delay) => {
-    db.subtitleDelayMemory[filePath] = delay;
+    const mediaPath = sanitizeMediaKey(filePath);
+    if (!mediaPath) return false;
+    setBoundedMemoryValue(
+      db.subtitleDelayMemory,
+      mediaPath,
+      clampNumber(delay, SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS, 0)
+    );
     saveDatabase(db);
     return true;
   });
 
   ipcMain.handle('subtitleDelay:get', async (_, filePath) => {
-    return db.subtitleDelayMemory[filePath] || 0;
+    const mediaPath = sanitizeMediaKey(filePath);
+    return mediaPath ? db.subtitleDelayMemory[mediaPath] || 0 : 0;
   });
 
   // ─── Playlists ─────────────────────────────────────────
   ipcMain.handle('playlist:getAll', async () => db.playlists);
   ipcMain.handle('playlist:save', async (_, playlist) => {
-    const idx = db.playlists.findIndex(p => p.id === playlist.id);
-    if (idx >= 0) db.playlists[idx] = playlist;
-    else db.playlists.push(playlist);
+    const cleanPlaylist = sanitizePlaylist(playlist);
+    if (!cleanPlaylist) return false;
+    const idx = db.playlists.findIndex(p => p.id === cleanPlaylist.id);
+    if (idx >= 0) db.playlists[idx] = cleanPlaylist;
+    else db.playlists.push(cleanPlaylist);
     saveDatabase(db);
     return true;
   });

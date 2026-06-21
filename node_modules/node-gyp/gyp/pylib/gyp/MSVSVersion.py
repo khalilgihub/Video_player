@@ -87,7 +87,7 @@ class VisualStudioVersion:
     def _SetupScriptInternal(self, target_arch):
         """Returns a command (with arguments) to be used to set up the
         environment."""
-        assert target_arch in ("x86", "x64"), "target_arch not supported"
+        assert target_arch in ("x86", "x64", "arm64"), "target_arch not supported"
         # If WindowsSDKDir is set and SetEnv.Cmd exists then we are using the
         # depot_tools build tools and should run SetEnv.Cmd to set up the
         # environment. The check for WindowsSDKDir alone is not sufficient because
@@ -109,8 +109,16 @@ class VisualStudioVersion:
             )
 
             # Always use a native executable, cross-compiling if necessary.
-            host_arch = "amd64" if is_host_arch_x64 else "x86"
-            msvc_target_arch = "amd64" if target_arch == "x64" else "x86"
+            host_arch = (
+                "amd64"
+                if is_host_arch_x64
+                else (
+                    "arm64"
+                    if os.environ.get("PROCESSOR_ARCHITECTURE") == "ARM64"
+                    else "x86"
+                )
+            )
+            msvc_target_arch = {"x64": "amd64"}.get(target_arch, target_arch)
             arg = host_arch
             if host_arch != msvc_target_arch:
                 arg += "_" + msvc_target_arch
@@ -270,6 +278,18 @@ def _CreateVersion(name, path, sdk_based=False):
     if path:
         path = os.path.normpath(path)
     versions = {
+        "2026": VisualStudioVersion(
+            "2026",
+            "Visual Studio 2026",
+            solution_version="12.00",
+            project_version="18.0",
+            flat_sln=False,
+            uses_vcxproj=True,
+            path=path,
+            sdk_based=sdk_based,
+            default_toolset="v145",
+            compatible_sdks=["v8.1", "v10.0"],
+        ),
         "2022": VisualStudioVersion(
             "2022",
             "Visual Studio 2022",
@@ -462,6 +482,7 @@ def _DetectVisualStudioVersions(versions_to_check, force_express):
         "15.0": "2017",
         "16.0": "2019",
         "17.0": "2022",
+        "18.0": "2026",
     }
     versions = []
     for version in versions_to_check:
@@ -537,7 +558,18 @@ def SelectVisualStudioVersion(version="auto", allow_fallback=True):
     if version == "auto":
         version = os.environ.get("GYP_MSVS_VERSION", "auto")
     version_map = {
-        "auto": ("17.0", "16.0", "15.0", "14.0", "12.0", "10.0", "9.0", "8.0", "11.0"),
+        "auto": (
+            "18.0",
+            "17.0",
+            "16.0",
+            "15.0",
+            "14.0",
+            "12.0",
+            "10.0",
+            "9.0",
+            "8.0",
+            "11.0",
+        ),
         "2005": ("8.0",),
         "2005e": ("8.0",),
         "2008": ("9.0",),
@@ -552,6 +584,7 @@ def SelectVisualStudioVersion(version="auto", allow_fallback=True):
         "2017": ("15.0",),
         "2019": ("16.0",),
         "2022": ("17.0",),
+        "2026": ("18.0",),
     }
     if override_path := os.environ.get("GYP_MSVS_OVERRIDE_PATH"):
         msvs_version = os.environ.get("GYP_MSVS_VERSION")

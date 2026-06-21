@@ -3,7 +3,9 @@
  */
 
 /* ─── Reset & Base ─── */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -81,7 +83,8 @@ body[data-motion-profile="reduced"].app-cold-start .welcome-bg-settings {
   }
 }
 
-html, body {
+html,
+body {
   margin: 0;
   padding: 0;
   width: 100vw;
@@ -123,13 +126,22 @@ body.app-unfocused::after {
 }
 
 /* ─── Scrollbar ─── */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: var(--scrollbar-bg); }
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-bg);
+}
+
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-radius: 3px;
 }
-::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
 
 /* ─── Custom Title Bar ─── */
 .titlebar {
@@ -177,7 +189,7 @@ body.app-unfocused::after {
   -webkit-app-region: drag;
 }
 
-.titlebar-drag > * {
+.titlebar-drag>* {
   -webkit-app-region: no-drag;
 }
 
@@ -231,22 +243,24 @@ body.has-native-window-controls .titlebar-drag {
   box-shadow: none !important;
   color: #fff;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .titlebar-btn:hover {
-  background: transparent !important;
+  background-color: rgba(255, 255, 255, 0.16) !important;
 }
 
 .titlebar-btn-close:hover {
-  background: transparent !important;
+  background-color: #e81123 !important;
+  color: #fff;
 }
 
 /* ─── Main Layout ─── */
 .app-main {
   display: flex;
   height: 100vh;
-  padding-top: 0; /* No padding - titlebar overlays */
+  padding-top: 0;
+  /* No padding - titlebar overlays */
   transform-origin: center center;
   transition:
     opacity var(--motion-slow) var(--motion-ease-emphasized),
@@ -547,10 +561,12 @@ body.is-locked .sidebar-playlist {
   transition: none;
   backdrop-filter: none;
 }
+
 .screenshot-preview.hiding {
   opacity: 1;
   transform: none;
 }
+
 .screenshot-preview img {
   display: block;
   width: 100%;
@@ -587,7 +603,7 @@ body.is-locked .sidebar-playlist {
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
-  padding: 0 18px 60px;
+  padding: 0 18px 96px;
   pointer-events: none;
 }
 
@@ -612,12 +628,10 @@ body.is-locked .sidebar-playlist {
   --welcome-picker-panel-shadow-hover:
     0 26px 46px rgba(0, 0, 0, 0.46),
     inset 0 1px 0 rgba(255, 255, 255, 0.14);
-  --welcome-picker-highlight: radial-gradient(
-    ellipse at center,
-    rgba(131, 201, 255, 0.22) 0%,
-    rgba(131, 201, 255, 0.08) 32%,
-    rgba(131, 201, 255, 0) 66%
-  );
+  --welcome-picker-highlight: radial-gradient(ellipse at center,
+      rgba(131, 201, 255, 0.22) 0%,
+      rgba(131, 201, 255, 0.08) 32%,
+      rgba(131, 201, 255, 0) 66%);
   --welcome-picker-arrow: rgba(220, 230, 255, 0.9);
   --welcome-picker-select-bg: linear-gradient(180deg, rgba(18, 30, 58, 0.98), rgba(11, 20, 42, 0.98));
   --welcome-picker-select-bg-hover: linear-gradient(180deg, rgba(24, 38, 70, 0.99), rgba(14, 25, 51, 0.99));
@@ -647,12 +661,10 @@ body[data-welcome-background='dotgrid'] .welcome-screen {
   --welcome-picker-panel-shadow-hover:
     0 24px 44px rgba(11, 5, 30, 0.56),
     inset 0 1px 0 rgba(222, 214, 255, 0.18);
-  --welcome-picker-highlight: radial-gradient(
-    ellipse at center,
-    rgba(157, 127, 255, 0.24) 0%,
-    rgba(157, 127, 255, 0.1) 34%,
-    rgba(157, 127, 255, 0) 68%
-  );
+  --welcome-picker-highlight: radial-gradient(ellipse at center,
+      rgba(157, 127, 255, 0.24) 0%,
+      rgba(157, 127, 255, 0.1) 34%,
+      rgba(157, 127, 255, 0) 68%);
   --welcome-picker-arrow: rgba(227, 214, 255, 0.96);
   --welcome-picker-select-bg: linear-gradient(180deg, rgba(39, 24, 74, 0.97), rgba(29, 20, 60, 0.98));
   --welcome-picker-select-bg-hover: linear-gradient(180deg, rgba(46, 29, 84, 0.99), rgba(35, 24, 71, 0.99));
@@ -674,12 +686,10 @@ body[data-welcome-background='faulty'] .welcome-screen {
   --welcome-picker-panel-shadow-hover:
     0 24px 44px rgba(4, 14, 8, 0.64),
     inset 0 1px 0 rgba(224, 255, 233, 0.2);
-  --welcome-picker-highlight: radial-gradient(
-    ellipse at center,
-    rgba(148, 255, 188, 0.2) 0%,
-    rgba(148, 255, 188, 0.09) 32%,
-    rgba(148, 255, 188, 0) 67%
-  );
+  --welcome-picker-highlight: radial-gradient(ellipse at center,
+      rgba(148, 255, 188, 0.2) 0%,
+      rgba(148, 255, 188, 0.09) 32%,
+      rgba(148, 255, 188, 0) 67%);
   --welcome-picker-panel-fg: #dfffe8;
   --welcome-picker-arrow: rgba(203, 255, 216, 0.94);
   --welcome-picker-select-bg: linear-gradient(180deg, rgba(14, 34, 20, 0.98), rgba(10, 24, 15, 0.99));
@@ -703,12 +713,10 @@ body[data-welcome-background='particles'] .welcome-screen {
   --welcome-picker-panel-shadow-hover:
     0 26px 48px rgba(2, 8, 22, 0.62),
     inset 0 1px 0 rgba(226, 245, 255, 0.16);
-  --welcome-picker-highlight: radial-gradient(
-    ellipse at center,
-    rgba(146, 226, 255, 0.22) 0%,
-    rgba(146, 226, 255, 0.1) 34%,
-    rgba(146, 226, 255, 0) 68%
-  );
+  --welcome-picker-highlight: radial-gradient(ellipse at center,
+      rgba(146, 226, 255, 0.22) 0%,
+      rgba(146, 226, 255, 0.1) 34%,
+      rgba(146, 226, 255, 0) 68%);
   --welcome-picker-panel-fg: #ebf8ff;
   --welcome-picker-arrow: rgba(220, 238, 255, 0.95);
   --welcome-picker-select-bg: linear-gradient(180deg, rgba(17, 33, 65, 0.98), rgba(11, 25, 49, 0.99));
@@ -731,12 +739,10 @@ body[data-welcome-background='colorbends'] .welcome-screen {
   --welcome-picker-panel-shadow-hover:
     0 26px 46px rgba(15, 5, 28, 0.64),
     inset 0 1px 0 rgba(255, 220, 235, 0.2);
-  --welcome-picker-highlight: radial-gradient(
-    ellipse at center,
-    rgba(255, 149, 203, 0.2) 0%,
-    rgba(255, 149, 203, 0.09) 34%,
-    rgba(255, 149, 203, 0) 68%
-  );
+  --welcome-picker-highlight: radial-gradient(ellipse at center,
+      rgba(255, 149, 203, 0.2) 0%,
+      rgba(255, 149, 203, 0.09) 34%,
+      rgba(255, 149, 203, 0) 68%);
   --welcome-picker-panel-fg: #fff0fb;
   --welcome-picker-arrow: rgba(242, 226, 255, 0.95);
   --welcome-picker-select-bg: linear-gradient(180deg, rgba(54, 20, 93, 0.98), rgba(32, 16, 72, 0.99));
@@ -760,12 +766,10 @@ body[data-welcome-background='none'] .welcome-screen {
   --welcome-picker-panel-shadow-hover:
     0 22px 40px rgba(0, 0, 0, 0.46),
     inset 0 1px 0 rgba(255, 255, 255, 0.14);
-  --welcome-picker-highlight: radial-gradient(
-    ellipse at center,
-    rgba(194, 202, 223, 0.14) 0%,
-    rgba(194, 202, 223, 0.06) 35%,
-    rgba(194, 202, 223, 0) 70%
-  );
+  --welcome-picker-highlight: radial-gradient(ellipse at center,
+      rgba(194, 202, 223, 0.14) 0%,
+      rgba(194, 202, 223, 0.06) 35%,
+      rgba(194, 202, 223, 0) 70%);
   --welcome-picker-arrow: rgba(231, 235, 246, 0.86);
   --welcome-picker-select-bg: linear-gradient(180deg, rgba(35, 39, 54, 0.96), rgba(27, 31, 45, 0.98));
   --welcome-picker-select-bg-hover: linear-gradient(180deg, rgba(42, 47, 64, 0.97), rgba(33, 38, 53, 0.99));
@@ -778,63 +782,21 @@ body[data-welcome-background='none'] .welcome-screen {
   --welcome-picker-option-fg: #f2f4fa;
 }
 
+/* Background settings is now a popover anchored above its trigger button in
+   the controls bar. See `.bg-settings-panel` for the popover itself. */
 .welcome-bg-settings {
-  position: absolute;
-  top: 48px;
-  right: 14px;
-  z-index: 3;
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-  padding: 8px;
-  border-radius: var(--welcome-picker-radius);
-  border: 1px solid transparent;
-  background: var(--welcome-picker-panel-bg);
-  box-shadow: var(--welcome-picker-panel-shadow);
-  backdrop-filter: blur(16px) saturate(140%);
-  color: var(--welcome-picker-panel-fg);
-  pointer-events: auto;
-  overflow: hidden;
-  transition:
-    opacity 0.42s cubic-bezier(0.2, 0.72, 0.22, 1),
-    transform 0.42s cubic-bezier(0.2, 0.72, 0.22, 1),
-    box-shadow 0.42s cubic-bezier(0.2, 0.72, 0.22, 1),
-    background 0.42s cubic-bezier(0.2, 0.72, 0.22, 1);
+  display: none;
 }
 
-/* Keep selector aligned to the right edge in native-controls mode. */
-body.has-native-window-controls .welcome-bg-settings {
-  right: 14px;
-}
-
-body.is-fullscreen .welcome-bg-settings {
-  top: 48px;
+body.has-native-window-controls .welcome-bg-settings,
+body.is-fullscreen .welcome-bg-settings,
+body.fs-transition .welcome-bg-settings {
+  display: none;
 }
 
 body.fs-transition .titlebar {
   transform: none;
   opacity: 1;
-}
-
-body.fs-transition .welcome-bg-settings {
-  transform: none;
-}
-
-.welcome-bg-settings::before {
-  content: '';
-  position: absolute;
-  left: -18%;
-  top: -135%;
-  width: 160%;
-  height: 240%;
-  background: var(--welcome-picker-highlight);
-  transform: rotate(10deg);
-  pointer-events: none;
-}
-
-.welcome-bg-settings:hover {
-  transform: translateY(-1px) scale(1.01);
-  box-shadow: var(--welcome-picker-panel-shadow-hover);
 }
 
 /* Trim expensive glass effects at lower welcome quality levels. */
@@ -999,11 +961,9 @@ body[data-welcome-background='faulty'] .welcome-bg-settings::before {
   height: 100%;
   transform: none;
   background:
-    repeating-linear-gradient(
-      0deg,
+    repeating-linear-gradient(0deg,
       rgba(152, 255, 186, 0.08) 0 1px,
-      rgba(13, 22, 16, 0.02) 1px 3px
-    );
+      rgba(13, 22, 16, 0.02) 1px 3px);
 }
 
 body[data-welcome-background='faulty'] .welcome-bg-settings::after {
@@ -1067,13 +1027,11 @@ body[data-welcome-background='colorbends'] .welcome-bg-settings::before {
   width: 170%;
   height: 280%;
   transform: rotate(8deg);
-  background: conic-gradient(
-    from 180deg at 50% 50%,
-    rgba(255, 107, 185, 0.28),
-    rgba(109, 174, 255, 0.24),
-    rgba(100, 255, 221, 0.2),
-    rgba(255, 107, 185, 0.28)
-  );
+  background: conic-gradient(from 180deg at 50% 50%,
+      rgba(255, 107, 185, 0.28),
+      rgba(109, 174, 255, 0.24),
+      rgba(100, 255, 221, 0.2),
+      rgba(255, 107, 185, 0.28));
   animation: colorBendsPickerSpin 6.5s linear infinite;
 }
 
@@ -1116,6 +1074,7 @@ body[data-welcome-background='none'] .welcome-bg-select {
   0% {
     transform: translateY(-100%);
   }
+
   100% {
     transform: translateY(100%);
   }
@@ -1125,6 +1084,7 @@ body[data-welcome-background='none'] .welcome-bg-select {
   0% {
     transform: rotate(8deg);
   }
+
   100% {
     transform: rotate(368deg);
   }
@@ -1195,17 +1155,34 @@ body[data-welcome-background='none'] .welcome-bg-select {
   transform: rotate(90deg);
 }
 
-.bg-settings-panel {
+/* Background settings popover — opens upward above the trigger button,
+   mirroring the .quality-dropdown pattern in the controls bar. */
+#bgSettingsControl {
   position: relative;
-  z-index: 1;
-  width: 100%;
-  padding: 10px 2px 4px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  margin-top: 8px;
-  max-height: 280px;
+}
+
+.bg-settings-panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 40;
+  width: 280px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-glass-heavy);
+  border: var(--glass-border);
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+  max-height: min(60vh, 380px);
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+/* Keep the popover within the viewport on the welcome screen; the selector
+   mirrors the control above it so the select/quality row read as one unit. */
+.bg-settings-panel .welcome-bg-select-wrap {
+  margin-bottom: 8px;
 }
 
 .bg-settings-panel::-webkit-scrollbar {
@@ -1409,11 +1386,11 @@ body[data-welcome-background='none'] .welcome-bg-select {
   transition: transform 0.2s ease, background 0.2s ease;
 }
 
-.bg-toggle input:checked + .bg-toggle-slider {
+.bg-toggle input:checked+.bg-toggle-slider {
   background: var(--accent, #e50914);
 }
 
-.bg-toggle input:checked + .bg-toggle-slider::before {
+.bg-toggle input:checked+.bg-toggle-slider::before {
   transform: translateX(16px);
   background: #fff;
 }
@@ -1515,7 +1492,7 @@ body[data-welcome-background='particles'] .welcome-bg-settings.bg-panel-open {
 .welcome-recent {
   pointer-events: auto;
   width: min(440px, calc(100% - 12px));
-  max-height: 32vh;
+  max-height: min(32vh, calc(100vh - 260px));
   overflow: auto;
   margin: 0 auto;
   padding: 12px;
@@ -1550,13 +1527,27 @@ body.welcome-active .sidebar-playlist {
 }
 
 @keyframes welcomeTitlebarIn {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes welcomeControlIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .welcome-recent h4 {
@@ -1596,7 +1587,7 @@ body.welcome-active .sidebar-playlist {
 @media (max-height: 620px) {
   .welcome-content {
     gap: 8px;
-    padding-bottom: 35px;
+    padding-bottom: 88px;
   }
 
   .welcome-recent {
@@ -1798,8 +1789,8 @@ body.welcome-active .sidebar-playlist {
 }
 
 .modal-close {
-  width: 30px;
-  height: 30px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1819,6 +1810,14 @@ body.welcome-active .sidebar-playlist {
   color: var(--text-primary);
 }
 
+.modal-close:focus-visible,
+.select-input:focus-visible,
+.number-input:focus-visible,
+.network-stream-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* ─── Input Styles ─── */
 .select-input {
   padding: 6px 12px;
@@ -1832,7 +1831,9 @@ body.welcome-active .sidebar-playlist {
   min-width: 140px;
 }
 
-.select-input:focus { border-color: var(--accent); }
+.select-input:focus {
+  border-color: var(--accent);
+}
 
 .color-input {
   width: 36px;
@@ -1855,7 +1856,9 @@ body.welcome-active .sidebar-playlist {
   outline: none;
 }
 
-.number-input:focus { border-color: var(--accent); }
+.number-input:focus {
+  border-color: var(--accent);
+}
 
 .range-input {
   -webkit-appearance: none;
@@ -1865,6 +1868,11 @@ body.welcome-active .sidebar-playlist {
   border-radius: 2px;
   outline: none;
   flex: 1;
+}
+
+.range-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 8px;
 }
 
 .range-input::-webkit-slider-thumb {
@@ -1918,12 +1926,12 @@ body.welcome-active .sidebar-playlist {
   transition: 0.3s;
 }
 
-.toggle input:checked + .toggle-slider {
+.toggle input:checked+.toggle-slider {
   background: var(--accent);
   border-color: var(--accent);
 }
 
-.toggle input:checked + .toggle-slider::before {
+.toggle input:checked+.toggle-slider::before {
   transform: translateX(20px);
   background: #fff;
 }
@@ -1999,4 +2007,20 @@ body.welcome-active .sidebar-playlist {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+/* Custom backdrop override for background settings modal to make live background adjustments easily visible */
+#bgSettingsModal.modal-overlay {
+  background-color: rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(1px);
+}
+
+/* Smoothly hide welcome content when background settings modal is open */
+.welcome-content {
+  transition: opacity 0.25s ease;
+}
+
+body:has(#bgSettingsModal:not([hidden])) .welcome-content {
+  opacity: 0;
+  pointer-events: none;
 }

@@ -7,13 +7,20 @@
   },
   "files": [
     "src/**/*",
-    "assets/**/*"
+    "assets/**/*",
+    "package.json",
+    "!node_modules/ffmpeg-static/**/*"
   ],
   "extraResources": [
     {
       "from": "mpv/",
       "to": "mpv/",
       "filter": ["**/*"]
+    },
+    {
+      "from": "node_modules/ffmpeg-static/",
+      "to": "ffmpeg/",
+      "filter": ["ffmpeg*"]
     }
   ],
   "win": {
@@ -21,7 +28,7 @@
       { "target": "nsis", "arch": ["x64"] }
     ],
     "icon": "icons/icon.ico",
-    "signAndEditExecutable": false
+    "signAndEditExecutable": true
   },
   "mac": {
     "target": ["dmg"],
