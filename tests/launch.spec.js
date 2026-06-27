@@ -30,6 +30,22 @@ test.describe('Hybrid Player Launch', () => {
     }
   });
 
+  async function openBackgroundSettings() {
+    const modal = window.locator('#bgSettingsModal');
+    if (!(await modal.isVisible())) {
+      await window.locator('#bgSettingsToggle').click();
+    }
+    await expect(modal).toBeVisible();
+  }
+
+  async function closeBackgroundSettings() {
+    await window.evaluate(() => {
+      const modal = document.getElementById('bgSettingsModal');
+      if (modal) modal.hidden = true;
+    });
+    await expect(window.locator('#bgSettingsModal')).toBeHidden();
+  }
+
   test('should launch and render the welcome screen', async () => {
     const isVisible = await window.locator('#welcomeScreen').isVisible();
     expect(isVisible).toBe(true);
@@ -40,10 +56,19 @@ test.describe('Hybrid Player Launch', () => {
       return Boolean(window.HybridDitherWaves) && document.querySelectorAll('#ditherMount canvas').length > 0;
     });
 
+    await openBackgroundSettings();
+    
     await window.locator('#welcomeBackgroundSelect').selectOption('particles');
     await expect.poll(async () => {
       return window.evaluate(() => document.querySelectorAll('#particlesMount canvas').length);
     }).toBeGreaterThan(0);
+
+    await window.locator('#welcomeBackgroundSelect').selectOption('dotgrid');
+    await expect.poll(async () => {
+      return window.evaluate(() => document.querySelectorAll('#dotGridMount canvas').length);
+    }).toBeGreaterThan(0);
+
+    await closeBackgroundSettings();
   });
 
   test('should expose startup diagnostics without rendering errors', async () => {
@@ -97,6 +122,7 @@ test.describe('Hybrid Player Launch', () => {
   });
 
   test('should capture a basic welcome background performance snapshot', async () => {
+    await openBackgroundSettings();
     await window.locator('#welcomeBackgroundSelect').selectOption('dither');
     await window.waitForTimeout(750);
 
@@ -104,9 +130,16 @@ test.describe('Hybrid Player Launch', () => {
     expect(report).toBeTruthy();
     expect(report.scopes.length).toBeGreaterThan(0);
     expect(report.scopes.some((scope) => scope.scope.startsWith('welcome:') && scope.fps > 1)).toBe(true);
+    await closeBackgroundSettings();
   });
 
   test('should expose documented UI keyboard shortcuts', async () => {
+    await window.evaluate(() => {
+      document.querySelectorAll('.modal-overlay').forEach((modal) => {
+        modal.hidden = true;
+      });
+    });
+
     await window.keyboard.press('Control+,');
     await expect(window.locator('#settingsModal')).toBeVisible();
 

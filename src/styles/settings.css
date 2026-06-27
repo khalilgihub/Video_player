@@ -213,3 +213,736 @@
   padding: 12px 22px;
   border-top: 1px solid var(--border-color);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   BACKGROUND SETTINGS — "Chameleon" panel
+   The panel skins itself per active effect by inheriting the
+   --welcome-picker-* vars already defined on body[data-welcome-background]
+   (see main.css). No new color system; full cohesion with the welcome picker.
+   Loaded after main.css so it supersedes the old popover rules there.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Local tokens — fall back to theme defaults when a background has no
+   --welcome-picker-* definition (e.g. lanyard, none). The welcome-screen
+   block in main.css defines the real per-effect values; these are fallbacks
+   for the panel rendered outside .welcome-screen. */
+.bg-settings-panel {
+  --bgp-fg: var(--text-primary, #f0f0f5);
+  --bgp-fg-dim: var(--text-secondary, #a0a0b0);
+  --bgp-track: rgba(255, 255, 255, 0.14);
+  --bgp-track-fill: var(--accent, #e50914);
+  --bgp-fill: 50%;
+  --bgp-radius: 12px;
+  --bgp-accent: var(--accent, #e50914);
+  --bgp-row-fg: var(--text-secondary, #a0a0b0);
+  --bgp-value-fg: var(--text-secondary, #a0a0b0);
+  position: absolute !important;
+  right: 20px !important;
+  bottom: 80px !important;
+  width: min(92vw, 360px);
+  max-height: min(82vh, 640px) !important;
+  display: flex;
+  flex-direction: column;
+  background: var(--welcome-picker-panel-bg, var(--bg-glass-heavy)) !important;
+  border: var(--welcome-picker-panel-border, var(--glass-border)) !important;
+  box-shadow: var(--welcome-picker-panel-shadow, var(--shadow-md)) !important;
+  background-size: var(--welcome-picker-panel-bg-size, auto) !important;
+  backdrop-filter: var(--welcome-picker-panel-blur, var(--glass-blur)) !important;
+  overflow: hidden !important;
+  scrollbar-width: none !important;
+}
+
+.bg-settings-panel::-webkit-scrollbar {
+  display: none !important;
+}
+
+/* Inherit the per-effect skin from the welcome picker variables so the
+   panel visually "becomes" the effect it tunes. body[data-welcome-background]
+   is set by settings.js on every background change. */
+body[data-welcome-background] .bg-settings-panel {
+  --bgp-radius: var(--welcome-picker-select-radius, 12px);
+  --bgp-accent: var(--accent, #e50914);
+}
+
+/* ─── Effect meta strip (title bar under the header) ─── */
+.bg-modal-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent);
+}
+
+.bg-meta-tag {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: var(--bgp-radius);
+  background: var(--bgp-accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+
+.bg-meta-desc {
+  font-size: 12px;
+  color: var(--bgp-fg-dim);
+  letter-spacing: 0.01em;
+}
+
+/* ─── Body container ─── */
+.bg-settings-body {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 14px 18px 16px;
+  scrollbar-width: none !important;
+}
+
+.bg-settings-body::-webkit-scrollbar {
+  display: none !important;
+}
+
+/* ─── Global section (effect + quality) ─── */
+.bg-settings-global {
+  padding-bottom: 18px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.bg-settings-global .bg-setting-row {
+  margin-bottom: 14px;
+}
+
+.bg-settings-global .bg-setting-row:last-child {
+  margin-bottom: 0;
+}
+
+/* Shared row label (uppercase mini-label, left-aligned) */
+.bg-row-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bgp-fg-dim);
+  flex-shrink: 0;
+  min-width: 56px;
+  padding-top: 8px;
+}
+
+/* The Effect <select> — styled like the welcome picker select. */
+.bg-setting-select {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  border: 1px solid var(--welcome-picker-select-border, rgba(255, 255, 255, 0.22));
+  background: var(--welcome-picker-select-bg, rgba(8, 12, 26, 0.68));
+  color: var(--welcome-picker-select-fg, var(--bgp-fg));
+  border-radius: var(--bgp-radius);
+  padding: 0 30px 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  outline: none;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 16px) center, calc(100% - 12px) center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  opacity: 0.7;
+  transition: border-color var(--motion-fast) var(--motion-ease-standard),
+              opacity var(--motion-fast) var(--motion-ease-standard);
+}
+
+.bg-setting-select:hover {
+  border-color: var(--welcome-picker-select-border-hover, rgba(255, 255, 255, 0.35));
+  opacity: 1;
+}
+
+.bg-setting-select:focus-visible {
+  border-color: var(--welcome-picker-select-focus-border, var(--bgp-accent));
+  box-shadow: 0 0 0 3px var(--welcome-picker-select-focus-ring, rgba(255, 255, 255, 0.16));
+  opacity: 1;
+}
+
+.bg-setting-select option {
+  background: #0f152d;
+  color: #e8ecff;
+}
+
+/* ─── Quality segmented control ───
+   form-cro: <5 options → radio group, not a dropdown.
+   ui-a11y: radiogroup semantics + keyboard arrow-nav (native radio). */
+.bg-quality-group {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.bg-quality-pills {
+  display: flex;
+  flex: 1;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--bgp-radius);
+  padding: 3px;
+}
+
+.bg-quality-pill {
+  position: relative;
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 8px;
+  border-radius: calc(var(--bgp-radius) - 2px);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--bgp-fg-dim);
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--motion-ease-standard),
+              color var(--motion-fast) var(--motion-ease-standard);
+}
+
+/* Hide the actual radio input but keep it focusable/operable. */
+.bg-quality-pill input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.bg-quality-pill:hover {
+  color: var(--bgp-fg);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.bg-quality-pill input[type="radio"]:checked + span {
+  background: var(--bgp-accent);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.bg-quality-pill input[type="radio"]:checked + span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  padding: 0 8px;
+}
+
+.bg-quality-pill input[type="radio"]:focus-visible + span {
+  outline: 2px solid var(--welcome-picker-select-focus-border, #fff);
+  outline-offset: 1px;
+}
+
+/* "Custom" quality option is now directly clickable. */
+.bg-quality-custom {
+  cursor: pointer;
+  opacity: 0.45;
+  pointer-events: auto;
+}
+
+.bg-quality-custom.is-active {
+  opacity: 1;
+  color: var(--bgp-accent);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px var(--bgp-accent);
+}
+
+/* ─── Effect group (one per background) ─── */
+.bg-settings-group {
+  display: none;
+  animation: bgSectionIn var(--motion-medium, 200ms) var(--motion-ease-standard, ease) both;
+}
+
+.bg-settings-group.active {
+  display: block;
+}
+
+@keyframes bgSectionIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-settings-group {
+    animation-duration: 1ms;
+  }
+}
+
+/* Group header: tag + reset */
+.bg-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.bg-group-tag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bgp-fg);
+}
+
+.bg-reset {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  padding: 5px 10px;
+  min-height: 28px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--bgp-fg-dim);
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--motion-ease-standard),
+              color var(--motion-fast) var(--motion-ease-standard),
+              background var(--motion-fast) var(--motion-ease-standard);
+}
+
+.bg-reset:hover {
+  color: var(--bgp-accent);
+  border-color: var(--bgp-accent);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.bg-reset:focus-visible {
+  outline: 2px solid var(--welcome-picker-select-focus-border, var(--bgp-accent));
+  outline-offset: 2px;
+}
+
+.bg-reset:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--bgp-fg-dim);
+}
+
+/* ─── Subsection (Motion / Appearance / Render) ─── */
+.bg-subsection {
+  margin-bottom: 20px;
+}
+
+.bg-subsection:last-child {
+  margin-bottom: 0;
+}
+
+.bg-subsection h5 {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--bgp-fg-dim);
+  margin: 18px 0 8px;
+  opacity: 0.7;
+}
+
+/* ─── Setting row ─── */
+.bg-setting-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 42px;
+  padding: 6px 2px;
+}
+
+.bg-setting-row:has(input:disabled) {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.bg-setting-row > label:first-child {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--bgp-fg);
+  flex: 0 0 100px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  text-transform: uppercase;
+}
+
+/* ─── Range slider — accent-filled track ─── */
+.bg-setting-row input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(to right,
+    var(--bgp-track-fill) 0%,
+    var(--bgp-track-fill) var(--bgp-fill, 50%),
+    var(--bgp-track) var(--bgp-fill, 50%),
+    var(--bgp-track) 100%);
+  outline: none;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.bg-setting-row input[type="range"]:focus-visible {
+  outline: 2px solid var(--welcome-picker-select-focus-border, var(--bgp-accent));
+  outline-offset: 4px;
+}
+
+.bg-setting-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bgp-accent);
+  border: 2px solid #fff;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  transition: transform var(--motion-fast) var(--motion-ease-standard);
+}
+
+.bg-setting-row input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.bg-setting-row input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bgp-accent);
+  border: 2px solid #fff;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.bg-setting-row input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: transparent;
+  border: none;
+}
+
+/* Value readout — promoted, always visible */
+.bg-setting-value {
+  flex: 0 0 38px;
+  font-size: 11px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--bgp-value-fg);
+  text-align: right;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+/* ─── Color control — swatch + visible hex ───
+   form-cro: labels always visible (hex next to swatch). */
+.bg-color-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.bg-color-input {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 36px;
+  height: 36px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--bgp-radius);
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: border-color var(--motion-fast) var(--motion-ease-standard);
+}
+
+.bg-color-input:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.bg-color-input:focus-visible {
+  outline: 2px solid var(--welcome-picker-select-focus-border, var(--bgp-accent));
+  outline-offset: 2px;
+}
+
+.bg-color-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.bg-color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: calc(var(--bgp-radius) - 2px);
+}
+
+.bg-color-input::-moz-color-swatch {
+  border: none;
+  border-radius: calc(var(--bgp-radius) - 2px);
+}
+
+.bg-color-hex {
+  font-size: 11px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--bgp-value-fg);
+  letter-spacing: 0.02em;
+  min-width: 60px;
+  text-transform: uppercase;
+}
+
+/* ─── Toggle (particles alpha) ─── */
+.bg-toggle {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 22px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.bg-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.bg-toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--bgp-track);
+  border-radius: 11px;
+  transition: background var(--motion-medium, 200ms) var(--motion-ease-standard, ease);
+}
+
+.bg-toggle-slider::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  transition: transform var(--motion-medium, 200ms) var(--motion-ease-standard, ease),
+              background var(--motion-medium, 200ms) var(--motion-ease-standard, ease);
+}
+
+.bg-toggle input:checked + .bg-toggle-slider {
+  background: var(--bgp-accent);
+}
+
+.bg-toggle input:checked + .bg-toggle-slider::before {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+.bg-toggle input:focus-visible + .bg-toggle-slider {
+  outline: 2px solid var(--welcome-picker-select-focus-border, var(--bgp-accent));
+  outline-offset: 2px;
+}
+
+/* ─── Empty state (lanyard, none) ─── */
+.bg-settings-empty {
+  padding: 18px 4px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--bgp-fg-dim);
+  text-align: center;
+  line-height: 1.5;
+  opacity: 0.7;
+}
+
+/* ═══ Per-effect chameleon skin ═══
+   Each effect tints the panel's accent using its signature hue,
+   reusing/overriding welcome variables. Defined inline here. */
+
+.bg-settings-panel::before,
+.bg-settings-panel::after {
+  content: none;
+}
+
+body[data-welcome-background='dither'] .bg-settings-panel {
+  --bgp-accent: #b8c4ff;
+  --bgp-fg-dim: rgba(232, 238, 255, 0.6);
+  --welcome-picker-panel-bg:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 3px),
+    var(--bg-glass-heavy) padding-box,
+    linear-gradient(130deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.05)) border-box;
+  --welcome-picker-panel-border: 1px solid transparent;
+  --welcome-picker-panel-shadow: 0 6px 0 rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+
+body[data-welcome-background='faulty'] .bg-settings-panel {
+  --bgp-accent: #A7EF9E;
+  --bgp-fg-dim: rgba(167, 239, 158, 0.6);
+  --welcome-picker-panel-bg:
+    repeating-linear-gradient(0deg, rgba(152, 255, 186, 0.08) 0 1px, rgba(13, 22, 16, 0.02) 1px 3px),
+    linear-gradient(155deg, rgba(7, 18, 11, 0.95), rgba(10, 26, 17, 0.86)) padding-box,
+    linear-gradient(130deg, rgba(94, 255, 153, 0.44), rgba(190, 255, 153, 0.4), rgba(208, 255, 218, 0.22)) border-box;
+  --welcome-picker-panel-border: 1px solid transparent;
+  --welcome-picker-panel-shadow:
+    0 20px 40px rgba(4, 14, 8, 0.56),
+    inset 0 1px 0 rgba(205, 255, 220, 0.16);
+}
+
+body[data-welcome-background='faulty'] .bg-settings-panel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.25;
+  background: linear-gradient(180deg, transparent 0%, rgba(167, 239, 158, 0.3) 48%, transparent 100%);
+  animation: faultyPickerSweep 2.8s linear infinite;
+  z-index: 1;
+  border-radius: inherit;
+}
+
+body[data-welcome-background='faulty'] .bg-settings-panel .bg-settings-body {
+  font-family: 'Consolas', 'Courier New', monospace;
+}
+
+body[data-welcome-background='particles'] .bg-settings-panel {
+  --bgp-accent: #7ec8ff;
+  --bgp-fg-dim: rgba(190, 220, 255, 0.62);
+  --welcome-picker-panel-bg:
+    linear-gradient(155deg, rgba(8, 14, 31, 0.94), rgba(8, 18, 39, 0.82)) padding-box,
+    linear-gradient(130deg, rgba(95, 219, 255, 0.46), rgba(114, 171, 255, 0.4), rgba(225, 244, 255, 0.24)) border-box;
+  --welcome-picker-panel-border: 1px solid transparent;
+  --welcome-picker-panel-shadow:
+    0 22px 42px rgba(2, 8, 22, 0.56),
+    inset 0 1px 0 rgba(212, 240, 255, 0.12);
+}
+
+body[data-welcome-background='dotgrid'] .bg-settings-panel {
+  --bgp-accent: #9460ff;
+  --bgp-fg-dim: rgba(204, 183, 255, 0.62);
+  --welcome-picker-panel-bg:
+    radial-gradient(circle at 1px 1px, rgba(190, 164, 255, 0.22) 1px, transparent 1.4px),
+    linear-gradient(155deg, rgba(18, 11, 35, 0.94), rgba(14, 10, 33, 0.8)) padding-box,
+    linear-gradient(130deg, rgba(148, 96, 255, 0.52), rgba(64, 91, 255, 0.48), rgba(166, 202, 255, 0.24)) border-box;
+  --welcome-picker-panel-border: 1px solid transparent;
+  --welcome-picker-panel-bg-size: 10px 10px, auto, auto;
+  --welcome-picker-panel-shadow:
+    0 20px 40px rgba(11, 5, 30, 0.5),
+    inset 0 1px 0 rgba(210, 198, 255, 0.15);
+}
+
+body[data-welcome-background='colorbends'] .bg-settings-panel {
+  --bgp-accent: #d18bff;
+  --bgp-fg-dim: rgba(244, 200, 240, 0.62);
+  --welcome-picker-panel-bg:
+    linear-gradient(155deg, rgba(21, 9, 40, 0.95), rgba(22, 11, 53, 0.84)) padding-box,
+    linear-gradient(130deg, rgba(255, 113, 176, 0.48), rgba(108, 174, 255, 0.42), rgba(101, 255, 220, 0.25)) border-box;
+  --welcome-picker-panel-border: 1px solid transparent;
+  --welcome-picker-panel-shadow:
+    0 22px 42px rgba(15, 5, 28, 0.58),
+    inset 0 1px 0 rgba(255, 205, 225, 0.15);
+  overflow: hidden;
+}
+
+body[data-welcome-background='colorbends'] .bg-settings-panel::before {
+  content: '';
+  position: absolute;
+  left: -30%;
+  top: -150%;
+  width: 170%;
+  height: 280%;
+  transform: rotate(8deg);
+  background: conic-gradient(from 180deg at 50% 50%,
+      rgba(255, 107, 185, 0.15),
+      rgba(109, 174, 255, 0.12),
+      rgba(100, 255, 221, 0.1),
+      rgba(255, 107, 185, 0.15));
+  animation: colorBendsPickerSpin 6.5s linear infinite;
+  z-index: 0;
+  pointer-events: none;
+}
+
+body[data-welcome-background='lanyard'] .bg-settings-panel,
+body[data-welcome-background='none'] .bg-settings-panel {
+  --bgp-accent: var(--accent, #e50914);
+  --bgp-fg-dim: var(--text-secondary, #a0a0b0);
+  --welcome-picker-panel-bg: var(--bg-glass-heavy);
+  --welcome-picker-panel-border: var(--glass-border);
+  --welcome-picker-panel-shadow: var(--shadow-md);
+}
+
+body[data-welcome-background='pixelblast'] .bg-settings-panel {
+  --bgp-accent: #b497cf;
+  --bgp-fg-dim: rgba(227, 212, 245, 0.65);
+  --welcome-picker-panel-bg:
+    linear-gradient(155deg, rgba(20, 10, 36, 0.95), rgba(13, 8, 25, 0.85)) padding-box,
+    linear-gradient(130deg, rgba(180, 151, 207, 0.5), rgba(120, 91, 180, 0.48), rgba(255, 180, 220, 0.25)) border-box;
+  --welcome-picker-panel-border: 1px solid transparent;
+  --welcome-picker-panel-shadow:
+    0 22px 42px rgba(10, 5, 20, 0.58),
+    inset 0 1px 0 rgba(227, 212, 245, 0.15);
+}
+
+body[data-welcome-background='gridmotion'] .bg-settings-panel {
+  --bgp-accent: #4ae7d2;
+  --bgp-fg-dim: rgba(180, 235, 230, 0.62);
+  --welcome-picker-panel-bg:
+    linear-gradient(155deg, rgba(8, 18, 20, 0.95), rgba(6, 12, 14, 0.85)) padding-box,
+    linear-gradient(130deg, rgba(74, 231, 210, 0.52), rgba(0, 195, 255, 0.48), rgba(166, 202, 255, 0.24)) border-box;
+  --welcome-picker-panel-border: 1px solid transparent;
+  --welcome-picker-panel-shadow:
+    0 20px 40px rgba(4, 10, 12, 0.55),
+    inset 0 1px 0 rgba(180, 235, 230, 0.15);
+}
+
+/* Ensure modal contents stack above background sheen/scanlines */
+.bg-settings-panel .modal-header,
+.bg-settings-panel .bg-settings-body {
+  position: relative;
+  z-index: 2;
+}
+
+.modal-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  min-width: 0;
+  flex: 1;
+}
+
+.bg-modal-subtitle {
+  font-size: 11px;
+  color: var(--bgp-fg-dim);
+  font-weight: 500;
+  margin: 0;
+  padding: 0;
+  line-height: 1.3;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+}

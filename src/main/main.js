@@ -479,6 +479,8 @@ function registerSystemDialogHandlers(win) {
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
 app.commandLine.appendSwitch('enable-accelerated-video-decode');
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+app.commandLine.appendSwitch('force_high_performance_gpu');
 
 // VAAPI applies to Linux; forcing it on Windows can cause decode instability.
 if (process.platform === 'linux') {

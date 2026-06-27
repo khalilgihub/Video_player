@@ -36,7 +36,7 @@ function toFiniteNumber(value, fallback = 0) {
 }
 
 const INVALID_PREF = Symbol('invalid-pref');
-const WELCOME_BACKGROUNDS = new Set(['none', 'dither', 'particles', 'faulty', 'dotgrid', 'colorbends', 'lanyard']);
+const WELCOME_BACKGROUNDS = new Set(['none', 'dither', 'particles', 'faulty', 'dotgrid', 'pixelblast', 'gridmotion']);
 const WELCOME_QUALITIES = new Set(['low', 'medium', 'high', 'custom']);
 const MOTION_PROFILES = new Set(['reduced', 'balanced', 'showcase']);
 const THEMES = new Set(['dark', 'oled', 'light']);
@@ -58,6 +58,8 @@ const BG_OPTION_PREFS = new Set([
   'bgOpts_faulty',
   'bgOpts_dotgrid',
   'bgOpts_colorbends',
+  'bgOpts_pixelblast',
+  'bgOpts_gridmotion',
 ]);
 
 function normalizeString(value, { max = 4096, trim = true } = {}) {
@@ -86,9 +88,10 @@ function sanitizeEqualizerBands(value) {
   return value.slice(0, 10).map((band) => clampNumber(band, -12, 12, 0));
 }
 
-function sanitizeBackgroundOptions(value) {
+function sanitizeBackgroundOptions(value, key) {
   if (typeof value === 'string') {
-    if (value.length > 8192) return INVALID_PREF;
+    const maxLength = key === 'bgOpts_gridmotion' ? 10 * 1024 * 1024 : 8192;
+    if (value.length > maxLength) return INVALID_PREF;
     try {
       const parsed = JSON.parse(value);
       if (!isPlainObject(parsed)) return INVALID_PREF;
@@ -110,7 +113,7 @@ function sanitizePreference(key, value) {
   if (!prefKey) return INVALID_PREF;
 
   if (BG_OPTION_PREFS.has(prefKey)) {
-    return sanitizeBackgroundOptions(value);
+    return sanitizeBackgroundOptions(value, prefKey);
   }
 
   switch (prefKey) {

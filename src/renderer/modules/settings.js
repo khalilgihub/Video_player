@@ -5,11 +5,40 @@
 
 // Default options for each background effect
 const BG_DEFAULTS = Object.freeze({
-  dither: { speed: 0.05, frequency: 3, amplitude: 0.3, color: '#808080', pixelSize: 2, colorNum: 4 },
+  dither: { speed: 0.05, frequency: 3, amplitude: 0.3, color: '#808080', bgColor: '#000000', pixelSize: 1, colorNum: 4 },
   particles: { count: 300, speed: 0.1, spread: 10, color: '#ffffff', size: 100, alpha: false },
   faulty: { glitch: 1, scanlines: 0.7, flicker: 1, aberration: 0, curvature: 0.1, tint: '#A7EF9E', brightness: 0.8 },
-  dotgrid: { dotSize: 5, gap: 10, baseColor: '#271E37', activeColor: '#5227FF', proximity: 120, shockRadius: 250 },
-  colorbends: { speed: 0.2, rotation: 0, scale: 1, frequency: 1, warp: 1, color1: '#ff5c7a', color2: '#8a5cff', color3: '#00ffd1' },
+  dotgrid: { dotSize: 2, gap: 14, baseColor: '#5227FF', activeColor: '#5227FF', proximity: 150, shockRadius: 250, bgColor: '#000000' },
+  pixelblast: { pixelSize: 6, density: 1.0, scale: 2.0, color: '#B497CF', shapeType: 'diamond' },
+  gridmotion: { gradientColor: '#000000', speed: 1.0, maxMove: 300, customPictures: [] },
+});
+
+// Preset options for each quality level
+const BG_QUALITY_PRESETS = Object.freeze({
+  low: {
+    dither: { speed: 0.05, frequency: 2.55, amplitude: 0.26, color: '#808080', bgColor: '#000000', pixelSize: 4, colorNum: 4 },
+    particles: { count: 135, speed: 0.09, spread: 9, color: '#ffffff', size: 85, alpha: false },
+    faulty: { glitch: 0.65, scanlines: 0.46, flicker: 0.65, aberration: 0, curvature: 0.08, tint: '#A7EF9E', brightness: 0.8 },
+    dotgrid: { dotSize: 4, gap: 30, baseColor: '#5227FF', activeColor: '#5227FF', proximity: 98, shockRadius: 175, bgColor: '#000000' },
+    pixelblast: { pixelSize: 10, density: 0.7, scale: 1.5, color: '#B497CF', shapeType: 'diamond' },
+    gridmotion: { gradientColor: '#000000', speed: 0.5, maxMove: 150, customPictures: [] },
+  },
+  medium: {
+    dither: { speed: 0.05, frequency: 2.85, amplitude: 0.29, color: '#808080', bgColor: '#000000', pixelSize: 3, colorNum: 4 },
+    particles: { count: 210, speed: 0.1, spread: 10, color: '#ffffff', size: 95, alpha: false },
+    faulty: { glitch: 0.85, scanlines: 0.6, flicker: 0.85, aberration: 0, curvature: 0.09, tint: '#A7EF9E', brightness: 0.8 },
+    dotgrid: { dotSize: 2, gap: 20, baseColor: '#5227FF', activeColor: '#5227FF', proximity: 123, shockRadius: 213, bgColor: '#000000' },
+    pixelblast: { pixelSize: 6, density: 1.0, scale: 2.0, color: '#B497CF', shapeType: 'diamond' },
+    gridmotion: { gradientColor: '#000000', speed: 1.0, maxMove: 300, customPictures: [] },
+  },
+  high: {
+    dither: { speed: 0.05, frequency: 3, amplitude: 0.3, color: '#808080', bgColor: '#000000', pixelSize: 1, colorNum: 4 },
+    particles: { count: 300, speed: 0.1, spread: 10, color: '#ffffff', size: 100, alpha: false },
+    faulty: { glitch: 1, scanlines: 0.7, flicker: 1, aberration: 0, curvature: 0.1, tint: '#A7EF9E', brightness: 0.8 },
+    dotgrid: { dotSize: 2, gap: 14, baseColor: '#5227FF', activeColor: '#5227FF', proximity: 150, shockRadius: 250, bgColor: '#000000' },
+    pixelblast: { pixelSize: 3, density: 1.3, scale: 2.5, color: '#B497CF', shapeType: 'diamond' },
+    gridmotion: { gradientColor: '#000000', speed: 1.5, maxMove: 450, customPictures: [] },
+  },
 });
 
 // Map of UI input IDs → { bgKey, optKey, type, parse }
@@ -19,6 +48,7 @@ const BG_CONTROLS = [
   { id: 'bgDitherFrequency', bg: 'dither', opt: 'frequency', type: 'range', parse: parseFloat },
   { id: 'bgDitherAmplitude', bg: 'dither', opt: 'amplitude', type: 'range', parse: parseFloat },
   { id: 'bgDitherColor', bg: 'dither', opt: 'color', type: 'color' },
+  { id: 'bgDitherBgColor', bg: 'dither', opt: 'bgColor', type: 'color' },
   { id: 'bgDitherPixelSize', bg: 'dither', opt: 'pixelSize', type: 'range', parse: parseInt },
   { id: 'bgDitherColorNum', bg: 'dither', opt: 'colorNum', type: 'range', parse: parseInt },
   // Particles
@@ -41,22 +71,67 @@ const BG_CONTROLS = [
   { id: 'bgDotgridGap', bg: 'dotgrid', opt: 'gap', type: 'range', parse: parseInt },
   { id: 'bgDotgridBaseColor', bg: 'dotgrid', opt: 'baseColor', type: 'color' },
   { id: 'bgDotgridActiveColor', bg: 'dotgrid', opt: 'activeColor', type: 'color' },
+  { id: 'bgDotgridBgColor', bg: 'dotgrid', opt: 'bgColor', type: 'color' },
   { id: 'bgDotgridProximity', bg: 'dotgrid', opt: 'proximity', type: 'range', parse: parseInt },
   { id: 'bgDotgridShockRadius', bg: 'dotgrid', opt: 'shockRadius', type: 'range', parse: parseInt },
-  // Color Bends
-  { id: 'bgColorbendsSpeed', bg: 'colorbends', opt: 'speed', type: 'range', parse: parseFloat },
-  { id: 'bgColorbendsRotation', bg: 'colorbends', opt: 'rotation', type: 'range', parse: parseInt },
-  { id: 'bgColorbendsScale', bg: 'colorbends', opt: 'scale', type: 'range', parse: parseFloat },
-  { id: 'bgColorbendsFrequency', bg: 'colorbends', opt: 'frequency', type: 'range', parse: parseFloat },
-  { id: 'bgColorbendsWarp', bg: 'colorbends', opt: 'warp', type: 'range', parse: parseFloat },
-  { id: 'bgColorbendsColor1', bg: 'colorbends', opt: 'color1', type: 'color' },
-  { id: 'bgColorbendsColor2', bg: 'colorbends', opt: 'color2', type: 'color' },
-  { id: 'bgColorbendsColor3', bg: 'colorbends', opt: 'color3', type: 'color' },
+  // Pixel Blast
+  { id: 'bgPixelblastPixelSize', bg: 'pixelblast', opt: 'pixelSize', type: 'range', parse: parseInt },
+  { id: 'bgPixelblastDensity', bg: 'pixelblast', opt: 'density', type: 'range', parse: parseFloat },
+  { id: 'bgPixelblastScale', bg: 'pixelblast', opt: 'scale', type: 'range', parse: parseFloat },
+  { id: 'bgPixelblastColor', bg: 'pixelblast', opt: 'color', type: 'color' },
+  { id: 'bgPixelblastShapeType', bg: 'pixelblast', opt: 'shapeType', type: 'select' },
+  // Grid Motion
+  { id: 'bgGridmotionSpeed', bg: 'gridmotion', opt: 'speed', type: 'range', parse: parseFloat },
+  { id: 'bgGridmotionMaxMove', bg: 'gridmotion', opt: 'maxMove', type: 'range', parse: parseInt },
+  { id: 'bgGridmotionGradientColor', bg: 'gridmotion', opt: 'gradientColor', type: 'color' },
 ];
 
 const WELCOME_QUALITY_LEVELS = Object.freeze(['low', 'medium', 'high', 'custom']);
 const WELCOME_QUALITY_DEFAULT = 'medium';
-const WELCOME_BACKGROUNDS = Object.freeze(['none', 'dither', 'particles', 'faulty', 'dotgrid', 'colorbends', 'lanyard']);
+const WELCOME_BACKGROUNDS = Object.freeze(['none', 'dither', 'particles', 'faulty', 'dotgrid', 'pixelblast', 'gridmotion']);
+
+// Display labels for the background meta strip. Tag = short name, desc = one-liner.
+const BG_LABELS = Object.freeze({
+  dither: { tag: 'Dither', desc: 'Animated bayer dither' },
+  particles: { tag: 'Particles', desc: 'Drifting particle field' },
+  faulty: { tag: 'Faulty Terminal', desc: 'CRT glitch & scanlines' },
+  dotgrid: { tag: 'Dot Grid', desc: 'Reactive dot lattice' },
+  pixelblast: { tag: 'Pixel Blast', desc: 'Interactive diamond pixel blast' },
+  gridmotion: { tag: 'Grid Motion', desc: 'Interactive gliding item lattice' },
+  none: { tag: 'Default', desc: 'Pure black backdrop' },
+});
+
+function resizeGridmotionImage(file, maxDim = 400) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width;
+        let h = img.height;
+        if (w > maxDim || h > maxDim) {
+          if (w > h) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          } else {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => resolve('');
+      img.src = e.target.result;
+    };
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+}
 
 class HybridSettings {
   constructor(player) {
@@ -69,15 +144,285 @@ class HybridSettings {
     this.activeModal = null;
     this.previousFocus = null;
 
+    // Dynamically load pixelBlast module
+    import('./pixelBlast.js').catch((err) => {
+      console.error('[Settings] Failed to import pixelBlast.js:', err);
+    });
+
+    // Dynamically load gridMotion module
+    import('./gridMotion.js').catch((err) => {
+      console.error('[Settings] Failed to import gridMotion.js:', err);
+    });
+
+    // Dynamically inject Pixel Blast option in welcome background selector
+    const bgSelect = document.getElementById('welcomeBackgroundSelect');
+    if (bgSelect && !Array.from(bgSelect.options).some(o => o.value === 'pixelblast')) {
+      const opt = document.createElement('option');
+      opt.value = 'pixelblast';
+      opt.textContent = 'Pixel Blast';
+      const noneOpt = Array.from(bgSelect.options).find(o => o.value === 'none');
+      if (noneOpt) {
+        bgSelect.insertBefore(opt, noneOpt);
+      } else {
+        bgSelect.appendChild(opt);
+      }
+    }
+
+    // Dynamically inject Grid Motion option in welcome background selector
+    if (bgSelect && !Array.from(bgSelect.options).some(o => o.value === 'gridmotion')) {
+      const opt = document.createElement('option');
+      opt.value = 'gridmotion';
+      opt.textContent = 'Grid Motion';
+      const noneOpt = Array.from(bgSelect.options).find(o => o.value === 'none');
+      if (noneOpt) {
+        bgSelect.insertBefore(opt, noneOpt);
+      } else {
+        bgSelect.appendChild(opt);
+      }
+    }
+
+    // Dynamically inject Pixel Blast settings UI panel inside settings body
+    const settingsBody = document.querySelector('.bg-settings-body');
+    if (settingsBody && !settingsBody.querySelector('[data-bg="pixelblast"]')) {
+      const group = document.createElement('div');
+      group.className = 'bg-settings-group';
+      group.dataset.bg = 'pixelblast';
+      group.innerHTML = `
+        <div class="bg-group-head">
+          <span class="bg-group-tag">Pixel Blast</span>
+          <button type="button" class="bg-reset" data-reset-bg="pixelblast">Reset</button>
+        </div>
+        <section class="bg-subsection">
+          <h5>Density</h5>
+          <div class="bg-setting-row">
+            <label for="bgPixelblastPixelSize">Pixel Size</label>
+            <input type="range" id="bgPixelblastPixelSize" min="1" max="16" step="1" value="6">
+            <span class="bg-setting-value">6</span>
+          </div>
+          <div class="bg-setting-row">
+            <label for="bgPixelblastDensity">Density</label>
+            <input type="range" id="bgPixelblastDensity" min="0.1" max="2.0" step="0.05" value="1.0">
+            <span class="bg-setting-value">1.0</span>
+          </div>
+          <div class="bg-setting-row">
+            <label for="bgPixelblastScale">Scale</label>
+            <input type="range" id="bgPixelblastScale" min="0.5" max="5.0" step="0.1" value="2.0">
+            <span class="bg-setting-value">2.0</span>
+          </div>
+        </section>
+        <section class="bg-subsection">
+          <h5>Render</h5>
+          <div class="bg-setting-row">
+            <label for="bgPixelblastShapeType" class="bg-row-label">Shape</label>
+            <select id="bgPixelblastShapeType" class="bg-setting-select" aria-label="Shape type">
+              <option value="square">Square</option>
+              <option value="circle">Circle</option>
+              <option value="triangle">Triangle</option>
+              <option value="diamond" selected>Diamond</option>
+            </select>
+          </div>
+          <div class="bg-setting-row">
+            <label for="bgPixelblastColor">Color</label>
+            <div class="bg-color-control">
+              <input type="color" id="bgPixelblastColor" value="#B497CF" class="bg-color-input">
+              <span class="bg-color-hex" data-for="bgPixelblastColor">#B497CF</span>
+            </div>
+          </div>
+        </section>
+      `;
+      const noneGroup = settingsBody.querySelector('.bg-settings-group[data-bg="none"]');
+      if (noneGroup) {
+        settingsBody.insertBefore(group, noneGroup);
+      } else {
+        settingsBody.appendChild(group);
+      }
+    }
+
+    // Dynamically inject Grid Motion settings UI panel inside settings body
+    if (settingsBody && !settingsBody.querySelector('[data-bg="gridmotion"]')) {
+      const group = document.createElement('div');
+      group.className = 'bg-settings-group';
+      group.dataset.bg = 'gridmotion';
+      group.innerHTML = `
+        <div class="bg-group-head">
+          <span class="bg-group-tag">Grid Motion</span>
+          <button type="button" class="bg-reset" data-reset-bg="gridmotion">Reset</button>
+        </div>
+        <section class="bg-subsection">
+          <h5>Motion</h5>
+          <div class="bg-setting-row">
+            <label for="bgGridmotionSpeed">Speed</label>
+            <input type="range" id="bgGridmotionSpeed" min="0.1" max="3.0" step="0.1" value="1.0">
+            <span class="bg-setting-value">1.0</span>
+          </div>
+          <div class="bg-setting-row">
+            <label for="bgGridmotionMaxMove">Max Distance</label>
+            <input type="range" id="bgGridmotionMaxMove" min="50" max="600" step="10" value="300">
+            <span class="bg-setting-value">300</span>
+          </div>
+        </section>
+        <section class="bg-subsection">
+          <h5>Render</h5>
+          <div class="bg-setting-row">
+            <label for="bgGridmotionGradientColor">Background Color</label>
+            <div class="bg-color-control">
+              <input type="color" id="bgGridmotionGradientColor" value="#000000" class="bg-color-input">
+              <span class="bg-color-hex" data-for="bgGridmotionGradientColor">#000000</span>
+            </div>
+          </div>
+          <div class="bg-setting-row">
+            <label>Grid Pictures</label>
+            <div class="bg-image-uploader-control">
+              <input type="file" id="bgGridmotionFileInput" accept="image/*" multiple style="display: none;">
+              <button type="button" id="bgGridmotionSelectBtn" class="bg-settings-btn">Add Images...</button>
+              <button type="button" id="bgGridmotionClearBtn" class="bg-settings-btn bg-danger-btn" style="display: none;">Clear All</button>
+            </div>
+          </div>
+          <div id="bgGridmotionThumbnails" class="bg-thumbnails-grid"></div>
+        </section>
+      `;
+      const noneGroup = settingsBody.querySelector('.bg-settings-group[data-bg="none"]');
+      if (noneGroup) {
+        settingsBody.insertBefore(group, noneGroup);
+      } else {
+        settingsBody.appendChild(group);
+      }
+    }
+
+    const existingStyle = document.getElementById('gridmotionSettingsStyle');
+    if (existingStyle) {
+      existingStyle.remove();
+    }
+
+    const style = document.createElement('style');
+    style.id = 'gridmotionSettingsStyle';
+    style.textContent = `
+        .bg-image-uploader-control {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex: 1;
+          justify-content: flex-end;
+        }
+        .bg-settings-btn {
+          background: var(--accent-dim, rgba(255, 255, 255, 0.1));
+          border: 1px solid var(--accent, rgba(255, 255, 255, 0.2));
+          color: #fff;
+          padding: 6px 12px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 11px;
+          font-family: inherit;
+          transition: background-color 0.2s, border-color 0.2s;
+        }
+        .bg-settings-btn:hover {
+          background: var(--accent, rgba(255, 255, 255, 0.2));
+          border-color: var(--accent-hover, #fff);
+        }
+        .bg-settings-btn.bg-danger-btn {
+          background: rgba(220, 53, 69, 0.15);
+          border: 1px solid rgba(220, 53, 69, 0.35);
+        }
+        .bg-settings-btn.bg-danger-btn:hover {
+          background: rgba(220, 53, 69, 0.3);
+          border-color: #ff5f6d;
+        }
+        .bg-thumbnails-grid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 6px;
+          width: 100%;
+          max-height: 120px;
+          overflow-y: auto;
+          padding-right: 4px;
+          margin-top: 4px;
+          margin-bottom: 8px;
+        }
+        .bg-thumbnail-item {
+          position: relative;
+          aspect-ratio: 1;
+          border-radius: 4px;
+          overflow: hidden;
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: #222;
+        }
+        .bg-thumbnail-img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+        .bg-thumbnail-remove {
+          position: absolute;
+          top: 2px;
+          right: 2px;
+          width: 16px;
+          height: 16px;
+          border-radius: 50%;
+          background: rgba(220, 53, 69, 0.85);
+          color: #fff;
+          border: none;
+          font-size: 10px;
+          line-height: 1;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0;
+          transition: background-color 0.2s;
+        }
+        .bg-thumbnail-remove:hover {
+          background: rgba(220, 53, 69, 1);
+        }
+      `;
+    document.head.appendChild(style);
+
     // Live background options state
     this._bgOpts = {};
     for (const [key, val] of Object.entries(BG_DEFAULTS)) {
       this._bgOpts[key] = { ...val };
     }
 
+    // Dynamically inject Dither background color setting row
+    const ditherColorInput = document.getElementById('bgDitherColor');
+    if (ditherColorInput && !document.getElementById('bgDitherBgColor')) {
+      const ditherColorRow = ditherColorInput.closest('.bg-setting-row');
+      if (ditherColorRow) {
+        const bgRow = document.createElement('div');
+        bgRow.className = 'bg-setting-row';
+        bgRow.innerHTML = `
+          <label for="bgDitherBgColor">Background Color</label>
+          <div class="bg-color-control">
+            <input type="color" id="bgDitherBgColor" value="#000000" class="bg-color-input">
+            <span class="bg-color-hex" data-for="bgDitherBgColor">#000000</span>
+          </div>
+        `;
+        ditherColorRow.parentNode.insertBefore(bgRow, ditherColorRow.nextSibling);
+      }
+    }
+
+    // Dynamically inject Dot Grid background color setting row
+    const dotgridActiveColorInput = document.getElementById('bgDotgridActiveColor');
+    if (dotgridActiveColorInput && !document.getElementById('bgDotgridBgColor')) {
+      const dotgridActiveColorRow = dotgridActiveColorInput.closest('.bg-setting-row');
+      if (dotgridActiveColorRow) {
+        const bgRow = document.createElement('div');
+        bgRow.className = 'bg-setting-row';
+        bgRow.innerHTML = `
+          <label for="bgDotgridBgColor">Background Color</label>
+          <div class="bg-color-control">
+            <input type="color" id="bgDotgridBgColor" value="#000000" class="bg-color-input">
+            <span class="bg-color-hex" data-for="bgDotgridBgColor">#000000</span>
+          </div>
+        `;
+        dotgridActiveColorRow.parentNode.insertBefore(bgRow, dotgridActiveColorRow.nextSibling);
+      }
+    }
+
     this._bindCloseModals();
     this._bindSettings();
     this._bindBgSettings();
+    this._bindQualityRadios();
+    this._bindBgResets();
     this.loadPreferences();
 
     if (this.prefersReducedMotion?.addEventListener) {
@@ -297,11 +642,8 @@ class HybridSettings {
       this._showBgSettingsGroupFor(e.target.value);
     });
 
-    // Welcome background quality
-    document.getElementById('welcomeQualitySelect')?.addEventListener('change', async (e) => {
-      await this._applyWelcomeQuality(e.target.value, { persist: true });
-    });
-
+    // Welcome background quality — now a segmented radio group (see _bindQualityRadios).
+    // Legacy select is removed from the DOM; this handler is a no-op safety net.
   }
 
   _bindBgSettings() {
@@ -335,9 +677,11 @@ class HybridSettings {
         }
       });
 
-      // Outside-click dismissal (mirrors the YouTube quality dropdown in app.js)
+      // Outside-click dismissal. Keep clicks inside the modal alive so sliders,
+      // color inputs, and selects do not close the settings panel mid-edit.
       document.addEventListener('click', (e) => {
-        if (wrapper && !wrapper.contains(e.target)) {
+        const target = e.target;
+        if (!wrapper?.contains(target) && !panel.contains(target)) {
           closePanel();
         }
       });
@@ -367,12 +711,16 @@ class HybridSettings {
         this._updateValueSpan(el, this._getControlDisplayValue(ctrl));
       }
 
-      const eventName = ctrl.type === 'checkbox' ? 'change' : 'input';
+      const eventName = (ctrl.type === 'checkbox' || ctrl.type === 'select') ? 'change' : 'input';
       el.addEventListener(eventName, () => {
         let value;
         if (ctrl.type === 'checkbox') {
           value = el.checked;
         } else if (ctrl.type === 'color') {
+          value = el.value;
+          const hexLabel = document.querySelector(`.bg-color-hex[data-for="${ctrl.id}"]`);
+          if (hexLabel) hexLabel.textContent = value;
+        } else if (ctrl.type === 'select') {
           value = el.value;
         } else {
           value = ctrl.parse ? ctrl.parse(el.value) : el.value;
@@ -404,6 +752,76 @@ class HybridSettings {
         }, ctrl.type === 'checkbox' ? 0 : 250);
       });
     }
+
+    // Custom uploader bindings for Grid Motion custom pictures
+    const fileInput = document.getElementById('bgGridmotionFileInput');
+    const selectBtn = document.getElementById('bgGridmotionSelectBtn');
+    const clearBtn = document.getElementById('bgGridmotionClearBtn');
+
+    if (selectBtn && fileInput) {
+      selectBtn.addEventListener('click', () => {
+        fileInput.click();
+      });
+    }
+
+    if (fileInput) {
+      fileInput.addEventListener('change', async (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+
+        const resizePromises = files.map(file => resizeGridmotionImage(file));
+        const dataUrls = await Promise.all(resizePromises);
+        const validUrls = dataUrls.filter(url => !!url);
+
+        if (validUrls.length === 0) return;
+
+        const switchingToCustom = this.welcomeQuality !== 'custom';
+        if (switchingToCustom) {
+          this._captureAllEffectiveBgOpts();
+        }
+
+        const currentPics = Array.isArray(this._bgOpts.gridmotion.customPictures)
+          ? this._bgOpts.gridmotion.customPictures
+          : [];
+        this._bgOpts.gridmotion.customPictures = [...currentPics, ...validUrls];
+
+        if (switchingToCustom) {
+          this._applyWelcomeQuality('custom', {
+            persist: true,
+            reapply: false,
+            syncInputs: true,
+          });
+        } else {
+          this._refreshBgControls({ syncInputValues: false });
+        }
+
+        this._applyBgOpts('gridmotion', { persist: true });
+        fileInput.value = '';
+      });
+    }
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        const switchingToCustom = this.welcomeQuality !== 'custom';
+        if (switchingToCustom) {
+          this._captureAllEffectiveBgOpts();
+        }
+
+        this._bgOpts.gridmotion.customPictures = [];
+
+        if (switchingToCustom) {
+          this._applyWelcomeQuality('custom', {
+            persist: true,
+            reapply: false,
+            syncInputs: true,
+          });
+        } else {
+          this._refreshBgControls({ syncInputValues: false });
+        }
+
+        this._applyBgOpts('gridmotion', { persist: true });
+      });
+    }
   }
 
   _updateValueSpan(inputEl, displayValue = null) {
@@ -411,9 +829,26 @@ class HybridSettings {
     if (!span) return;
     if (displayValue !== null && displayValue !== undefined) {
       span.textContent = String(displayValue);
+      this._setRangeFill(inputEl);
       return;
     }
     span.textContent = inputEl.value;
+    this._setRangeFill(inputEl);
+  }
+
+  // Drive the accent-filled slider track. Computes how far along [min,max]
+  // the value sits and exposes it as a --fill percentage on the input's
+  // nearest .bg-settings-panel ancestor (the CSS reads --bgp-fill there).
+  // No-op for non-range inputs (color/checkbox) — those lack min/max.
+  _setRangeFill(inputEl) {
+    if (inputEl.type !== 'range') return;
+    const min = Number(inputEl.min);
+    const max = Number(inputEl.max);
+    const val = Number(inputEl.value);
+    if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return;
+    const pct = Math.min(100, Math.max(0, ((val - min) / (max - min)) * 100));
+    inputEl.style.setProperty('--bgp-fill', `${pct}%`);
+    inputEl.style.setProperty('--fill', `${pct}%`);
   }
 
   _formatRangeDisplayValue(ctrl, value) {
@@ -426,8 +861,11 @@ class HybridSettings {
   }
 
   _getEffectiveBgOpts(bg) {
-    const rawOpts = { ...(this._bgOpts[bg] || {}) };
-    return this._applyWelcomeQualityToOpts(bg, rawOpts, this.welcomeQuality);
+    const quality = this.welcomeQuality;
+    if (quality === 'custom') {
+      return { ...BG_DEFAULTS[bg], ...this._bgOpts[bg] };
+    }
+    return { ...BG_QUALITY_PRESETS[quality]?.[bg] };
   }
 
   _getControlDisplayValue(ctrl) {
@@ -443,9 +881,16 @@ class HybridSettings {
   }
 
   _refreshBgControls({ syncInputValues = false } = {}) {
+    document.querySelectorAll('.bg-reset').forEach((btn) => {
+      btn.disabled = false;
+    });
+
     for (const ctrl of BG_CONTROLS) {
       const el = document.getElementById(ctrl.id);
       if (!el) continue;
+
+      el.disabled = false;
+
       const effectiveOpts = this._getEffectiveBgOpts(ctrl.bg);
       const effectiveValue = effectiveOpts?.[ctrl.opt];
 
@@ -453,7 +898,13 @@ class HybridSettings {
         if (ctrl.type === 'checkbox') {
           if (effectiveValue !== undefined) el.checked = !!effectiveValue;
         } else if (ctrl.type === 'color') {
-          if (typeof effectiveValue === 'string') el.value = effectiveValue;
+          if (typeof effectiveValue === 'string') {
+            el.value = effectiveValue;
+            const hexLabel = document.querySelector(`.bg-color-hex[data-for="${ctrl.id}"]`);
+            if (hexLabel) hexLabel.textContent = effectiveValue;
+          }
+        } else if (ctrl.type === 'select') {
+          if (effectiveValue !== undefined) el.value = effectiveValue;
         } else if (effectiveValue !== undefined && effectiveValue !== null) {
           const numeric = Number(effectiveValue);
           if (Number.isFinite(numeric)) {
@@ -468,6 +919,66 @@ class HybridSettings {
         this._updateValueSpan(el, this._formatRangeDisplayValue(ctrl, effectiveValue));
       }
     }
+    this._updateGridmotionUploaderUI();
+  }
+
+  _updateGridmotionUploaderUI() {
+    const fileInput = document.getElementById('bgGridmotionFileInput');
+    const clearBtn = document.getElementById('bgGridmotionClearBtn');
+    const thumbGrid = document.getElementById('bgGridmotionThumbnails');
+    if (!clearBtn || !thumbGrid) return;
+
+    const opts = this._getEffectiveBgOpts('gridmotion');
+    const customPics = opts?.customPictures || [];
+
+    if (customPics.length > 0) {
+      clearBtn.style.display = 'inline-block';
+    } else {
+      clearBtn.style.display = 'none';
+      if (fileInput) fileInput.value = '';
+    }
+
+    thumbGrid.innerHTML = '';
+    customPics.forEach((pic, index) => {
+      const item = document.createElement('div');
+      item.className = 'bg-thumbnail-item';
+
+      const img = document.createElement('img');
+      img.className = 'bg-thumbnail-img';
+      img.src = pic;
+      item.appendChild(img);
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'bg-thumbnail-remove';
+      removeBtn.innerHTML = '&times;';
+      removeBtn.title = 'Remove image';
+      removeBtn.addEventListener('click', () => {
+        const switchingToCustom = this.welcomeQuality !== 'custom';
+        if (switchingToCustom) {
+          this._captureAllEffectiveBgOpts();
+        }
+
+        if (Array.isArray(this._bgOpts.gridmotion.customPictures)) {
+          this._bgOpts.gridmotion.customPictures = this._bgOpts.gridmotion.customPictures.filter((_, i) => i !== index);
+        }
+
+        if (switchingToCustom) {
+          this._applyWelcomeQuality('custom', {
+            persist: true,
+            reapply: false,
+            syncInputs: true,
+          });
+        } else {
+          this._refreshBgControls({ syncInputValues: false });
+        }
+
+        this._applyBgOpts('gridmotion', { persist: true });
+      });
+      item.appendChild(removeBtn);
+
+      thumbGrid.appendChild(item);
+    });
   }
 
   _showBgSettingsGroupFor(bg) {
@@ -476,10 +987,25 @@ class HybridSettings {
     });
   }
 
+  _updateMountBackgrounds() {
+    const activeBg = document.getElementById('welcomeBackgroundSelect')?.value || 'dither';
+
+    const dotgridMount = document.getElementById('dotGridMount');
+    if (dotgridMount) {
+      const active = (activeBg === 'dotgrid');
+      const dotgridOpts = this._getEffectiveBgOpts('dotgrid');
+      dotgridMount.style.backgroundColor = active ? (dotgridOpts.bgColor || '#000000') : '';
+    }
+  }
+
   async _applyBgOpts(bg, { persist = true } = {}) {
     const rawOpts = { ...this._bgOpts[bg] };
-    const opts = this._applyWelcomeQualityToOpts(bg, rawOpts, this.welcomeQuality);
+    const opts = this._getEffectiveBgOpts(bg);
     const stateKey = `bgOpts_${bg}`;
+
+    if (bg === 'dotgrid') {
+      this._updateMountBackgrounds();
+    }
 
     window.__hybridWelcomeEffectsState = {
       ...(window.__hybridWelcomeEffectsState || {}),
@@ -626,75 +1152,7 @@ class HybridSettings {
     return Math.min(max, Math.max(min, n));
   }
 
-  _applyWelcomeQualityToOpts(bg, opts, quality) {
-    const resolved = this._resolveWelcomeQuality(quality);
-    if (resolved === 'high' || resolved === 'custom') return opts;
 
-    const tuned = { ...opts };
-    const isLow = resolved === 'low';
-
-    if (bg === 'dither') {
-      tuned.pixelSize = this._clamp(Math.round((opts.pixelSize ?? BG_DEFAULTS.dither.pixelSize) + (isLow ? 2 : 1)), 1, 8);
-      tuned.colorNum = this._clamp(Math.round(opts.colorNum ?? BG_DEFAULTS.dither.colorNum), 2, isLow ? 5 : 6);
-      tuned.frequency = this._clamp((opts.frequency ?? BG_DEFAULTS.dither.frequency) * (isLow ? 0.85 : 0.95), 1, 8);
-      tuned.amplitude = this._clamp((opts.amplitude ?? BG_DEFAULTS.dither.amplitude) * (isLow ? 0.85 : 0.95), 0.1, 0.8);
-      return tuned;
-    }
-
-    if (bg === 'particles') {
-      tuned.count = this._clamp(
-        Math.round((opts.count ?? BG_DEFAULTS.particles.count) * (isLow ? 0.45 : 0.7)),
-        50,
-        800
-      );
-      tuned.speed = this._clamp((opts.speed ?? BG_DEFAULTS.particles.speed) * (isLow ? 0.85 : 0.95), 0.02, 0.5);
-      tuned.spread = this._clamp(Math.round((opts.spread ?? BG_DEFAULTS.particles.spread) * (isLow ? 0.85 : 0.95)), 2, 20);
-      tuned.size = this._clamp(Math.round((opts.size ?? BG_DEFAULTS.particles.size) * (isLow ? 0.85 : 0.95)), 20, 300);
-      if (isLow) tuned.alpha = false;
-      return tuned;
-    }
-
-    if (bg === 'faulty') {
-      tuned.glitch = this._clamp((opts.glitch ?? BG_DEFAULTS.faulty.glitch) * (isLow ? 0.65 : 0.85), 0, 3);
-      tuned.scanlines = this._clamp((opts.scanlines ?? BG_DEFAULTS.faulty.scanlines) * (isLow ? 0.65 : 0.85), 0, 1.5);
-      tuned.flicker = this._clamp((opts.flicker ?? BG_DEFAULTS.faulty.flicker) * (isLow ? 0.65 : 0.85), 0, 2);
-      tuned.aberration = this._clamp((opts.aberration ?? BG_DEFAULTS.faulty.aberration) * (isLow ? 0.5 : 0.75), 0, 5);
-      tuned.curvature = this._clamp((opts.curvature ?? BG_DEFAULTS.faulty.curvature) * (isLow ? 0.75 : 0.9), 0, 0.3);
-      return tuned;
-    }
-
-    if (bg === 'dotgrid') {
-      tuned.gap = this._clamp(Math.round((opts.gap ?? BG_DEFAULTS.dotgrid.gap) * (isLow ? 1.8 : 1.35)), 4, 30);
-      tuned.dotSize = this._clamp(Math.round((opts.dotSize ?? BG_DEFAULTS.dotgrid.dotSize) * (isLow ? 0.9 : 0.95)), 2, 12);
-      tuned.proximity = this._clamp(
-        Math.round((opts.proximity ?? BG_DEFAULTS.dotgrid.proximity) * (isLow ? 0.65 : 0.82)),
-        40,
-        300
-      );
-      tuned.shockRadius = this._clamp(
-        Math.round((opts.shockRadius ?? BG_DEFAULTS.dotgrid.shockRadius) * (isLow ? 0.7 : 0.85)),
-        100,
-        500
-      );
-      return tuned;
-    }
-
-    if (bg === 'colorbends') {
-      // Keep Color Bends visually stable across quality levels; avoid
-      // aggressive reductions that make the effect look "broken".
-      tuned.speed = this._clamp((opts.speed ?? BG_DEFAULTS.colorbends.speed) * (isLow ? 0.9 : 0.97), 0.05, 1);
-      tuned.frequency = this._clamp(
-        (opts.frequency ?? BG_DEFAULTS.colorbends.frequency) * (isLow ? 0.9 : 0.97),
-        0.3,
-        3
-      );
-      tuned.warp = this._clamp((opts.warp ?? BG_DEFAULTS.colorbends.warp) * (isLow ? 0.88 : 0.96), 0, 3);
-      tuned.scale = this._clamp(opts.scale ?? BG_DEFAULTS.colorbends.scale, 0.3, 3);
-      return tuned;
-    }
-
-    return tuned;
-  }
 
   async _applyMotionProfile(profile, { persist = true } = {}) {
     const resolved = this._resolveMotionProfile(profile);
@@ -726,6 +1184,25 @@ class HybridSettings {
     const value = WELCOME_BACKGROUNDS.includes(background) ? background : 'dither';
     this._setValue('welcomeBackgroundSelect', value);
     document.body.dataset.welcomeBackground = value;
+    this._syncBgMeta(value);
+
+    const subtitleMap = {
+      dither: 'Dither Waves · animated bayer dither',
+      particles: 'Particles · drifting particle field',
+      faulty: 'Faulty Terminal · CRT glitch & scanlines',
+      dotgrid: 'Dot Grid · reactive dot lattice',
+      pixelblast: 'Pixel Blast · interactive diamond pixel blast',
+      gridmotion: 'Grid Motion · interactive gliding item lattice',
+      none: 'Default · pure black backdrop',
+    };
+
+    const subtitleEl = document.getElementById('bgModalSubtitle');
+    if (subtitleEl) {
+      subtitleEl.textContent = subtitleMap[value] || subtitleMap.dither;
+    }
+
+    this._updateMountBackgrounds();
+
     this._emitWelcomeSettings({
       welcomeBackground: value,
     });
@@ -735,14 +1212,99 @@ class HybridSettings {
     }
   }
 
+  // Update the meta strip (tag + description) under the modal header.
+  _syncBgMeta(bg) {
+    const label = BG_LABELS[bg] || BG_LABELS.dither;
+    const tagEl = document.getElementById('bgMetaTag');
+    const descEl = document.getElementById('bgMetaDesc');
+    if (tagEl) tagEl.textContent = label.tag;
+    if (descEl) descEl.textContent = label.desc;
+  }
+
+  // Quality segmented control — reflect the resolved quality on the radio
+  // inputs and toggle the derived "Custom" indicator.
+  _syncQualityRadios(value) {
+    const radios = document.querySelectorAll('input[name="welcomeQuality"]');
+    radios.forEach((r) => {
+      r.checked = r.value === value;
+    });
+    const customPill = document.getElementById('bgQualityCustom');
+    if (customPill) {
+      customPill.classList.toggle('is-active', value === 'custom');
+      customPill.setAttribute('aria-hidden', value === 'custom' ? 'false' : 'true');
+    }
+  }
+
+  // Wire the segmented quality radios. Changing a preset re-applies that
+  // quality level; the "Custom" pill is now clickable.
+  _bindQualityRadios() {
+    const container = document.querySelector('.bg-quality-pills');
+    if (!container) return;
+    container.addEventListener('change', (e) => {
+      const radio = e.target;
+      if (radio.name !== 'welcomeQuality') return;
+      this._applyWelcomeQuality(radio.value, { persist: true });
+    });
+
+    const customPill = document.getElementById('bgQualityCustom');
+    if (customPill) {
+      customPill.addEventListener('click', () => {
+        this._applyWelcomeQuality('custom', { persist: true });
+      });
+    }
+  }
+
+  // Per-effect reset buttons: restore defaults for that background, then
+  // refresh inputs and re-apply so the live preview snaps back instantly.
+  _bindBgResets() {
+    document.querySelectorAll('.bg-reset').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const bg = btn.dataset.resetBg;
+        if (!bg || !BG_DEFAULTS[bg]) return;
+        this._bgOpts[bg] = { ...BG_DEFAULTS[bg] };
+
+        if (this.welcomeQuality !== 'custom') {
+          this._applyWelcomeQuality('custom', {
+            persist: true,
+            reapply: false,
+            syncInputs: false,
+          });
+        }
+
+        this._refreshBgControls({ syncInputValues: true });
+        this._applyBgOpts(bg, { persist: true });
+        this._syncColorHexLabels(bg);
+      });
+    });
+  }
+
+  // Keep the visible hex labels next to color swatches in sync.
+  _syncColorHexLabels(bg) {
+    for (const ctrl of BG_CONTROLS) {
+      if (ctrl.bg !== bg || ctrl.type !== 'color') continue;
+      const input = document.getElementById(ctrl.id);
+      const hexLabel = document.querySelector(`.bg-color-hex[data-for="${ctrl.id}"]`);
+      if (input && hexLabel) hexLabel.textContent = input.value;
+    }
+  }
+
   async _applyWelcomeQuality(quality, { persist = true, reapply = true, syncInputs = true } = {}) {
+    const prevQuality = this.welcomeQuality;
     const value = this._resolveWelcomeQuality(quality);
     this.welcomeQuality = value;
-    this._setValue('welcomeQualitySelect', value);
+    this._syncQualityRadios(value);
     document.body.dataset.welcomeQuality = value;
     this._emitWelcomeSettings({
       welcomeQuality: value,
     });
+
+    if (value === 'custom' && prevQuality !== 'custom' && persist) {
+      for (const bgKey of Object.keys(BG_DEFAULTS)) {
+        if (prevQuality && prevQuality !== 'custom') {
+          this._bgOpts[bgKey] = { ...BG_QUALITY_PRESETS[prevQuality][bgKey], ...this._bgOpts[bgKey] };
+        }
+      }
+    }
 
     if (reapply) {
       for (const bgKey of Object.keys(BG_DEFAULTS)) {

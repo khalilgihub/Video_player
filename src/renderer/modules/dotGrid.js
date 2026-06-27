@@ -1,5 +1,5 @@
 import { gsap } from 'gsap';
-import { InertiaPlugin } from 'gsap/InertiaPlugin';
+import { InertiaPlugin } from 'gsap/InertiaPlugin.js';
 
 gsap.registerPlugin(InertiaPlugin);
 
@@ -32,11 +32,11 @@ function hexToRgb(hex) {
 }
 
 const DEFAULT_OPTIONS = Object.freeze({
-  dotSize: 5,
-  gap: 10,
-  baseColor: '#271E37',
+  dotSize: 16,
+  gap: 32,
+  baseColor: '#5227FF',
   activeColor: '#5227FF',
-  proximity: 120,
+  proximity: 150,
   speedTrigger: 100,
   shockRadius: 250,
   shockStrength: 5,
@@ -109,8 +109,8 @@ export function initDotGrid(containerElement, customOptions = {}) {
 
   const dots = [];
   const pointer = {
-    x: 0,
-    y: 0,
+    x: Number.NaN,
+    y: Number.NaN,
     vx: 0,
     vy: 0,
     speed: 0,
@@ -128,7 +128,6 @@ export function initDotGrid(containerElement, customOptions = {}) {
   let resizeObserver = null;
   let usesWindowResizeFallback = false;
   let throttledMove = null;
-  let pointerThrottleMs = options.pointerThrottleMs;
 
   const createCirclePath = () => {
     if (!window.Path2D) return null;
@@ -140,19 +139,28 @@ export function initDotGrid(containerElement, customOptions = {}) {
 
   const buildGrid = () => {
     if (destroyed) return;
-    const { width, height } = wrap.getBoundingClientRect();
+    for (const dot of dots) {
+      gsap.killTweensOf(dot);
+    }
+
+    const { width: rawWidth, height: rawHeight } = wrap.getBoundingClientRect();
+    const width = Math.max(0, rawWidth);
+    const height = Math.max(0, rawHeight);
     const dpr = options.dpr || window.devicePixelRatio || 1;
 
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
+    canvas.width = Math.max(1, Math.round(width * dpr));
+    canvas.height = Math.max(1, Math.round(height * dpr));
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
 
     const ctx = canvas.getContext('2d');
     if (ctx) ctx.scale(dpr, dpr);
 
-    const cols = Math.floor((width + options.gap) / (options.dotSize + options.gap));
-    const rows = Math.floor((height + options.gap) / (options.dotSize + options.gap));
+    dots.length = 0;
+    if (width <= 0 || height <= 0) return;
+
+    const cols = Math.max(1, Math.floor((width + options.gap) / (options.dotSize + options.gap)));
+    const rows = Math.max(1, Math.floor((height + options.gap) / (options.dotSize + options.gap)));
     const cell = options.dotSize + options.gap;
 
     const gridW = cell * cols - options.gap;
@@ -164,7 +172,6 @@ export function initDotGrid(containerElement, customOptions = {}) {
     const startX = extraX / 2 + options.dotSize / 2;
     const startY = extraY / 2 + options.dotSize / 2;
 
-    dots.length = 0;
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
         const cx = startX + x * cell;
@@ -190,6 +197,7 @@ export function initDotGrid(containerElement, customOptions = {}) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     const { x: px, y: py } = pointer;
+    const pointerActive = Number.isFinite(px) && Number.isFinite(py);
 
     for (const dot of dots) {
       const ox = dot.cx + dot.xOffset;
@@ -199,7 +207,7 @@ export function initDotGrid(containerElement, customOptions = {}) {
       const dsq = dx * dx + dy * dy;
 
       let style = options.baseColor;
-      if (dsq <= proxSq) {
+      if (pointerActive && dsq <= proxSq) {
         const dist = Math.sqrt(dsq);
         const t = 1 - dist / options.proximity;
         const r = Math.round(baseRgb.r + (activeRgb.r - baseRgb.r) * t);
@@ -223,6 +231,27 @@ export function initDotGrid(containerElement, customOptions = {}) {
 
     rafId = requestAnimationFrame(draw);
     window.HybridPerfMonitor?.markFrame?.('effect:dotgrid');
+  };
+
+  const animateDotDisplacement = (dot, xVelocity, yVelocity) => {
+    if (destroyed) return;
+    dot._inertiaApplied = true;
+    gsap.killTweensOf(dot);
+
+    gsap.to(dot, {
+      inertia: { xOffset: xVelocity, yOffset: yVelocity, resistance: options.resistance },
+      onComplete: () => {
+        if (destroyed) return;
+        gsap.to(dot, {
+          xOffset: 0,
+          yOffset: 0,
+          duration: options.returnDuration,
+          ease: 'elastic.out(1,0.75)',
+          overwrite: true,
+        });
+        dot._inertiaApplied = false;
+      },
+    });
   };
 
   const onMove = (e) => {
@@ -256,22 +285,9 @@ export function initDotGrid(containerElement, customOptions = {}) {
     for (const dot of dots) {
       const dist = Math.hypot(dot.cx - pr.x, dot.cy - pr.y);
       if (speed > options.speedTrigger && dist < options.proximity && !dot._inertiaApplied) {
-        dot._inertiaApplied = true;
-        gsap.killTweensOf(dot);
         const pushX = dot.cx - pr.x + vx * 0.005;
         const pushY = dot.cy - pr.y + vy * 0.005;
-        gsap.to(dot, {
-          inertia: { xOffset: pushX, yOffset: pushY, resistance: options.resistance },
-          onComplete: () => {
-            gsap.to(dot, {
-              xOffset: 0,
-              yOffset: 0,
-              duration: options.returnDuration,
-              ease: 'elastic.out(1,0.75)',
-            });
-            dot._inertiaApplied = false;
-          },
-        });
+        animateDotDisplacement(dot, pushX, pushY);
       }
     }
   };
@@ -284,23 +300,10 @@ export function initDotGrid(containerElement, customOptions = {}) {
     for (const dot of dots) {
       const dist = Math.hypot(dot.cx - cx, dot.cy - cy);
       if (dist < options.shockRadius && !dot._inertiaApplied) {
-        dot._inertiaApplied = true;
-        gsap.killTweensOf(dot);
         const falloff = Math.max(0, 1 - dist / options.shockRadius);
         const pushX = (dot.cx - cx) * options.shockStrength * falloff;
         const pushY = (dot.cy - cy) * options.shockStrength * falloff;
-        gsap.to(dot, {
-          inertia: { xOffset: pushX, yOffset: pushY, resistance: options.resistance },
-          onComplete: () => {
-            gsap.to(dot, {
-              xOffset: 0,
-              yOffset: 0,
-              duration: options.returnDuration,
-              ease: 'elastic.out(1,0.75)',
-            });
-            dot._inertiaApplied = false;
-          },
-        });
+        animateDotDisplacement(dot, pushX, pushY);
       }
     }
   };
@@ -310,7 +313,6 @@ export function initDotGrid(containerElement, customOptions = {}) {
       window.removeEventListener('mousemove', throttledMove);
     }
     throttledMove = throttle(onMove, throttleMs);
-    pointerThrottleMs = throttleMs;
     window.addEventListener('mousemove', throttledMove, { passive: true });
   };
 

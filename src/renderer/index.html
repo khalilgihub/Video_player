@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-jItqmzgjJiElhKzbalARhUbtLxTAo8vaPNIB8Cjpjzg=' 'sha256-Zf00y2Qa1MPalnrac/mKRQpvEobwsc3QqTxhvepFY2Y='; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: local-file:; media-src 'self' blob: data: local-file:; connect-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none';">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'sha256-jItqmzgjJiElhKzbalARhUbtLxTAo8vaPNIB8Cjpjzg=' 'sha256-Zf00y2Qa1MPalnrac/mKRQpvEobwsc3QqTxhvepFY2Y='; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: local-file:; media-src 'self' blob: data: local-file:; connect-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none';">
   <title>Hybrid Player</title>
   <link rel="stylesheet" href="../styles/themes.css">
   <link rel="stylesheet" href="../styles/main.css">
@@ -13,247 +15,256 @@
   <link rel="stylesheet" href="../styles/settings.css">
   <link rel="stylesheet" href="../styles/animations.css">
 </head>
+
 <body class="app-cold-start" data-theme="dark" data-motion-profile="balanced">
-  
+
   <!-- ═══ CUSTOM TITLE BAR ═══ -->
   <header id="titlebar" class="titlebar">
     <div class="titlebar-drag">
       <div class="titlebar-icon">
         <svg width="20" height="20" viewBox="-52 0 508 400" fill="none" aria-hidden="true">
-          <circle cx="56" cy="218" r="8.5" fill="currentColor"/>
-          <circle cx="56" cy="236" r="8.5" fill="currentColor"/>
-          <circle cx="56" cy="254" r="8.5" fill="currentColor"/>
-          <circle cx="56" cy="272" r="8.5" fill="currentColor"/>
-          <circle cx="74" cy="164" r="8.5" fill="currentColor"/>
-          <circle cx="74" cy="182" r="8.5" fill="currentColor"/>
-          <circle cx="74" cy="200" r="8.5" fill="currentColor"/>
-          <circle cx="74" cy="218" r="8.5" fill="currentColor"/>
-          <circle cx="74" cy="236" r="8.5" fill="currentColor"/>
-          <circle cx="74" cy="254" r="8.5" fill="currentColor"/>
-          <circle cx="74" cy="272" r="8.5" fill="currentColor"/>
-          <circle cx="74" cy="290" r="8.5" fill="currentColor"/>
-          <circle cx="74" cy="308" r="8.5" fill="currentColor"/>
-          <circle cx="92" cy="56" r="8.5" fill="currentColor"/>
-          <circle cx="92" cy="74" r="8.5" fill="currentColor"/>
-          <circle cx="92" cy="92" r="8.5" fill="currentColor"/>
-          <circle cx="92" cy="110" r="8.5" fill="currentColor"/>
-          <circle cx="92" cy="128" r="8.5" fill="currentColor"/>
-          <circle cx="92" cy="146" r="8.5" fill="currentColor"/>
-          <circle cx="92" cy="164" r="8.5" fill="currentColor"/>
-          <circle cx="92" cy="182" r="8.5" fill="currentColor"/>
-          <circle cx="92" cy="200" r="8.5" fill="currentColor"/>
-          <circle cx="92" cy="218" r="8.5" fill="currentColor"/>
-          <circle cx="92" cy="236" r="8.5" fill="currentColor"/>
-          <circle cx="92" cy="254" r="8.5" fill="currentColor"/>
-          <circle cx="92" cy="272" r="8.5" fill="currentColor"/>
-          <circle cx="92" cy="290" r="8.5" fill="currentColor"/>
-          <circle cx="92" cy="308" r="8.5" fill="currentColor"/>
-          <circle cx="92" cy="326" r="8.5" fill="currentColor"/>
-          <circle cx="110" cy="74" r="8.5" fill="currentColor"/>
-          <circle cx="110" cy="92" r="8.5" fill="currentColor"/>
-          <circle cx="110" cy="164" r="8.5" fill="currentColor"/>
-          <circle cx="110" cy="182" r="8.5" fill="currentColor"/>
-          <circle cx="110" cy="200" r="8.5" fill="currentColor"/>
-          <circle cx="110" cy="218" r="8.5" fill="currentColor"/>
-          <circle cx="110" cy="236" r="8.5" fill="currentColor"/>
-          <circle cx="110" cy="254" r="8.5" fill="currentColor"/>
-          <circle cx="110" cy="272" r="8.5" fill="currentColor"/>
-          <circle cx="110" cy="290" r="8.5" fill="currentColor"/>
-          <circle cx="110" cy="308" r="8.5" fill="currentColor"/>
-          <circle cx="110" cy="326" r="8.5" fill="currentColor"/>
-          <circle cx="110" cy="344" r="8.5" fill="currentColor"/>
-          <circle cx="128" cy="92" r="8.5" fill="currentColor"/>
-          <circle cx="128" cy="110" r="8.5" fill="currentColor"/>
-          <circle cx="128" cy="164" r="8.5" fill="currentColor"/>
-          <circle cx="128" cy="182" r="8.5" fill="currentColor"/>
-          <circle cx="128" cy="200" r="8.5" fill="currentColor"/>
-          <circle cx="128" cy="218" r="8.5" fill="currentColor"/>
-          <circle cx="128" cy="236" r="8.5" fill="currentColor"/>
-          <circle cx="128" cy="254" r="8.5" fill="currentColor"/>
-          <circle cx="128" cy="272" r="8.5" fill="currentColor"/>
-          <circle cx="128" cy="290" r="8.5" fill="currentColor"/>
-          <circle cx="128" cy="308" r="8.5" fill="currentColor"/>
-          <circle cx="128" cy="326" r="8.5" fill="currentColor"/>
-          <circle cx="128" cy="344" r="8.5" fill="currentColor"/>
-          <circle cx="146" cy="128" r="8.5" fill="currentColor"/>
-          <circle cx="146" cy="164" r="8.5" fill="currentColor"/>
-          <circle cx="146" cy="182" r="8.5" fill="currentColor"/>
-          <circle cx="146" cy="200" r="8.5" fill="currentColor"/>
-          <circle cx="146" cy="218" r="8.5" fill="currentColor"/>
-          <circle cx="146" cy="236" r="8.5" fill="currentColor"/>
-          <circle cx="146" cy="254" r="8.5" fill="currentColor"/>
-          <circle cx="146" cy="272" r="8.5" fill="currentColor"/>
-          <circle cx="146" cy="290" r="8.5" fill="currentColor"/>
-          <circle cx="146" cy="308" r="8.5" fill="currentColor"/>
-          <circle cx="146" cy="326" r="8.5" fill="currentColor"/>
-          <circle cx="146" cy="344" r="8.5" fill="currentColor"/>
-          <circle cx="164" cy="146" r="8.5" fill="currentColor"/>
-          <circle cx="164" cy="164" r="8.5" fill="currentColor"/>
-          <circle cx="164" cy="182" r="8.5" fill="currentColor"/>
-          <circle cx="164" cy="200" r="8.5" fill="currentColor"/>
-          <circle cx="164" cy="218" r="8.5" fill="currentColor"/>
-          <circle cx="164" cy="236" r="8.5" fill="currentColor"/>
-          <circle cx="164" cy="254" r="8.5" fill="currentColor"/>
-          <circle cx="164" cy="272" r="8.5" fill="currentColor"/>
-          <circle cx="164" cy="290" r="8.5" fill="currentColor"/>
-          <circle cx="164" cy="308" r="8.5" fill="currentColor"/>
-          <circle cx="164" cy="326" r="8.5" fill="currentColor"/>
-          <circle cx="164" cy="344" r="8.5" fill="currentColor"/>
-          <circle cx="182" cy="128" r="8.5" fill="currentColor"/>
-          <circle cx="182" cy="146" r="8.5" fill="currentColor"/>
-          <circle cx="182" cy="164" r="8.5" fill="currentColor"/>
-          <circle cx="182" cy="182" r="8.5" fill="currentColor"/>
-          <circle cx="182" cy="200" r="8.5" fill="currentColor"/>
-          <circle cx="182" cy="308" r="8.5" fill="currentColor"/>
-          <circle cx="182" cy="326" r="8.5" fill="currentColor"/>
-          <circle cx="182" cy="344" r="8.5" fill="currentColor"/>
-          <circle cx="200" cy="128" r="8.5" fill="currentColor"/>
-          <circle cx="200" cy="146" r="8.5" fill="currentColor"/>
-          <circle cx="200" cy="164" r="8.5" fill="currentColor"/>
-          <circle cx="200" cy="182" r="8.5" fill="currentColor"/>
-          <circle cx="200" cy="200" r="8.5" fill="currentColor"/>
-          <circle cx="200" cy="218" r="8.5" fill="currentColor"/>
-          <circle cx="200" cy="290" r="8.5" fill="currentColor"/>
-          <circle cx="200" cy="308" r="8.5" fill="currentColor"/>
-          <circle cx="200" cy="326" r="8.5" fill="currentColor"/>
-          <circle cx="200" cy="344" r="8.5" fill="currentColor"/>
-          <circle cx="218" cy="128" r="8.5" fill="currentColor"/>
-          <circle cx="218" cy="146" r="8.5" fill="currentColor"/>
-          <circle cx="218" cy="164" r="8.5" fill="currentColor"/>
-          <circle cx="218" cy="182" r="8.5" fill="currentColor"/>
-          <circle cx="218" cy="200" r="8.5" fill="currentColor"/>
-          <circle cx="218" cy="218" r="8.5" fill="currentColor"/>
-          <circle cx="218" cy="290" r="8.5" fill="currentColor"/>
-          <circle cx="218" cy="308" r="8.5" fill="currentColor"/>
-          <circle cx="218" cy="326" r="8.5" fill="currentColor"/>
-          <circle cx="218" cy="344" r="8.5" fill="currentColor"/>
-          <circle cx="236" cy="146" r="8.5" fill="currentColor"/>
-          <circle cx="236" cy="164" r="8.5" fill="currentColor"/>
-          <circle cx="236" cy="182" r="8.5" fill="currentColor"/>
-          <circle cx="236" cy="200" r="8.5" fill="currentColor"/>
-          <circle cx="236" cy="218" r="8.5" fill="currentColor"/>
-          <circle cx="236" cy="236" r="8.5" fill="currentColor"/>
-          <circle cx="236" cy="272" r="8.5" fill="currentColor"/>
-          <circle cx="236" cy="290" r="8.5" fill="currentColor"/>
-          <circle cx="236" cy="308" r="8.5" fill="currentColor"/>
-          <circle cx="236" cy="326" r="8.5" fill="currentColor"/>
-          <circle cx="236" cy="344" r="8.5" fill="currentColor"/>
-          <circle cx="254" cy="128" r="8.5" fill="currentColor"/>
-          <circle cx="254" cy="164" r="8.5" fill="currentColor"/>
-          <circle cx="254" cy="182" r="8.5" fill="currentColor"/>
-          <circle cx="254" cy="200" r="8.5" fill="currentColor"/>
-          <circle cx="254" cy="218" r="8.5" fill="currentColor"/>
-          <circle cx="254" cy="236" r="8.5" fill="currentColor"/>
-          <circle cx="254" cy="254" r="8.5" fill="currentColor"/>
-          <circle cx="254" cy="272" r="8.5" fill="currentColor"/>
-          <circle cx="254" cy="290" r="8.5" fill="currentColor"/>
-          <circle cx="254" cy="308" r="8.5" fill="currentColor"/>
-          <circle cx="254" cy="326" r="8.5" fill="currentColor"/>
-          <circle cx="254" cy="344" r="8.5" fill="currentColor"/>
-          <circle cx="272" cy="92" r="8.5" fill="currentColor"/>
-          <circle cx="272" cy="110" r="8.5" fill="currentColor"/>
-          <circle cx="272" cy="164" r="8.5" fill="currentColor"/>
-          <circle cx="272" cy="182" r="8.5" fill="currentColor"/>
-          <circle cx="272" cy="200" r="8.5" fill="currentColor"/>
-          <circle cx="272" cy="218" r="8.5" fill="currentColor"/>
-          <circle cx="272" cy="236" r="8.5" fill="currentColor"/>
-          <circle cx="272" cy="254" r="8.5" fill="currentColor"/>
-          <circle cx="272" cy="272" r="8.5" fill="currentColor"/>
-          <circle cx="272" cy="290" r="8.5" fill="currentColor"/>
-          <circle cx="272" cy="308" r="8.5" fill="currentColor"/>
-          <circle cx="272" cy="326" r="8.5" fill="currentColor"/>
-          <circle cx="272" cy="344" r="8.5" fill="currentColor"/>
-          <circle cx="290" cy="74" r="8.5" fill="currentColor"/>
-          <circle cx="290" cy="92" r="8.5" fill="currentColor"/>
-          <circle cx="290" cy="164" r="8.5" fill="currentColor"/>
-          <circle cx="290" cy="182" r="8.5" fill="currentColor"/>
-          <circle cx="290" cy="200" r="8.5" fill="currentColor"/>
-          <circle cx="290" cy="218" r="8.5" fill="currentColor"/>
-          <circle cx="290" cy="236" r="8.5" fill="currentColor"/>
-          <circle cx="290" cy="254" r="8.5" fill="currentColor"/>
-          <circle cx="290" cy="272" r="8.5" fill="currentColor"/>
-          <circle cx="290" cy="290" r="8.5" fill="currentColor"/>
-          <circle cx="290" cy="308" r="8.5" fill="currentColor"/>
-          <circle cx="290" cy="326" r="8.5" fill="currentColor"/>
-          <circle cx="290" cy="344" r="8.5" fill="currentColor"/>
-          <circle cx="308" cy="56" r="8.5" fill="currentColor"/>
-          <circle cx="308" cy="74" r="8.5" fill="currentColor"/>
-          <circle cx="308" cy="92" r="8.5" fill="currentColor"/>
-          <circle cx="308" cy="110" r="8.5" fill="currentColor"/>
-          <circle cx="308" cy="128" r="8.5" fill="currentColor"/>
-          <circle cx="308" cy="146" r="8.5" fill="currentColor"/>
-          <circle cx="308" cy="164" r="8.5" fill="currentColor"/>
-          <circle cx="308" cy="182" r="8.5" fill="currentColor"/>
-          <circle cx="308" cy="200" r="8.5" fill="currentColor"/>
-          <circle cx="308" cy="218" r="8.5" fill="currentColor"/>
-          <circle cx="308" cy="236" r="8.5" fill="currentColor"/>
-          <circle cx="308" cy="254" r="8.5" fill="currentColor"/>
-          <circle cx="308" cy="272" r="8.5" fill="currentColor"/>
-          <circle cx="308" cy="290" r="8.5" fill="currentColor"/>
-          <circle cx="308" cy="308" r="8.5" fill="currentColor"/>
-          <circle cx="308" cy="326" r="8.5" fill="currentColor"/>
-          <circle cx="326" cy="164" r="8.5" fill="currentColor"/>
-          <circle cx="326" cy="182" r="8.5" fill="currentColor"/>
-          <circle cx="326" cy="200" r="8.5" fill="currentColor"/>
-          <circle cx="326" cy="218" r="8.5" fill="currentColor"/>
-          <circle cx="326" cy="236" r="8.5" fill="currentColor"/>
-          <circle cx="326" cy="254" r="8.5" fill="currentColor"/>
-          <circle cx="326" cy="272" r="8.5" fill="currentColor"/>
-          <circle cx="326" cy="290" r="8.5" fill="currentColor"/>
-          <circle cx="326" cy="308" r="8.5" fill="currentColor"/>
-          <circle cx="344" cy="218" r="8.5" fill="currentColor"/>
-          <circle cx="344" cy="236" r="8.5" fill="currentColor"/>
-          <circle cx="344" cy="254" r="8.5" fill="currentColor"/>
-          <circle cx="344" cy="272" r="8.5" fill="currentColor"/>
-          <circle cx="45.38" cy="222.31" r="4.35" fill="currentColor"/>
-          <circle cx="28.31" cy="219.85" r="4.03" fill="currentColor"/>
-          <circle cx="11.23" cy="217.38" r="3.70" fill="currentColor"/>
-          <circle cx="-5.85" cy="214.92" r="3.37" fill="currentColor"/>
-          <circle cx="-22.92" cy="212.46" r="3.05" fill="currentColor"/>
-          <circle cx="-40.00" cy="210.00" r="2.72" fill="currentColor"/>
-          <circle cx="41.69" cy="258.00" r="4.35" fill="currentColor"/>
-          <circle cx="24.15" cy="258.00" r="4.03" fill="currentColor"/>
-          <circle cx="6.62" cy="258.00" r="3.70" fill="currentColor"/>
-          <circle cx="-10.92" cy="258.00" r="3.37" fill="currentColor"/>
-          <circle cx="-28.46" cy="258.00" r="3.05" fill="currentColor"/>
-          <circle cx="-46.00" cy="258.00" r="2.72" fill="currentColor"/>
-          <circle cx="45.38" cy="293.69" r="4.35" fill="currentColor"/>
-          <circle cx="28.31" cy="296.15" r="4.03" fill="currentColor"/>
-          <circle cx="11.23" cy="298.62" r="3.70" fill="currentColor"/>
-          <circle cx="-5.85" cy="301.08" r="3.37" fill="currentColor"/>
-          <circle cx="-22.92" cy="303.54" r="3.05" fill="currentColor"/>
-          <circle cx="-40.00" cy="306.00" r="2.72" fill="currentColor"/>
-          <circle cx="354.62" cy="222.31" r="4.35" fill="currentColor"/>
-          <circle cx="371.69" cy="219.85" r="4.03" fill="currentColor"/>
-          <circle cx="388.77" cy="217.38" r="3.70" fill="currentColor"/>
-          <circle cx="405.85" cy="214.92" r="3.37" fill="currentColor"/>
-          <circle cx="422.92" cy="212.46" r="3.05" fill="currentColor"/>
-          <circle cx="440.00" cy="210.00" r="2.72" fill="currentColor"/>
-          <circle cx="358.31" cy="258.00" r="4.35" fill="currentColor"/>
-          <circle cx="375.85" cy="258.00" r="4.03" fill="currentColor"/>
-          <circle cx="393.38" cy="258.00" r="3.70" fill="currentColor"/>
-          <circle cx="410.92" cy="258.00" r="3.37" fill="currentColor"/>
-          <circle cx="428.46" cy="258.00" r="3.05" fill="currentColor"/>
-          <circle cx="446.00" cy="258.00" r="2.72" fill="currentColor"/>
-          <circle cx="354.62" cy="293.69" r="4.35" fill="currentColor"/>
-          <circle cx="371.69" cy="296.15" r="4.03" fill="currentColor"/>
-          <circle cx="388.77" cy="298.62" r="3.70" fill="currentColor"/>
-          <circle cx="405.85" cy="301.08" r="3.37" fill="currentColor"/>
-          <circle cx="422.92" cy="303.54" r="3.05" fill="currentColor"/>
-          <circle cx="440.00" cy="306.00" r="2.72" fill="currentColor"/>
+          <circle cx="56" cy="218" r="8.5" fill="currentColor" />
+          <circle cx="56" cy="236" r="8.5" fill="currentColor" />
+          <circle cx="56" cy="254" r="8.5" fill="currentColor" />
+          <circle cx="56" cy="272" r="8.5" fill="currentColor" />
+          <circle cx="74" cy="164" r="8.5" fill="currentColor" />
+          <circle cx="74" cy="182" r="8.5" fill="currentColor" />
+          <circle cx="74" cy="200" r="8.5" fill="currentColor" />
+          <circle cx="74" cy="218" r="8.5" fill="currentColor" />
+          <circle cx="74" cy="236" r="8.5" fill="currentColor" />
+          <circle cx="74" cy="254" r="8.5" fill="currentColor" />
+          <circle cx="74" cy="272" r="8.5" fill="currentColor" />
+          <circle cx="74" cy="290" r="8.5" fill="currentColor" />
+          <circle cx="74" cy="308" r="8.5" fill="currentColor" />
+          <circle cx="92" cy="56" r="8.5" fill="currentColor" />
+          <circle cx="92" cy="74" r="8.5" fill="currentColor" />
+          <circle cx="92" cy="92" r="8.5" fill="currentColor" />
+          <circle cx="92" cy="110" r="8.5" fill="currentColor" />
+          <circle cx="92" cy="128" r="8.5" fill="currentColor" />
+          <circle cx="92" cy="146" r="8.5" fill="currentColor" />
+          <circle cx="92" cy="164" r="8.5" fill="currentColor" />
+          <circle cx="92" cy="182" r="8.5" fill="currentColor" />
+          <circle cx="92" cy="200" r="8.5" fill="currentColor" />
+          <circle cx="92" cy="218" r="8.5" fill="currentColor" />
+          <circle cx="92" cy="236" r="8.5" fill="currentColor" />
+          <circle cx="92" cy="254" r="8.5" fill="currentColor" />
+          <circle cx="92" cy="272" r="8.5" fill="currentColor" />
+          <circle cx="92" cy="290" r="8.5" fill="currentColor" />
+          <circle cx="92" cy="308" r="8.5" fill="currentColor" />
+          <circle cx="92" cy="326" r="8.5" fill="currentColor" />
+          <circle cx="110" cy="74" r="8.5" fill="currentColor" />
+          <circle cx="110" cy="92" r="8.5" fill="currentColor" />
+          <circle cx="110" cy="164" r="8.5" fill="currentColor" />
+          <circle cx="110" cy="182" r="8.5" fill="currentColor" />
+          <circle cx="110" cy="200" r="8.5" fill="currentColor" />
+          <circle cx="110" cy="218" r="8.5" fill="currentColor" />
+          <circle cx="110" cy="236" r="8.5" fill="currentColor" />
+          <circle cx="110" cy="254" r="8.5" fill="currentColor" />
+          <circle cx="110" cy="272" r="8.5" fill="currentColor" />
+          <circle cx="110" cy="290" r="8.5" fill="currentColor" />
+          <circle cx="110" cy="308" r="8.5" fill="currentColor" />
+          <circle cx="110" cy="326" r="8.5" fill="currentColor" />
+          <circle cx="110" cy="344" r="8.5" fill="currentColor" />
+          <circle cx="128" cy="92" r="8.5" fill="currentColor" />
+          <circle cx="128" cy="110" r="8.5" fill="currentColor" />
+          <circle cx="128" cy="164" r="8.5" fill="currentColor" />
+          <circle cx="128" cy="182" r="8.5" fill="currentColor" />
+          <circle cx="128" cy="200" r="8.5" fill="currentColor" />
+          <circle cx="128" cy="218" r="8.5" fill="currentColor" />
+          <circle cx="128" cy="236" r="8.5" fill="currentColor" />
+          <circle cx="128" cy="254" r="8.5" fill="currentColor" />
+          <circle cx="128" cy="272" r="8.5" fill="currentColor" />
+          <circle cx="128" cy="290" r="8.5" fill="currentColor" />
+          <circle cx="128" cy="308" r="8.5" fill="currentColor" />
+          <circle cx="128" cy="326" r="8.5" fill="currentColor" />
+          <circle cx="128" cy="344" r="8.5" fill="currentColor" />
+          <circle cx="146" cy="128" r="8.5" fill="currentColor" />
+          <circle cx="146" cy="164" r="8.5" fill="currentColor" />
+          <circle cx="146" cy="182" r="8.5" fill="currentColor" />
+          <circle cx="146" cy="200" r="8.5" fill="currentColor" />
+          <circle cx="146" cy="218" r="8.5" fill="currentColor" />
+          <circle cx="146" cy="236" r="8.5" fill="currentColor" />
+          <circle cx="146" cy="254" r="8.5" fill="currentColor" />
+          <circle cx="146" cy="272" r="8.5" fill="currentColor" />
+          <circle cx="146" cy="290" r="8.5" fill="currentColor" />
+          <circle cx="146" cy="308" r="8.5" fill="currentColor" />
+          <circle cx="146" cy="326" r="8.5" fill="currentColor" />
+          <circle cx="146" cy="344" r="8.5" fill="currentColor" />
+          <circle cx="164" cy="146" r="8.5" fill="currentColor" />
+          <circle cx="164" cy="164" r="8.5" fill="currentColor" />
+          <circle cx="164" cy="182" r="8.5" fill="currentColor" />
+          <circle cx="164" cy="200" r="8.5" fill="currentColor" />
+          <circle cx="164" cy="218" r="8.5" fill="currentColor" />
+          <circle cx="164" cy="236" r="8.5" fill="currentColor" />
+          <circle cx="164" cy="254" r="8.5" fill="currentColor" />
+          <circle cx="164" cy="272" r="8.5" fill="currentColor" />
+          <circle cx="164" cy="290" r="8.5" fill="currentColor" />
+          <circle cx="164" cy="308" r="8.5" fill="currentColor" />
+          <circle cx="164" cy="326" r="8.5" fill="currentColor" />
+          <circle cx="164" cy="344" r="8.5" fill="currentColor" />
+          <circle cx="182" cy="128" r="8.5" fill="currentColor" />
+          <circle cx="182" cy="146" r="8.5" fill="currentColor" />
+          <circle cx="182" cy="164" r="8.5" fill="currentColor" />
+          <circle cx="182" cy="182" r="8.5" fill="currentColor" />
+          <circle cx="182" cy="200" r="8.5" fill="currentColor" />
+          <circle cx="182" cy="308" r="8.5" fill="currentColor" />
+          <circle cx="182" cy="326" r="8.5" fill="currentColor" />
+          <circle cx="182" cy="344" r="8.5" fill="currentColor" />
+          <circle cx="200" cy="128" r="8.5" fill="currentColor" />
+          <circle cx="200" cy="146" r="8.5" fill="currentColor" />
+          <circle cx="200" cy="164" r="8.5" fill="currentColor" />
+          <circle cx="200" cy="182" r="8.5" fill="currentColor" />
+          <circle cx="200" cy="200" r="8.5" fill="currentColor" />
+          <circle cx="200" cy="218" r="8.5" fill="currentColor" />
+          <circle cx="200" cy="290" r="8.5" fill="currentColor" />
+          <circle cx="200" cy="308" r="8.5" fill="currentColor" />
+          <circle cx="200" cy="326" r="8.5" fill="currentColor" />
+          <circle cx="200" cy="344" r="8.5" fill="currentColor" />
+          <circle cx="218" cy="128" r="8.5" fill="currentColor" />
+          <circle cx="218" cy="146" r="8.5" fill="currentColor" />
+          <circle cx="218" cy="164" r="8.5" fill="currentColor" />
+          <circle cx="218" cy="182" r="8.5" fill="currentColor" />
+          <circle cx="218" cy="200" r="8.5" fill="currentColor" />
+          <circle cx="218" cy="218" r="8.5" fill="currentColor" />
+          <circle cx="218" cy="290" r="8.5" fill="currentColor" />
+          <circle cx="218" cy="308" r="8.5" fill="currentColor" />
+          <circle cx="218" cy="326" r="8.5" fill="currentColor" />
+          <circle cx="218" cy="344" r="8.5" fill="currentColor" />
+          <circle cx="236" cy="146" r="8.5" fill="currentColor" />
+          <circle cx="236" cy="164" r="8.5" fill="currentColor" />
+          <circle cx="236" cy="182" r="8.5" fill="currentColor" />
+          <circle cx="236" cy="200" r="8.5" fill="currentColor" />
+          <circle cx="236" cy="218" r="8.5" fill="currentColor" />
+          <circle cx="236" cy="236" r="8.5" fill="currentColor" />
+          <circle cx="236" cy="272" r="8.5" fill="currentColor" />
+          <circle cx="236" cy="290" r="8.5" fill="currentColor" />
+          <circle cx="236" cy="308" r="8.5" fill="currentColor" />
+          <circle cx="236" cy="326" r="8.5" fill="currentColor" />
+          <circle cx="236" cy="344" r="8.5" fill="currentColor" />
+          <circle cx="254" cy="128" r="8.5" fill="currentColor" />
+          <circle cx="254" cy="164" r="8.5" fill="currentColor" />
+          <circle cx="254" cy="182" r="8.5" fill="currentColor" />
+          <circle cx="254" cy="200" r="8.5" fill="currentColor" />
+          <circle cx="254" cy="218" r="8.5" fill="currentColor" />
+          <circle cx="254" cy="236" r="8.5" fill="currentColor" />
+          <circle cx="254" cy="254" r="8.5" fill="currentColor" />
+          <circle cx="254" cy="272" r="8.5" fill="currentColor" />
+          <circle cx="254" cy="290" r="8.5" fill="currentColor" />
+          <circle cx="254" cy="308" r="8.5" fill="currentColor" />
+          <circle cx="254" cy="326" r="8.5" fill="currentColor" />
+          <circle cx="254" cy="344" r="8.5" fill="currentColor" />
+          <circle cx="272" cy="92" r="8.5" fill="currentColor" />
+          <circle cx="272" cy="110" r="8.5" fill="currentColor" />
+          <circle cx="272" cy="164" r="8.5" fill="currentColor" />
+          <circle cx="272" cy="182" r="8.5" fill="currentColor" />
+          <circle cx="272" cy="200" r="8.5" fill="currentColor" />
+          <circle cx="272" cy="218" r="8.5" fill="currentColor" />
+          <circle cx="272" cy="236" r="8.5" fill="currentColor" />
+          <circle cx="272" cy="254" r="8.5" fill="currentColor" />
+          <circle cx="272" cy="272" r="8.5" fill="currentColor" />
+          <circle cx="272" cy="290" r="8.5" fill="currentColor" />
+          <circle cx="272" cy="308" r="8.5" fill="currentColor" />
+          <circle cx="272" cy="326" r="8.5" fill="currentColor" />
+          <circle cx="272" cy="344" r="8.5" fill="currentColor" />
+          <circle cx="290" cy="74" r="8.5" fill="currentColor" />
+          <circle cx="290" cy="92" r="8.5" fill="currentColor" />
+          <circle cx="290" cy="164" r="8.5" fill="currentColor" />
+          <circle cx="290" cy="182" r="8.5" fill="currentColor" />
+          <circle cx="290" cy="200" r="8.5" fill="currentColor" />
+          <circle cx="290" cy="218" r="8.5" fill="currentColor" />
+          <circle cx="290" cy="236" r="8.5" fill="currentColor" />
+          <circle cx="290" cy="254" r="8.5" fill="currentColor" />
+          <circle cx="290" cy="272" r="8.5" fill="currentColor" />
+          <circle cx="290" cy="290" r="8.5" fill="currentColor" />
+          <circle cx="290" cy="308" r="8.5" fill="currentColor" />
+          <circle cx="290" cy="326" r="8.5" fill="currentColor" />
+          <circle cx="290" cy="344" r="8.5" fill="currentColor" />
+          <circle cx="308" cy="56" r="8.5" fill="currentColor" />
+          <circle cx="308" cy="74" r="8.5" fill="currentColor" />
+          <circle cx="308" cy="92" r="8.5" fill="currentColor" />
+          <circle cx="308" cy="110" r="8.5" fill="currentColor" />
+          <circle cx="308" cy="128" r="8.5" fill="currentColor" />
+          <circle cx="308" cy="146" r="8.5" fill="currentColor" />
+          <circle cx="308" cy="164" r="8.5" fill="currentColor" />
+          <circle cx="308" cy="182" r="8.5" fill="currentColor" />
+          <circle cx="308" cy="200" r="8.5" fill="currentColor" />
+          <circle cx="308" cy="218" r="8.5" fill="currentColor" />
+          <circle cx="308" cy="236" r="8.5" fill="currentColor" />
+          <circle cx="308" cy="254" r="8.5" fill="currentColor" />
+          <circle cx="308" cy="272" r="8.5" fill="currentColor" />
+          <circle cx="308" cy="290" r="8.5" fill="currentColor" />
+          <circle cx="308" cy="308" r="8.5" fill="currentColor" />
+          <circle cx="308" cy="326" r="8.5" fill="currentColor" />
+          <circle cx="326" cy="164" r="8.5" fill="currentColor" />
+          <circle cx="326" cy="182" r="8.5" fill="currentColor" />
+          <circle cx="326" cy="200" r="8.5" fill="currentColor" />
+          <circle cx="326" cy="218" r="8.5" fill="currentColor" />
+          <circle cx="326" cy="236" r="8.5" fill="currentColor" />
+          <circle cx="326" cy="254" r="8.5" fill="currentColor" />
+          <circle cx="326" cy="272" r="8.5" fill="currentColor" />
+          <circle cx="326" cy="290" r="8.5" fill="currentColor" />
+          <circle cx="326" cy="308" r="8.5" fill="currentColor" />
+          <circle cx="344" cy="218" r="8.5" fill="currentColor" />
+          <circle cx="344" cy="236" r="8.5" fill="currentColor" />
+          <circle cx="344" cy="254" r="8.5" fill="currentColor" />
+          <circle cx="344" cy="272" r="8.5" fill="currentColor" />
+          <circle cx="45.38" cy="222.31" r="4.35" fill="currentColor" />
+          <circle cx="28.31" cy="219.85" r="4.03" fill="currentColor" />
+          <circle cx="11.23" cy="217.38" r="3.70" fill="currentColor" />
+          <circle cx="-5.85" cy="214.92" r="3.37" fill="currentColor" />
+          <circle cx="-22.92" cy="212.46" r="3.05" fill="currentColor" />
+          <circle cx="-40.00" cy="210.00" r="2.72" fill="currentColor" />
+          <circle cx="41.69" cy="258.00" r="4.35" fill="currentColor" />
+          <circle cx="24.15" cy="258.00" r="4.03" fill="currentColor" />
+          <circle cx="6.62" cy="258.00" r="3.70" fill="currentColor" />
+          <circle cx="-10.92" cy="258.00" r="3.37" fill="currentColor" />
+          <circle cx="-28.46" cy="258.00" r="3.05" fill="currentColor" />
+          <circle cx="-46.00" cy="258.00" r="2.72" fill="currentColor" />
+          <circle cx="45.38" cy="293.69" r="4.35" fill="currentColor" />
+          <circle cx="28.31" cy="296.15" r="4.03" fill="currentColor" />
+          <circle cx="11.23" cy="298.62" r="3.70" fill="currentColor" />
+          <circle cx="-5.85" cy="301.08" r="3.37" fill="currentColor" />
+          <circle cx="-22.92" cy="303.54" r="3.05" fill="currentColor" />
+          <circle cx="-40.00" cy="306.00" r="2.72" fill="currentColor" />
+          <circle cx="354.62" cy="222.31" r="4.35" fill="currentColor" />
+          <circle cx="371.69" cy="219.85" r="4.03" fill="currentColor" />
+          <circle cx="388.77" cy="217.38" r="3.70" fill="currentColor" />
+          <circle cx="405.85" cy="214.92" r="3.37" fill="currentColor" />
+          <circle cx="422.92" cy="212.46" r="3.05" fill="currentColor" />
+          <circle cx="440.00" cy="210.00" r="2.72" fill="currentColor" />
+          <circle cx="358.31" cy="258.00" r="4.35" fill="currentColor" />
+          <circle cx="375.85" cy="258.00" r="4.03" fill="currentColor" />
+          <circle cx="393.38" cy="258.00" r="3.70" fill="currentColor" />
+          <circle cx="410.92" cy="258.00" r="3.37" fill="currentColor" />
+          <circle cx="428.46" cy="258.00" r="3.05" fill="currentColor" />
+          <circle cx="446.00" cy="258.00" r="2.72" fill="currentColor" />
+          <circle cx="354.62" cy="293.69" r="4.35" fill="currentColor" />
+          <circle cx="371.69" cy="296.15" r="4.03" fill="currentColor" />
+          <circle cx="388.77" cy="298.62" r="3.70" fill="currentColor" />
+          <circle cx="405.85" cy="301.08" r="3.37" fill="currentColor" />
+          <circle cx="422.92" cy="303.54" r="3.05" fill="currentColor" />
+          <circle cx="440.00" cy="306.00" r="2.72" fill="currentColor" />
         </svg>
       </div>
       <span class="titlebar-title" id="titlebarText">Hybrid Player</span>
     </div>
     <div class="titlebar-controls">
       <button class="titlebar-btn" id="btnMinimize" type="button" title="Minimize" aria-label="Minimize window">
-        <svg width="12" height="12" viewBox="0 0 12 12"><rect y="5" width="12" height="1.5" fill="currentColor"/></svg>
+        <svg width="12" height="12" viewBox="0 0 12 12">
+          <rect y="5" width="12" height="1.5" fill="currentColor" />
+        </svg>
       </button>
       <button class="titlebar-btn" id="btnMaximize" type="button" title="Maximize" aria-label="Maximize window">
-        <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+        <svg width="12" height="12" viewBox="0 0 12 12">
+          <rect x="1" y="1" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3" />
+        </svg>
       </button>
-      <button class="titlebar-btn titlebar-btn-close" id="btnClose" type="button" title="Close" aria-label="Close window">
-        <svg width="12" height="12" viewBox="0 0 12 12"><line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.5"/><line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.5"/></svg>
+      <button class="titlebar-btn titlebar-btn-close" id="btnClose" type="button" title="Close"
+        aria-label="Close window">
+        <svg width="12" height="12" viewBox="0 0 12 12">
+          <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.5" />
+          <line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.5" />
+        </svg>
       </button>
     </div>
   </header>
@@ -281,11 +292,16 @@
         <div class="welcome-content">
           <div class="welcome-actions">
             <button class="btn-primary" id="btnOpenFile" type="button">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
               Open File
             </button>
             <button class="btn-secondary btn-open-link" id="btnOpenLink" type="button">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 14a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 1 0-7.07-7.07L11 6"/><path d="M14 10a5 5 0 0 0-7.07 0L4.1 12.83a5 5 0 0 0 7.07 7.07L13 18"/></svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10 14a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 1 0-7.07-7.07L11 6" />
+                <path d="M14 10a5 5 0 0 0-7.07 0L4.1 12.83a5 5 0 0 0 7.07 7.07L13 18" />
+              </svg>
               Open Link
             </button>
           </div>
@@ -321,8 +337,12 @@
         <span id="recordingIndicatorText">Recording started</span>
       </div>
 
-      <button class="unlock-overlay" id="unlockOverlay" type="button" aria-hidden="true" title="Unlock (U)" aria-label="Unlock controls">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-7V6a3 3 0 1 1 6 0v1h2V6a5 5 0 0 0-5-5zm-6 10h12v9H6v-9z"/></svg>
+      <button class="unlock-overlay" id="unlockOverlay" type="button" aria-hidden="true" title="Unlock (U)"
+        aria-label="Unlock controls">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+          <path
+            d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-7V6a3 3 0 1 1 6 0v1h2V6a5 5 0 0 0-5-5zm-6 10h12v9H6v-9z" />
+        </svg>
         <span>Unlock</span>
       </button>
 
@@ -347,25 +367,45 @@
           <!-- Left Controls -->
           <div class="controls-left">
             <button class="ctrl-btn" id="btnPrev" type="button" title="Previous (P)" aria-label="Previous item">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
+              </svg>
             </button>
             <button class="ctrl-btn ctrl-btn-play" id="btnPlay" type="button" title="Play (Space)" aria-label="Play">
-              <svg class="icon-play" viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-              <svg class="icon-pause" viewBox="0 0 24 24" width="32" height="32" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+              <svg class="icon-play" viewBox="0 0 24 24" width="32" height="32" fill="currentColor">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+              <svg class="icon-pause" viewBox="0 0 24 24" width="32" height="32" fill="currentColor"
+                style="display:none">
+                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+              </svg>
             </button>
             <button class="ctrl-btn" id="btnNext" type="button" title="Next (N)" aria-label="Next item">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+              </svg>
             </button>
 
             <!-- Volume (YouTube-style: icon + horizontal slider) -->
             <div class="volume-container" id="volumeContainer">
               <button class="ctrl-btn" id="btnVolume" type="button" title="Volume (M)" aria-label="Mute">
-                <svg class="icon-vol-high" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
-                <svg class="icon-vol-low" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" style="display:none"><path d="M18.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z"/></svg>
-                <svg class="icon-vol-mute" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" style="display:none"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+                <svg class="icon-vol-high" viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                  <path
+                    d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
+                </svg>
+                <svg class="icon-vol-low" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"
+                  style="display:none">
+                  <path d="M18.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z" />
+                </svg>
+                <svg class="icon-vol-mute" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"
+                  style="display:none">
+                  <path
+                    d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z" />
+                </svg>
               </button>
               <div class="volume-slider-track" id="volumeSliderTrack">
-                <input type="range" id="volumeSlider" class="volume-slider-horizontal" min="0" max="100" value="100" aria-label="Volume">
+                <input type="range" id="volumeSlider" class="volume-slider-horizontal" min="0" max="100" value="100"
+                  aria-label="Volume">
               </div>
               <span class="volume-value" id="volumeValue">100%</span>
             </div>
@@ -380,12 +420,17 @@
           <!-- Right Controls -->
           <div class="controls-right">
             <!-- Background Settings (opens modal overlay) -->
-            <button class="ctrl-btn" id="bgSettingsToggle" type="button" title="Background Settings (B)" aria-label="Background Settings">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l1.6 6.1 6.1 1.6-6.1 1.6L12 18l-1.6-6.1L4.3 10.2l6.1-1.6z"/><path d="M18.5 15l.7 2.6 2.6.7-2.6.7-.7 2.6-.7-2.6-2.6-.7 2.6-.7z"/></svg>
+            <button class="ctrl-btn" id="bgSettingsToggle" type="button" title="Background Settings (B)"
+              aria-label="Background Settings">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2.5l1.6 6.1 6.1 1.6-6.1 1.6L12 18l-1.6-6.1L4.3 10.2l6.1-1.6z" />
+                <path d="M18.5 15l.7 2.6 2.6.7-2.6.7-.7 2.6-.7-2.6-2.6-.7 2.6-.7z" />
+              </svg>
             </button>
 
             <!-- Speed -->
-            <button class="ctrl-btn ctrl-btn-text" id="btnSpeed" type="button" title="Playback Speed" aria-label="Playback speed">
+            <button class="ctrl-btn ctrl-btn-text" id="btnSpeed" type="button" title="Playback Speed"
+              aria-label="Playback speed">
               <span id="speedLabel">1x</span>
             </button>
 
@@ -393,36 +438,57 @@
 
             <!-- Equalizer -->
             <button class="ctrl-btn" id="btnEqualizer" type="button" title="Equalizer (E)" aria-label="Equalizer">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z" />
+              </svg>
             </button>
 
             <!-- Subtitles -->
             <button class="ctrl-btn" id="btnSubtitles" type="button" title="Subtitles (C)" aria-label="Subtitles">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 10h2v2H6v-2zm0 4h8v2H6v-2zm10 0h2v2h-2v-2zm-6-4h8v2h-8v-2z"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path
+                  d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 10h2v2H6v-2zm0 4h8v2H6v-2zm10 0h2v2h-2v-2zm-6-4h8v2h-8v-2z" />
+              </svg>
             </button>
 
             <!-- A-B Loop -->
             <button class="ctrl-btn" id="btnABLoop" type="button" title="A-B Loop (L)" aria-label="A-B loop">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17 1l4 4-4 4" />
+                <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                <path d="M7 23l-4-4 4-4" />
+                <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+              </svg>
             </button>
 
             <!-- Screenshot -->
             <button class="ctrl-btn" id="btnScreenshot" type="button" title="Screenshot (S)" aria-label="Screenshot">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path
+                  d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" />
+              </svg>
             </button>
 
             <!-- Playlist Toggle -->
-            <button class="ctrl-btn" id="btnPlaylist" type="button" title="Playlist (Ctrl+L)" aria-label="Playlist" aria-expanded="false">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
+            <button class="ctrl-btn" id="btnPlaylist" type="button" title="Playlist (Ctrl+L)" aria-label="Playlist"
+              aria-expanded="false">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z" />
+              </svg>
             </button>
 
-            <button class="ctrl-btn" id="btnLock" type="button" title="Lock Controls" aria-label="Lock controls" aria-pressed="false">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M17 8h-1V6a4 4 0 1 0-8 0v2H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-7-2a2 2 0 1 1 4 0v2h-4V6zm7 14H7V10h10v10z"/></svg>
+            <button class="ctrl-btn" id="btnLock" type="button" title="Lock Controls" aria-label="Lock controls"
+              aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path
+                  d="M17 8h-1V6a4 4 0 1 0-8 0v2H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-7-2a2 2 0 1 1 4 0v2h-4V6zm7 14H7V10h10v10z" />
+              </svg>
             </button>
 
             <!-- Settings -->
             <div class="youtube-quality-control" id="youtubeQualityControl" hidden>
-              <button class="ctrl-btn ctrl-btn-text" id="btnYoutubeQuality" type="button" title="Quality" aria-label="Video quality">Auto</button>
+              <button class="ctrl-btn ctrl-btn-text" id="btnYoutubeQuality" type="button" title="Quality"
+                aria-label="Video quality">Auto</button>
               <div class="quality-dropdown" id="youtubeQualityDropdown" hidden>
                 <div class="quality-dropdown-list" id="youtubeQualityList"></div>
               </div>
@@ -430,13 +496,21 @@
 
             <!-- Settings -->
             <button class="ctrl-btn" id="btnSettings" type="button" title="Settings (Ctrl+,)" aria-label="Settings">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path
+                  d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z" />
+              </svg>
             </button>
 
             <!-- Fullscreen -->
             <button class="ctrl-btn" id="btnFullscreen" type="button" title="Fullscreen (F)" aria-label="Fullscreen">
-              <svg class="icon-fullscreen-enter" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
-              <svg class="icon-fullscreen-exit" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" style="display:none"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
+              <svg class="icon-fullscreen-enter" viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
+              </svg>
+              <svg class="icon-fullscreen-exit" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"
+                style="display:none">
+                <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" />
+              </svg>
             </button>
           </div>
         </div>
@@ -448,25 +522,42 @@
       <div class="sidebar-header">
         <h3>Playlist</h3>
         <div class="sidebar-actions">
-          <button class="sidebar-btn" id="btnAddToPlaylist" type="button" title="Add Files" aria-label="Add files to playlist">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+          <button class="sidebar-btn" id="btnAddToPlaylist" type="button" title="Add Files"
+            aria-label="Add files to playlist">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+            </svg>
           </button>
-          <button class="sidebar-btn" id="btnShufflePlaylist" type="button" title="Shuffle" aria-label="Shuffle playlist" aria-pressed="false">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M10.59 9.17 5.41 4 4 5.41l5.17 5.18 1.42-1.42zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.14L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
+          <button class="sidebar-btn" id="btnShufflePlaylist" type="button" title="Shuffle"
+            aria-label="Shuffle playlist" aria-pressed="false">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path
+                d="M10.59 9.17 5.41 4 4 5.41l5.17 5.18 1.42-1.42zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.14L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
+            </svg>
           </button>
-          <button class="sidebar-btn" id="btnRepeatPlaylist" type="button" title="Repeat Off" aria-label="Repeat playlist" aria-pressed="false">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M7 7h11v3l4-4-4-4v3H5v6h2V7zm10 10H6v-3l-4 4 4 4v-3h13v-6h-2v4z"/></svg>
+          <button class="sidebar-btn" id="btnRepeatPlaylist" type="button" title="Repeat Off"
+            aria-label="Repeat playlist" aria-pressed="false">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M7 7h11v3l4-4-4-4v3H5v6h2V7zm10 10H6v-3l-4 4 4 4v-3h13v-6h-2v4z" />
+            </svg>
           </button>
-          <button class="sidebar-btn" id="btnClearPlaylist" type="button" title="Clear Playlist" aria-label="Clear playlist">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          <button class="sidebar-btn" id="btnClearPlaylist" type="button" title="Clear Playlist"
+            aria-label="Clear playlist">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+            </svg>
           </button>
           <button class="sidebar-btn" id="btnClosePlaylist" type="button" title="Close" aria-label="Close playlist">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+              <path
+                d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+            </svg>
           </button>
         </div>
       </div>
       <div class="sidebar-search">
-        <input type="text" id="playlistSearch" placeholder="Search playlist..." class="sidebar-search-input" aria-label="Search playlist">
+        <input type="text" id="playlistSearch" placeholder="Search playlist..." class="sidebar-search-input"
+          aria-label="Search playlist">
       </div>
       <div class="playlist-items" id="playlistItems"></div>
       <div class="sidebar-footer">
@@ -476,11 +567,13 @@
   </main>
 
   <!-- ═══ EQUALIZER PANEL ═══ -->
-  <div class="modal-overlay" id="equalizerModal" role="dialog" aria-modal="true" aria-labelledby="equalizerModalTitle" tabindex="-1" hidden>
+  <div class="modal-overlay" id="equalizerModal" role="dialog" aria-modal="true" aria-labelledby="equalizerModalTitle"
+    tabindex="-1" hidden>
     <div class="modal-panel equalizer-panel">
       <div class="modal-header">
         <h3 id="equalizerModalTitle">Audio Equalizer</h3>
-        <button class="modal-close" type="button" data-close-modal="equalizerModal" aria-label="Close equalizer">&times;</button>
+        <button class="modal-close" type="button" data-close-modal="equalizerModal"
+          aria-label="Close equalizer">&times;</button>
       </div>
       <div class="equalizer-presets">
         <select id="eqPresetSelect" class="select-input" aria-label="Equalizer preset">
@@ -506,11 +599,13 @@
   </div>
 
   <!-- ═══ SPEED PANEL ═══ -->
-  <div class="modal-overlay speed-panel-overlay" id="speedModal" role="dialog" aria-modal="true" aria-labelledby="speedModalTitle" tabindex="-1" hidden>
+  <div class="modal-overlay speed-panel-overlay" id="speedModal" role="dialog" aria-modal="true"
+    aria-labelledby="speedModalTitle" tabindex="-1" hidden>
     <div class="modal-panel speed-panel">
       <div class="modal-header">
         <h3 id="speedModalTitle">Playback Speed</h3>
-        <button class="modal-close" type="button" data-close-modal="speedModal" aria-label="Close playback speed">&times;</button>
+        <button class="modal-close" type="button" data-close-modal="speedModal"
+          aria-label="Close playback speed">&times;</button>
       </div>
       <div class="speed-options">
         <button class="speed-btn" type="button" data-speed="0.25" aria-pressed="false">0.25x</button>
@@ -533,11 +628,13 @@
   </div>
 
   <!-- ═══ SUBTITLE PANEL ═══ -->
-  <div class="modal-overlay" id="subtitleModal" role="dialog" aria-modal="true" aria-labelledby="subtitleModalTitle" tabindex="-1" hidden>
+  <div class="modal-overlay" id="subtitleModal" role="dialog" aria-modal="true" aria-labelledby="subtitleModalTitle"
+    tabindex="-1" hidden>
     <div class="modal-panel subtitle-panel">
       <div class="modal-header">
         <h3 id="subtitleModalTitle">Subtitles</h3>
-        <button class="modal-close" type="button" data-close-modal="subtitleModal" aria-label="Close subtitles">&times;</button>
+        <button class="modal-close" type="button" data-close-modal="subtitleModal"
+          aria-label="Close subtitles">&times;</button>
       </div>
       <div class="subtitle-options">
         <div class="subtitle-section">
@@ -569,7 +666,8 @@
           <div class="setting-row">
             <label for="subBgColor">Background</label>
             <input type="color" id="subBgColor" value="#000000" class="color-input">
-            <input type="range" id="subBgOpacity" min="0" max="100" value="60" class="range-input range-small" aria-label="Subtitle background opacity">
+            <input type="range" id="subBgOpacity" min="0" max="100" value="60" class="range-input range-small"
+              aria-label="Subtitle background opacity">
           </div>
         </div>
       </div>
@@ -577,11 +675,13 @@
   </div>
 
   <!-- ═══ SETTINGS MODAL ═══ -->
-  <div class="modal-overlay" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" tabindex="-1" hidden>
+  <div class="modal-overlay" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle"
+    tabindex="-1" hidden>
     <div class="modal-panel settings-modal">
       <div class="modal-header">
         <h3 id="settingsModalTitle">Settings</h3>
-        <button class="modal-close" type="button" data-close-modal="settingsModal" aria-label="Close settings">&times;</button>
+        <button class="modal-close" type="button" data-close-modal="settingsModal"
+          aria-label="Close settings">&times;</button>
       </div>
       <div class="settings-body">
         <div class="settings-content">
@@ -634,7 +734,8 @@
                 <button type="button" class="settings-action-btn" id="settingsOpenMultiple">Open Multiple Files</button>
                 <button type="button" class="settings-action-btn" id="settingsOpenFolder">Open Folder</button>
                 <button type="button" class="settings-action-btn" id="settingsOpenStream">Open Network Stream</button>
-                <button type="button" class="settings-action-btn settings-action-btn-danger" id="settingsQuitPlayer">Quit Player</button>
+                <button type="button" class="settings-action-btn settings-action-btn-danger"
+                  id="settingsQuitPlayer">Quit Player</button>
               </div>
             </div>
           </div>
@@ -644,23 +745,18 @@
   </div>
 
   <!-- ═══ NETWORK STREAM MODAL ═══ -->
-  <div class="modal-overlay" id="networkStreamModal" role="dialog" aria-modal="true" aria-labelledby="networkStreamModalTitle" tabindex="-1" hidden>
+  <div class="modal-overlay" id="networkStreamModal" role="dialog" aria-modal="true"
+    aria-labelledby="networkStreamModalTitle" tabindex="-1" hidden>
     <div class="modal-panel modal-small network-stream-modal">
       <div class="modal-header">
         <h3 id="networkStreamModalTitle">Open Link</h3>
-        <button class="modal-close" type="button" data-close-modal="networkStreamModal" aria-label="Close open link">&times;</button>
+        <button class="modal-close" type="button" data-close-modal="networkStreamModal"
+          aria-label="Close open link">&times;</button>
       </div>
       <form id="networkStreamForm" class="network-stream-body">
         <label for="networkStreamInput" class="network-stream-label">YouTube / Stream URL</label>
-        <input
-          id="networkStreamInput"
-          class="network-stream-input"
-          type="url"
-          placeholder="https://www.youtube.com/watch?v=..."
-          autocomplete="off"
-          data-initial-focus
-          required
-        >
+        <input id="networkStreamInput" class="network-stream-input" type="url"
+          placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" data-initial-focus required>
         <div class="network-stream-actions">
           <button type="button" class="btn-secondary" id="btnCancelNetworkStream">Cancel</button>
           <button type="submit" class="btn-primary">Play</button>
@@ -704,227 +800,268 @@
   <script type="module" src="../renderer/modules/ditherWaves.js"></script>
   <script type="module" src="../renderer/modules/dotGrid.js"></script>
   <script type="module" src="../renderer/modules/particles.js"></script>
-  <script type="module" src="../renderer/modules/colorBends.js"></script>
-  <script type="module" src="../renderer/modules/lanyard.js"></script>
 
-  <!-- ═══ BACKGROUND SETTINGS MODAL ═══ -->
-  <div class="modal-overlay" id="bgSettingsModal" role="dialog" aria-modal="true" aria-labelledby="bgSettingsModalTitle" tabindex="-1" hidden>
-    <div class="modal-panel modal-small">
+  <!-- ═══ BACKGROUND SETTINGS MODAL (Chameleon — skins per active effect) ═══ -->
+  <div class="modal-overlay" id="bgSettingsModal" role="dialog" aria-modal="true" aria-labelledby="bgSettingsModalTitle"
+    tabindex="-1" hidden>
+    <div class="modal-panel modal-small bg-settings-panel">
       <div class="modal-header">
-        <h3 id="bgSettingsModalTitle">Background Settings</h3>
-        <button class="modal-close" type="button" data-close-modal="bgSettingsModal" aria-label="Close background settings">&times;</button>
+        <div class="modal-title-group">
+          <h3 id="bgSettingsModalTitle">Background</h3>
+          <p class="bg-modal-subtitle" id="bgModalSubtitle">Dither Waves · animated bayer dither</p>
+        </div>
+        <button class="modal-close" type="button" data-close-modal="bgSettingsModal"
+          aria-label="Close background settings">&times;</button>
       </div>
+
       <div class="bg-settings-body">
         <div class="bg-settings-global">
           <div class="bg-setting-row">
-            <label for="welcomeBackgroundSelect">Background</label>
-            <select id="welcomeBackgroundSelect" class="bg-setting-select" aria-label="Background">
+            <label for="welcomeBackgroundSelect" class="bg-row-label">Effect</label>
+            <select id="welcomeBackgroundSelect" class="bg-setting-select" aria-label="Background effect">
               <option value="dither">Dither</option>
               <option value="particles">Particles</option>
               <option value="faulty">Faulty Terminal</option>
               <option value="dotgrid">Dot Grid</option>
-              <option value="colorbends">Color Bends</option>
-              <option value="lanyard">Lanyard</option>
               <option value="none">Default</option>
             </select>
           </div>
-          <div class="bg-setting-row">
-            <label for="welcomeQualitySelect">Quality</label>
-            <select id="welcomeQualitySelect" class="bg-setting-select" aria-label="Welcome Background Quality">
-              <option value="low">Low</option>
-              <option value="medium" selected>Medium</option>
-              <option value="high">High</option>
-              <option value="custom" hidden>Custom</option>
-            </select>
-          </div>
+
+          <!-- Quality: 3 preset pills (radio group) + a derived "Custom" indicator.
+               Custom cannot be clicked directly — it engages when a slider is moved. -->
+          <fieldset class="bg-quality-group" role="radiogroup" aria-label="Background quality">
+            <span class="bg-row-label">Quality</span>
+            <div class="bg-quality-pills">
+              <label class="bg-quality-pill">
+                <input type="radio" name="welcomeQuality" value="low">
+                <span>Low</span>
+              </label>
+              <label class="bg-quality-pill">
+                <input type="radio" name="welcomeQuality" value="medium" checked>
+                <span>Medium</span>
+              </label>
+              <label class="bg-quality-pill">
+                <input type="radio" name="welcomeQuality" value="high">
+                <span>High</span>
+              </label>
+              <span class="bg-quality-pill bg-quality-custom" id="bgQualityCustom" aria-hidden="true"
+                data-quality="custom">
+                <span>Custom</span>
+              </span>
+            </div>
+          </fieldset>
         </div>
 
-        <!-- DITHER settings -->
+        <!-- DITHER -->
         <div class="bg-settings-group" data-bg="dither">
-          <div class="bg-setting-row">
-            <label for="bgDitherSpeed">Speed</label>
-            <input type="range" id="bgDitherSpeed" min="0.01" max="0.2" step="0.01" value="0.05">
-            <span class="bg-setting-value">0.05</span>
+          <div class="bg-group-head">
+            <span class="bg-group-tag">Dither</span>
+            <button type="button" class="bg-reset" data-reset-bg="dither">Reset</button>
           </div>
-          <div class="bg-setting-row">
-            <label for="bgDitherFrequency">Frequency</label>
-            <input type="range" id="bgDitherFrequency" min="1" max="8" step="0.5" value="3">
-            <span class="bg-setting-value">3</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgDitherAmplitude">Amplitude</label>
-            <input type="range" id="bgDitherAmplitude" min="0.1" max="0.8" step="0.05" value="0.3">
-            <span class="bg-setting-value">0.3</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgDitherColor">Color</label>
-            <input type="color" id="bgDitherColor" value="#808080" class="bg-color-input">
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgDitherPixelSize">Pixel Size</label>
-            <input type="range" id="bgDitherPixelSize" min="1" max="8" step="1" value="2">
-            <span class="bg-setting-value">2</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgDitherColorNum">Color Depth</label>
-            <input type="range" id="bgDitherColorNum" min="2" max="8" step="1" value="4">
-            <span class="bg-setting-value">4</span>
-          </div>
+          <section class="bg-subsection">
+            <h5>Motion</h5>
+            <div class="bg-setting-row">
+              <label for="bgDitherSpeed">Speed</label>
+              <input type="range" id="bgDitherSpeed" min="0.01" max="0.2" step="0.01" value="0.05">
+              <span class="bg-setting-value">0.05</span>
+            </div>
+            <div class="bg-setting-row">
+              <label for="bgDitherFrequency">Frequency</label>
+              <input type="range" id="bgDitherFrequency" min="1" max="8" step="0.5" value="3">
+              <span class="bg-setting-value">3</span>
+            </div>
+            <div class="bg-setting-row">
+              <label for="bgDitherAmplitude">Amplitude</label>
+              <input type="range" id="bgDitherAmplitude" min="0.1" max="0.8" step="0.05" value="0.3">
+              <span class="bg-setting-value">0.3</span>
+            </div>
+          </section>
+          <section class="bg-subsection">
+            <h5>Render</h5>
+            <div class="bg-setting-row">
+              <label for="bgDitherColor">Color</label>
+              <div class="bg-color-control">
+                <input type="color" id="bgDitherColor" value="#808080" class="bg-color-input">
+                <span class="bg-color-hex" data-for="bgDitherColor">#808080</span>
+              </div>
+            </div>
+            <div class="bg-setting-row">
+              <label for="bgDitherPixelSize">Pixel Size</label>
+              <input type="range" id="bgDitherPixelSize" min="1" max="8" step="1" value="2">
+              <span class="bg-setting-value">2</span>
+            </div>
+            <div class="bg-setting-row">
+              <label for="bgDitherColorNum">Color Depth</label>
+              <input type="range" id="bgDitherColorNum" min="2" max="8" step="1" value="4">
+              <span class="bg-setting-value">4</span>
+            </div>
+          </section>
         </div>
 
-        <!-- PARTICLES settings -->
+        <!-- PARTICLES -->
         <div class="bg-settings-group" data-bg="particles">
-          <div class="bg-setting-row">
-            <label for="bgParticlesCount">Count</label>
-            <input type="range" id="bgParticlesCount" min="50" max="800" step="50" value="300">
-            <span class="bg-setting-value">300</span>
+          <div class="bg-group-head">
+            <span class="bg-group-tag">Particles</span>
+            <button type="button" class="bg-reset" data-reset-bg="particles">Reset</button>
           </div>
-          <div class="bg-setting-row">
-            <label for="bgParticlesSpeed">Speed</label>
-            <input type="range" id="bgParticlesSpeed" min="0.02" max="0.5" step="0.02" value="0.1">
-            <span class="bg-setting-value">0.1</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgParticlesSpread">Spread</label>
-            <input type="range" id="bgParticlesSpread" min="2" max="20" step="1" value="10">
-            <span class="bg-setting-value">10</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgParticlesColor">Color</label>
-            <input type="color" id="bgParticlesColor" value="#ffffff" class="bg-color-input">
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgParticlesSize">Size</label>
-            <input type="range" id="bgParticlesSize" min="20" max="300" step="10" value="100">
-            <span class="bg-setting-value">100</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgParticlesAlpha">Alpha</label>
-            <label class="bg-toggle">
-              <input type="checkbox" id="bgParticlesAlpha" aria-label="Enable particle alpha">
-              <span class="bg-toggle-slider"></span>
-            </label>
-          </div>
+          <section class="bg-subsection">
+            <h5>Motion</h5>
+            <div class="bg-setting-row">
+              <label for="bgParticlesCount">Count</label>
+              <input type="range" id="bgParticlesCount" min="50" max="800" step="50" value="300">
+              <span class="bg-setting-value">300</span>
+            </div>
+            <div class="bg-setting-row">
+              <label for="bgParticlesSpeed">Speed</label>
+              <input type="range" id="bgParticlesSpeed" min="0.02" max="0.5" step="0.02" value="0.1">
+              <span class="bg-setting-value">0.1</span>
+            </div>
+            <div class="bg-setting-row">
+              <label for="bgParticlesSpread">Spread</label>
+              <input type="range" id="bgParticlesSpread" min="2" max="20" step="1" value="10">
+              <span class="bg-setting-value">10</span>
+            </div>
+          </section>
+          <section class="bg-subsection">
+            <h5>Appearance</h5>
+            <div class="bg-setting-row">
+              <label for="bgParticlesColor">Color</label>
+              <div class="bg-color-control">
+                <input type="color" id="bgParticlesColor" value="#ffffff" class="bg-color-input">
+                <span class="bg-color-hex" data-for="bgParticlesColor">#ffffff</span>
+              </div>
+            </div>
+            <div class="bg-setting-row">
+              <label for="bgParticlesSize">Size</label>
+              <input type="range" id="bgParticlesSize" min="20" max="300" step="10" value="100">
+              <span class="bg-setting-value">100</span>
+            </div>
+            <div class="bg-setting-row">
+              <label for="bgParticlesAlpha">Alpha</label>
+              <label class="bg-toggle">
+                <input type="checkbox" id="bgParticlesAlpha" aria-label="Enable particle alpha">
+                <span class="bg-toggle-slider"></span>
+              </label>
+            </div>
+          </section>
         </div>
 
-        <!-- FAULTY TERMINAL settings -->
+        <!-- FAULTY TERMINAL -->
         <div class="bg-settings-group" data-bg="faulty">
-          <div class="bg-setting-row">
-            <label for="bgFaultyGlitch">Glitch</label>
-            <input type="range" id="bgFaultyGlitch" min="0" max="3" step="0.1" value="1">
-            <span class="bg-setting-value">1</span>
+          <div class="bg-group-head">
+            <span class="bg-group-tag">Faulty Terminal</span>
+            <button type="button" class="bg-reset" data-reset-bg="faulty">Reset</button>
           </div>
-          <div class="bg-setting-row">
-            <label for="bgFaultyScanlines">Scanlines</label>
-            <input type="range" id="bgFaultyScanlines" min="0" max="1.5" step="0.05" value="0.7">
-            <span class="bg-setting-value">0.7</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgFaultyFlicker">Flicker</label>
-            <input type="range" id="bgFaultyFlicker" min="0" max="2" step="0.1" value="1">
-            <span class="bg-setting-value">1</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgFaultyAberration">Aberration</label>
-            <input type="range" id="bgFaultyAberration" min="0" max="5" step="0.5" value="0">
-            <span class="bg-setting-value">0</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgFaultyCurvature">Curvature</label>
-            <input type="range" id="bgFaultyCurvature" min="0" max="0.3" step="0.02" value="0.1">
-            <span class="bg-setting-value">0.1</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgFaultyTint">Tint</label>
-            <input type="color" id="bgFaultyTint" value="#A7EF9E" class="bg-color-input">
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgFaultyBrightness">Brightness</label>
-            <input type="range" id="bgFaultyBrightness" min="0.2" max="1.5" step="0.05" value="0.8">
-            <span class="bg-setting-value">0.8</span>
-          </div>
+          <section class="bg-subsection">
+            <h5>Glitch</h5>
+            <div class="bg-setting-row">
+              <label for="bgFaultyGlitch">Glitch</label>
+              <input type="range" id="bgFaultyGlitch" min="0" max="3" step="0.1" value="1">
+              <span class="bg-setting-value">1</span>
+            </div>
+            <div class="bg-setting-row">
+              <label for="bgFaultyFlicker">Flicker</label>
+              <input type="range" id="bgFaultyFlicker" min="0" max="2" step="0.1" value="1">
+              <span class="bg-setting-value">1</span>
+            </div>
+          </section>
+          <section class="bg-subsection">
+            <h5>Scan</h5>
+            <div class="bg-setting-row">
+              <label for="bgFaultyScanlines">Scanlines</label>
+              <input type="range" id="bgFaultyScanlines" min="0" max="1.5" step="0.05" value="0.7">
+              <span class="bg-setting-value">0.7</span>
+            </div>
+            <div class="bg-setting-row">
+              <label for="bgFaultyAberration">Aberration</label>
+              <input type="range" id="bgFaultyAberration" min="0" max="5" step="0.5" value="0">
+              <span class="bg-setting-value">0</span>
+            </div>
+            <div class="bg-setting-row">
+              <label for="bgFaultyCurvature">Curvature</label>
+              <input type="range" id="bgFaultyCurvature" min="0" max="0.3" step="0.02" value="0.1">
+              <span class="bg-setting-value">0.1</span>
+            </div>
+          </section>
+          <section class="bg-subsection">
+            <h5>Render</h5>
+            <div class="bg-setting-row">
+              <label for="bgFaultyTint">Tint</label>
+              <div class="bg-color-control">
+                <input type="color" id="bgFaultyTint" value="#A7EF9E" class="bg-color-input">
+                <span class="bg-color-hex" data-for="bgFaultyTint">#A7EF9E</span>
+              </div>
+            </div>
+            <div class="bg-setting-row">
+              <label for="bgFaultyBrightness">Brightness</label>
+              <input type="range" id="bgFaultyBrightness" min="0.2" max="1.5" step="0.05" value="0.8">
+              <span class="bg-setting-value">0.8</span>
+            </div>
+          </section>
         </div>
 
-        <!-- DOT GRID settings -->
+        <!-- DOT GRID -->
         <div class="bg-settings-group" data-bg="dotgrid">
-          <div class="bg-setting-row">
-            <label for="bgDotgridDotSize">Dot Size</label>
-            <input type="range" id="bgDotgridDotSize" min="2" max="12" step="1" value="5">
-            <span class="bg-setting-value">5</span>
+          <div class="bg-group-head">
+            <span class="bg-group-tag">Dot Grid</span>
+            <button type="button" class="bg-reset" data-reset-bg="dotgrid">Reset</button>
           </div>
-          <div class="bg-setting-row">
-            <label for="bgDotgridGap">Gap</label>
-            <input type="range" id="bgDotgridGap" min="4" max="30" step="2" value="10">
-            <span class="bg-setting-value">10</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgDotgridBaseColor">Base Color</label>
-            <input type="color" id="bgDotgridBaseColor" value="#271E37" class="bg-color-input">
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgDotgridActiveColor">Active Color</label>
-            <input type="color" id="bgDotgridActiveColor" value="#5227FF" class="bg-color-input">
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgDotgridProximity">Proximity</label>
-            <input type="range" id="bgDotgridProximity" min="40" max="300" step="10" value="120">
-            <span class="bg-setting-value">120</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgDotgridShockRadius">Shock Radius</label>
-            <input type="range" id="bgDotgridShockRadius" min="100" max="500" step="25" value="250">
-            <span class="bg-setting-value">250</span>
-          </div>
+          <section class="bg-subsection">
+            <h5>Layout</h5>
+            <div class="bg-setting-row">
+              <label for="bgDotgridDotSize">Dot Size</label>
+              <input type="range" id="bgDotgridDotSize" min="2" max="24" step="1" value="16">
+              <span class="bg-setting-value">16</span>
+            </div>
+            <div class="bg-setting-row">
+              <label for="bgDotgridGap">Gap</label>
+              <input type="range" id="bgDotgridGap" min="4" max="64" step="2" value="32">
+              <span class="bg-setting-value">32</span>
+            </div>
+          </section>
+          <section class="bg-subsection">
+            <h5>Interaction</h5>
+            <div class="bg-setting-row">
+              <label for="bgDotgridProximity">Proximity</label>
+              <input type="range" id="bgDotgridProximity" min="40" max="300" step="10" value="150">
+              <span class="bg-setting-value">150</span>
+            </div>
+            <div class="bg-setting-row">
+              <label for="bgDotgridShockRadius">Shock Radius</label>
+              <input type="range" id="bgDotgridShockRadius" min="100" max="500" step="25" value="250">
+              <span class="bg-setting-value">250</span>
+            </div>
+          </section>
+          <section class="bg-subsection">
+            <h5>Appearance</h5>
+            <div class="bg-setting-row">
+              <label for="bgDotgridBaseColor">Base Color</label>
+              <div class="bg-color-control">
+                <input type="color" id="bgDotgridBaseColor" value="#5227FF" class="bg-color-input">
+                <span class="bg-color-hex" data-for="bgDotgridBaseColor">#5227FF</span>
+              </div>
+            </div>
+            <div class="bg-setting-row">
+              <label for="bgDotgridActiveColor">Active Color</label>
+              <div class="bg-color-control">
+                <input type="color" id="bgDotgridActiveColor" value="#5227FF" class="bg-color-input">
+                <span class="bg-color-hex" data-for="bgDotgridActiveColor">#5227FF</span>
+              </div>
+            </div>
+          </section>
         </div>
 
-        <!-- COLOR BENDS settings -->
-        <div class="bg-settings-group" data-bg="colorbends">
-          <div class="bg-setting-row">
-            <label for="bgColorbendsSpeed">Speed</label>
-            <input type="range" id="bgColorbendsSpeed" min="0.05" max="1" step="0.05" value="0.2">
-            <span class="bg-setting-value">0.2</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgColorbendsRotation">Rotation</label>
-            <input type="range" id="bgColorbendsRotation" min="0" max="360" step="5" value="0">
-            <span class="bg-setting-value">0</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgColorbendsScale">Scale</label>
-            <input type="range" id="bgColorbendsScale" min="0.3" max="3" step="0.1" value="1">
-            <span class="bg-setting-value">1</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgColorbendsFrequency">Frequency</label>
-            <input type="range" id="bgColorbendsFrequency" min="0.3" max="3" step="0.1" value="1">
-            <span class="bg-setting-value">1</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgColorbendsWarp">Warp</label>
-            <input type="range" id="bgColorbendsWarp" min="0" max="3" step="0.1" value="1">
-            <span class="bg-setting-value">1</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgColorbendsColor1">Color 1</label>
-            <input type="color" id="bgColorbendsColor1" value="#ff5c7a" class="bg-color-input">
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgColorbendsColor2">Color 2</label>
-            <input type="color" id="bgColorbendsColor2" value="#8a5cff" class="bg-color-input">
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgColorbendsColor3">Color 3</label>
-            <input type="color" id="bgColorbendsColor3" value="#00ffd1" class="bg-color-input">
-          </div>
-        </div>
-
-        <!-- DEFAULT (none) - no settings -->
+        <!-- DEFAULT (none) — no settings -->
         <div class="bg-settings-group" data-bg="none">
-          <p class="bg-settings-empty">No settings for default background.</p>
+          <div class="bg-group-head">
+            <span class="bg-group-tag">Default</span>
+          </div>
+          <p class="bg-settings-empty">No effect applied — pure black backdrop.</p>
         </div>
       </div>
     </div>
   </div>
 
 </body>
+
 </html>

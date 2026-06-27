@@ -24,6 +24,9 @@ uniform vec2 uPointer; // in NDC [-1,1]
 uniform float uMouseInfluence;
 uniform float uParallax;
 uniform float uNoise;
+uniform int uIterations;
+uniform float uIntensity;
+uniform float uBandWidth;
 varying vec2 vUv;
 
 void main() {
@@ -31,64 +34,61 @@ void main() {
   vec2 p = vUv * 2.0 - 1.0;
   p += uPointer * uParallax * 0.1;
   vec2 rp = vec2(p.x * uRot.x - p.y * uRot.y, p.x * uRot.y + p.y * uRot.x);
-  vec2 q = vec2(rp.x * (uCanvas.x / uCanvas.y), rp.y);
-  q /= max(uScale, 0.0001);
+  float aspect = uCanvas.x / uCanvas.y;
+  vec2 q = vec2(rp.x * aspect, rp.y);
+  float invScale = 1.0 / max(uScale, 0.0001);
+  q *= invScale;
   q /= 0.5 + 0.2 * dot(q, q);
+  q += (uPointer - rp) * uMouseInfluence * 0.2;
   q += 0.2 * cos(t) - 7.56;
-  vec2 toward = (uPointer - rp);
-  q += toward * uMouseInfluence * 0.2;
 
-    vec3 col = vec3(0.0);
-    float a = 1.0;
+  vec3 col = vec3(0.0);
+  float a = 1.0;
 
-    if (uColorCount > 0) {
-      vec2 s = q;
-      vec3 sumCol = vec3(0.0);
-      float cover = 0.0;
-      for (int i = 0; i < MAX_COLORS; ++i) {
-            if (i >= uColorCount) break;
-            s -= 0.01;
-            vec2 r = sin(1.5 * (s.yx * uFrequency) + 2.0 * cos(s * uFrequency));
-            float m0 = length(r + sin(5.0 * r.y * uFrequency - 3.0 * t + float(i)) / 4.0);
-            float kBelow = clamp(uWarpStrength, 0.0, 1.0);
-            float kMix = pow(kBelow, 0.3); // strong response across 0..1
-            float gain = 1.0 + max(uWarpStrength - 1.0, 0.0); // allow >1 to amplify displacement
-            vec2 disp = (r - s) * kBelow;
-            vec2 warped = s + disp * gain;
-            float m1 = length(warped + sin(5.0 * warped.y * uFrequency - 3.0 * t + float(i)) / 4.0);
-            float m = mix(m0, m1, kMix);
-            float w = 1.0 - exp(-6.0 / exp(6.0 * m));
-            sumCol += uColors[i] * w;
-            cover = max(cover, w);
+  if (uColorCount > 0) {
+    vec3 sumCol = vec3(0.0);
+    float cover = 0.0;
+    for (int i = 0; i < MAX_COLORS; ++i) {
+          if (i >= uColorCount) break;
+          vec2 s = q - 0.05 * float(i);
+          for (int j = 0; j < 5; j++) {
+              if (j >= uIterations) break;
+              vec2 r = sin(1.5 * (s.yx * uFrequency) + 2.0 * cos(s * uFrequency));
+              s = s + (r - s) * uWarpStrength;
+          }
+          float m = length(s + sin(5.0 * s.y * uFrequency - 3.0 * t + float(i)) * 0.25);
+          float w = 1.0 - exp(-6.0 / exp(6.0 * m));
+          w = pow(clamp(w, 0.0, 1.0), uBandWidth);
+          sumCol += uColors[i] * w;
+          cover = max(cover, w);
+    }
+    col = sumCol;
+    a = uTransparent > 0 ? cover : 1.0;
+  } else {
+      for (int k = 0; k < 3; ++k) {
+          vec2 s = q - 0.05 * float(k);
+          for (int j = 0; j < 5; j++) {
+              if (j >= uIterations) break;
+              vec2 r = sin(1.5 * (s.yx * uFrequency) + 2.0 * cos(s * uFrequency));
+              s = s + (r - s) * uWarpStrength;
+          }
+          float m = length(s + sin(5.0 * s.y * uFrequency - 3.0 * t + float(k)) * 0.25);
+          float w = 1.0 - exp(-6.0 / exp(6.0 * m));
+          col[k] = pow(clamp(w, 0.0, 1.0), uBandWidth);
       }
-      col = clamp(sumCol, 0.0, 1.0);
-      a = uTransparent > 0 ? cover : 1.0;
-    } else {
-        vec2 s = q;
-        for (int k = 0; k < 3; ++k) {
-            s -= 0.01;
-            vec2 r = sin(1.5 * (s.yx * uFrequency) + 2.0 * cos(s * uFrequency));
-            float m0 = length(r + sin(5.0 * r.y * uFrequency - 3.0 * t + float(k)) / 4.0);
-            float kBelow = clamp(uWarpStrength, 0.0, 1.0);
-            float kMix = pow(kBelow, 0.3);
-            float gain = 1.0 + max(uWarpStrength - 1.0, 0.0);
-            vec2 disp = (r - s) * kBelow;
-            vec2 warped = s + disp * gain;
-            float m1 = length(warped + sin(5.0 * warped.y * uFrequency - 3.0 * t + float(k)) / 4.0);
-            float m = mix(m0, m1, kMix);
-            col[k] = 1.0 - exp(-6.0 / exp(6.0 * m));
-        }
-        a = uTransparent > 0 ? max(max(col.r, col.g), col.b) : 1.0;
-    }
+      a = uTransparent > 0 ? max(max(col.r, col.g), col.b) : 1.0;
+  }
 
-    if (uNoise > 0.0001) {
-      float n = fract(sin(dot(gl_FragCoord.xy + vec2(uTime), vec2(12.9898, 78.233))) * 43758.5453123);
-      col += (n - 0.5) * uNoise;
-      col = clamp(col, 0.0, 1.0);
-    }
+  col *= uIntensity;
 
-    vec3 rgb = (uTransparent > 0) ? col * a : col;
-    gl_FragColor = vec4(rgb, a);
+  if (uNoise > 0.0001) {
+    float n = fract(sin(dot(gl_FragCoord.xy + vec2(uTime), vec2(12.9898, 78.233))) * 43758.5453123);
+    col += (n - 0.5) * uNoise;
+    col = clamp(col, 0.0, 1.0);
+  }
+
+  vec3 rgb = (uTransparent > 0) ? col * a : col;
+  gl_FragColor = vec4(rgb, a);
 }
 `;
 
@@ -101,7 +101,7 @@ void main() {
 `;
 
 const DEFAULT_OPTIONS = Object.freeze({
-  rotation: 45,
+  rotation: 90,
   speed: 0.2,
   colors: [],
   transparent: true,
@@ -111,7 +111,10 @@ const DEFAULT_OPTIONS = Object.freeze({
   warpStrength: 1,
   mouseInfluence: 1,
   parallax: 0.5,
-  noise: 0.1,
+  noise: 0.15,
+  iterations: 1,
+  intensity: 1.5,
+  bandWidth: 6,
   dpr: null,
   pauseWhenUnfocused: true,
   pointerEventTarget: null,
@@ -206,6 +209,9 @@ export function initColorBends(containerElement, customOptions = {}) {
       uMouseInfluence: { value: options.mouseInfluence },
       uParallax: { value: options.parallax },
       uNoise: { value: options.noise },
+      uIterations: { value: options.iterations },
+      uIntensity: { value: options.intensity },
+      uBandWidth: { value: options.bandWidth },
     },
     premultipliedAlpha: true,
     transparent: true,
@@ -234,7 +240,7 @@ export function initColorBends(containerElement, customOptions = {}) {
   const pointerTarget = new THREE.Vector2(0, 0);
   const pointerCurrent = new THREE.Vector2(0, 0);
   const pointerSmooth = 8;
-  const clock = new THREE.Clock();
+  const timer = new THREE.Timer();
 
   let rafId = 0;
   let destroyed = false;
@@ -273,8 +279,9 @@ export function initColorBends(containerElement, customOptions = {}) {
     rafId = requestAnimationFrame(renderLoop);
     if (options.pauseWhenUnfocused && !isAppInteractive()) return;
 
-    const dt = clock.getDelta();
-    const elapsed = clock.elapsedTime;
+    timer.update();
+    const dt = timer.getDelta();
+    const elapsed = timer.getElapsed();
     material.uniforms.uTime.value = elapsed;
     material.uniforms.uSpeed.value = options.speed;
     material.uniforms.uScale.value = options.scale;
@@ -283,6 +290,9 @@ export function initColorBends(containerElement, customOptions = {}) {
     material.uniforms.uMouseInfluence.value = options.mouseInfluence;
     material.uniforms.uParallax.value = options.parallax;
     material.uniforms.uNoise.value = options.noise;
+    material.uniforms.uIterations.value = options.iterations;
+    material.uniforms.uIntensity.value = options.intensity;
+    material.uniforms.uBandWidth.value = options.bandWidth;
 
     const deg = (options.rotation % 360) + options.autoRotate * elapsed;
     const rad = (deg * Math.PI) / 180;
@@ -338,6 +348,9 @@ export function initColorBends(containerElement, customOptions = {}) {
     material.uniforms.uMouseInfluence.value = options.mouseInfluence;
     material.uniforms.uParallax.value = options.parallax;
     material.uniforms.uNoise.value = options.noise;
+    material.uniforms.uIterations.value = options.iterations;
+    material.uniforms.uIntensity.value = options.intensity;
+    material.uniforms.uBandWidth.value = options.bandWidth;
 
     const nextColors = Array.isArray(options.colors) ? options.colors.join('|') : '';
     if (prevColors !== nextColors) {
@@ -437,14 +450,17 @@ export async function createColorBends(options = {}) {
     const welcomeScreen = document.getElementById('welcomeScreen');
     const instance = initColorBends(mount, {
       colors: ['#ff5c7a', '#8a5cff', '#00ffd1'],
-      rotation: 0,
+      rotation: 90,
       speed: 0.2,
       scale: 1,
       frequency: 1,
       warpStrength: 1,
       mouseInfluence: 1,
       parallax: 0.5,
-      noise: 0.1,
+      noise: 0.15,
+      iterations: 1,
+      intensity: 1.5,
+      bandWidth: 6,
       transparent: true,
       autoRotate: 0,
       ...options,
@@ -496,6 +512,12 @@ async function syncLifecycleState() {
     if (userOpts.scale !== undefined) mapped.scale = userOpts.scale;
     if (userOpts.frequency !== undefined) mapped.frequency = userOpts.frequency;
     if (userOpts.warp !== undefined) mapped.warpStrength = userOpts.warp;
+    if (userOpts.iterations !== undefined) mapped.iterations = userOpts.iterations;
+    if (userOpts.intensity !== undefined) mapped.intensity = userOpts.intensity;
+    if (userOpts.bandWidth !== undefined) mapped.bandWidth = userOpts.bandWidth;
+    if (userOpts.noise !== undefined) mapped.noise = userOpts.noise;
+    if (userOpts.parallax !== undefined) mapped.parallax = userOpts.parallax;
+    if (userOpts.mouseInfluence !== undefined) mapped.mouseInfluence = userOpts.mouseInfluence;
     const colors = [];
     if (userOpts.color1) colors.push(userOpts.color1);
     if (userOpts.color2) colors.push(userOpts.color2);

@@ -61,8 +61,7 @@ class HybridShortcuts {
       const anyModalOpen = document.querySelector('.modal-overlay:not([hidden])');
 
       const code = e.code;
-      const isRecordingToggle = code === 'KeyS' && (e.ctrlKey || e.metaKey);
-      const action = isRecordingToggle ? 'toggle-recording' : this.shortcuts[code];
+      const action = this._getModifiedShortcutAction(e) || this.shortcuts[code];
 
       if (code === 'KeyF' || code === 'Escape') {
         console.log('[FSDBG][renderer-shortcuts] keydown', {
@@ -90,6 +89,34 @@ class HybridShortcuts {
       }
       this._executeAction(action, e);
     });
+  }
+
+  _getModifiedShortcutAction(e) {
+    const isPrimaryModifier = e.ctrlKey || e.metaKey;
+    if (!isPrimaryModifier || e.altKey) return null;
+
+    if (e.shiftKey) {
+      return e.code === 'KeyO' ? 'open-multiple-files' : null;
+    }
+
+    switch (e.code) {
+      case 'KeyO':
+        return 'open-file';
+      case 'KeyF':
+        return 'open-folder';
+      case 'KeyN':
+        return 'open-network-stream';
+      case 'KeyL':
+        return 'toggle-playlist';
+      case 'Comma':
+        return 'toggle-settings';
+      case 'KeyS':
+        return 'toggle-recording';
+      case 'KeyQ':
+        return 'quit';
+      default:
+        return null;
+    }
   }
 
   _bindMenuActions() {
@@ -218,13 +245,29 @@ class HybridShortcuts {
       case 'toggle-bg-settings':
         this.controls.toggleModal('bgSettingsModal');
         break;
+
+      case 'toggle-settings':
+        this.controls.toggleModal('settingsModal');
+        break;
       
       case 'open-file':
         window.HybridApp?.promptOpenFile();
         break;
+
+      case 'open-multiple-files':
+        window.HybridApp?.promptOpenMultipleFiles();
+        break;
       
       case 'open-folder':
         window.HybridApp?.promptOpenFolder();
+        break;
+
+      case 'open-network-stream':
+        window.HybridApp?.promptOpenUrl();
+        break;
+
+      case 'quit':
+        window.hybridAPI?.window?.close();
         break;
       
       case 'show-shortcuts':

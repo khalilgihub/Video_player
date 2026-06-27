@@ -1158,6 +1158,10 @@ body[data-welcome-background='none'] .welcome-bg-select {
 /* Background settings popover — opens upward above the trigger button,
    mirroring the .quality-dropdown pattern in the controls bar. */
 #bgSettingsControl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
   position: relative;
 }
 

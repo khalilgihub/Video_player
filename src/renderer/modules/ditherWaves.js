@@ -27,6 +27,7 @@ uniform float waveSpeed;
 uniform float waveFrequency;
 uniform float waveAmplitude;
 uniform vec3 waveColor;
+uniform vec3 backgroundColor;
 uniform vec2 mousePos;
 uniform int enableMouseInteraction;
 uniform float mouseRadius;
@@ -95,7 +96,7 @@ void main() {
     float effect = 1.0 - smoothstep(0.0, mouseRadius, dist);
     f -= mouseIntensity * effect;
   }
-  vec3 col = mix(vec3(0.0), waveColor, f);
+  vec3 col = mix(backgroundColor, waveColor, f);
   gl_FragColor = vec4(col, 1.0);
 }
 `;
@@ -168,6 +169,7 @@ const DEFAULT_OPTIONS = Object.freeze({
   waveFrequency: 3,
   waveAmplitude: 0.3,
   waveColor: [0.5, 0.5, 0.5],
+  bgColor: [0.0, 0.0, 0.0],
   colorNum: 4,
   pixelSize: 2,
   disableAnimation: false,
@@ -259,6 +261,7 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     waveFrequency: new THREE.Uniform(options.waveFrequency),
     waveAmplitude: new THREE.Uniform(options.waveAmplitude),
     waveColor: new THREE.Uniform(new THREE.Color(...options.waveColor)),
+    backgroundColor: new THREE.Uniform(new THREE.Color(...options.bgColor)),
     mousePos: new THREE.Uniform(new THREE.Vector2(0, 0)),
     enableMouseInteraction: new THREE.Uniform(options.enableMouseInteraction ? 1 : 0),
     mouseRadius: new THREE.Uniform(options.mouseRadius),
@@ -283,7 +286,7 @@ export function initDitherWaves(containerElement, customOptions = {}) {
 
   containerElement.appendChild(renderer.domElement);
 
-  const clock = new THREE.Clock();
+  const timer = new THREE.Timer();
   const mouseN = new THREE.Vector2(0.5, 0.5);
 
   const updateSize = () => {
@@ -331,13 +334,15 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     if (options.pauseWhenUnfocused && !isAppInteractive()) return;
 
     if (!options.disableAnimation) {
-      waveUniforms.time.value = clock.getElapsedTime();
+      timer.update();
+      waveUniforms.time.value = timer.getElapsed();
     }
 
     waveUniforms.waveSpeed.value = options.waveSpeed;
     waveUniforms.waveFrequency.value = options.waveFrequency;
     waveUniforms.waveAmplitude.value = options.waveAmplitude;
     waveUniforms.waveColor.value.set(...options.waveColor);
+    waveUniforms.backgroundColor.value.set(...options.bgColor);
     waveUniforms.enableMouseInteraction.value = options.enableMouseInteraction ? 1 : 0;
     waveUniforms.mouseRadius.value = options.mouseRadius;
     waveUniforms.mouseIntensity.value = options.mouseIntensity;
@@ -502,6 +507,11 @@ async function syncLifecycleState() {
       const h = String(userOpts.color).replace('#', '');
       const n = parseInt(h, 16);
       mapped.waveColor = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+    }
+    if (userOpts.bgColor !== undefined) {
+      const h = String(userOpts.bgColor).replace('#', '');
+      const n = parseInt(h, 16);
+      mapped.bgColor = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
     }
     if (userOpts.pixelSize !== undefined) mapped.pixelSize = userOpts.pixelSize;
     if (userOpts.colorNum !== undefined) mapped.colorNum = userOpts.colorNum;

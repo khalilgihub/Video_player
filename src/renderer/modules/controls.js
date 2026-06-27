@@ -442,7 +442,7 @@ class HybridControls {
       clearTimeout(this.hideTimeout);
       // Don't start the hide countdown while mouse is inside controls
       if (!this._mouseOverControls) {
-        this.hideTimeout = setTimeout(hideControls, 3000);
+        this.hideTimeout = setTimeout(hideControls, 2000);
       }
     };
 
@@ -574,7 +574,10 @@ class HybridControls {
 
     // Keep expanded while interacting
     this.volumeSlider.addEventListener('mousedown', () => this.volumeContainer.classList.add('expanded'));
-    document.addEventListener('mouseup', () => this.volumeContainer.classList.remove('expanded'));
+    document.addEventListener('mouseup', () => {
+      this.volumeContainer.classList.remove('expanded');
+      this.volumeSlider.blur();
+    });
 
     // Scroll wheel on entire volume container (button + track area)
     this.volumeContainer.addEventListener('wheel', (e) => {
@@ -593,7 +596,7 @@ class HybridControls {
   _updateVolumeSliderFill() {
     const pct = this.volumeSlider.value;
     this.volumeSlider.style.background =
-      `linear-gradient(to right, #fff ${pct}%, rgba(255,255,255,0.25) ${pct}%)`;
+      `linear-gradient(to right, var(--accent) ${pct}%, rgba(255,255,255,0.15) ${pct}%)`;
   }
 
   _updateVolumeIcon(volume) {
