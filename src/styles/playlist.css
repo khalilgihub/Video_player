@@ -48,8 +48,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
+  padding: 8px 16px;
+  height: 46px;
+  box-sizing: border-box;
   border-bottom: 1px solid var(--border-color);
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .sidebar-header h3 {
@@ -57,9 +66,14 @@
   font-weight: 600;
 }
 
-.sidebar-actions {
+/* ─── Sidebar Toolbar ─── */
+.sidebar-toolbar {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.01);
 }
 
 .sidebar-btn {
