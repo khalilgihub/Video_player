@@ -24,9 +24,9 @@ class HybridPlaylist {
   _bindEvents() {
     // Add files
     document.getElementById('btnAddToPlaylist')?.addEventListener('click', async () => {
-      const filePath = await window.hybridAPI.dialog.openFile();
-      if (filePath) {
-        this.addFiles([filePath]);
+      const paths = await window.hybridAPI.dialog.openMultiple();
+      if (Array.isArray(paths) && paths.length > 0) {
+        this.addFiles(paths);
       }
     });
 
@@ -38,9 +38,11 @@ class HybridPlaylist {
     this.shuffleBtn?.addEventListener('click', () => this.toggleShuffle());
     this.repeatBtn?.addEventListener('click', () => this.cycleRepeat());
 
-    // Close sidebar
+    // Close sidebar — route through controls.togglePlaylist() so the
+    // `playlist-open` body class stays applied until the sidebar's close
+    // animation finishes (prevents the controls from snapping back early).
     document.getElementById('btnClosePlaylist')?.addEventListener('click', () => {
-      document.getElementById('sidebarPlaylist').classList.add('collapsed');
+      window.HybridApp?.controlsModule?.togglePlaylist();
     });
 
     // Search

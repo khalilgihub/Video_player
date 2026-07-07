@@ -674,8 +674,21 @@ class HybridControls {
 
   togglePlaylist() {
     const sidebar = document.getElementById('sidebarPlaylist');
-    sidebar.classList.toggle('collapsed');
-    document.getElementById('btnPlaylist')?.setAttribute('aria-expanded', String(!sidebar.classList.contains('collapsed')));
+    const willOpen = sidebar.classList.contains('collapsed');
+    sidebar.classList.toggle('collapsed', !willOpen);
+    const isOpen = willOpen;
+    
+    const btnPlaylist = document.getElementById('btnPlaylist');
+    if (btnPlaylist) {
+      btnPlaylist.setAttribute('aria-expanded', String(isOpen));
+      btnPlaylist.classList.toggle('active', isOpen);
+    }
+
+    if (isOpen) {
+      document.body.classList.add('playlist-open');
+    } else {
+      document.body.classList.remove('playlist-open');
+    }
   }
 
   revealChromeAfterWindowStateChange() {

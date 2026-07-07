@@ -3,7 +3,17 @@
  */
 
 /* ─── Sidebar ─── */
+/* The playlist floats as an overlay above the video/welcome area so opening
+   it never compacts the background or pushes the control buttons.
+   Animation is done with `transform: translateX()` (GPU-composited) rather
+   than `width` so it never triggers layout/paint on the rest of the UI —
+   this is what keeps the open/close perfectly smooth. */
 .sidebar-playlist {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  height: 100%;
   width: 320px;
   min-width: 320px;
   background: var(--bg-secondary);
@@ -11,19 +21,27 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-              min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.3s ease;
-  z-index: 100;
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              visibility 0s linear 0s;
+  z-index: 140;
   overflow: hidden;
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
+  /* Promote to its own compositor layer so the slide is purely GPU-driven. */
+  will-change: transform, opacity;
 }
-
+ 
 .sidebar-playlist.collapsed {
-  width: 0;
-  min-width: 0;
-  border-left: none;
+  transform: translateX(100%);
   opacity: 0;
   pointer-events: none;
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0);
+  visibility: hidden;
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              visibility 0s linear 0.35s;
 }
 
 .sidebar-header {

@@ -316,7 +316,8 @@ class HybridApp {
         appdbg('[LAYOUTDBG][renderer] sidebar not collapsed on init; forcing collapsed state');
       }
       sidebar?.classList.add('collapsed');
-      
+      document.body.classList.remove('playlist-open');
+
       // Stats update interval
       this._statsInterval = setInterval(() => {
         const stats = document.getElementById('statsOverlay');
@@ -1445,7 +1446,12 @@ class HybridApp {
     if (nextState) {
       this.controlsModule?.closeAllModals();
       document.getElementById('sidebarPlaylist')?.classList.add('collapsed');
-      document.getElementById('btnPlaylist')?.setAttribute('aria-expanded', 'false');
+      const btnPlaylist = document.getElementById('btnPlaylist');
+      if (btnPlaylist) {
+        btnPlaylist.setAttribute('aria-expanded', 'false');
+        btnPlaylist.classList.remove('active');
+      }
+      document.body.classList.remove('playlist-open');
       this.cursorManager?.show();
     } else {
       this.cursorManager?.resume();

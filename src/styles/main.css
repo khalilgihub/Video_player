@@ -258,6 +258,7 @@ body.has-native-window-controls .titlebar-drag {
 /* ─── Main Layout ─── */
 .app-main {
   display: flex;
+  position: relative;
   height: 100vh;
   padding-top: 0;
   /* No padding - titlebar overlays */
@@ -1525,10 +1526,13 @@ body.welcome-active .welcome-recent {
   animation: welcomeControlIn var(--motion-medium) var(--motion-ease-standard) 220ms both;
 }
 
-/* Prevent right-side sidebar gutter from visually cutting the welcome effects area. */
-body.welcome-active .sidebar-playlist {
-  display: none !important;
-}
+/* On the welcome screen the playlist floats over the background instead of
+   stealing space from the video container, so the welcome background does not
+   compact when the playlist is opened. The collapsed gutter is hidden to keep
+   the welcome effects area clean. Visibility is delayed until the close
+   animation finishes so the sidebar doesn't vanish while controls are still
+   sliding back into place. */
+
 
 @keyframes welcomeTitlebarIn {
   from {
