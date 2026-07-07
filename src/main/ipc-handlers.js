@@ -481,6 +481,7 @@ function applyFakeMaximize(win) {
   logWindowIpcState(win, 'applyFakeMaximize:start');
 
   if (win.isMaximized()) {
+    win.setResizable(true);
     win.unmaximize();
   }
   if (win.isMinimized()) {
@@ -509,6 +510,7 @@ function restoreFromMaximized(win) {
 
   const wasNativeMaximized = win.isMaximized();
   if (wasNativeMaximized) {
+    win.setResizable(true);
     win.unmaximize();
   }
 
@@ -681,8 +683,40 @@ function toggleFakeMaximize(win) {
 
 function toggleNativeMaximize(win) {
   if (!win || win.isDestroyed()) return false;
+  
+  // Temporarily set resizable to true so maximize/unmaximize always work
+  win.setResizable(true);
+
   if (win.isMaximized()) {
     win.unmaximize();
+    
+    // Explicitly set restore bounds to force the window out of maximized state
+    const bounds = win.getBounds();
+    const display = screen.getDisplayMatching(bounds);
+    const area = display?.workArea || screen.getPrimaryDisplay().workArea;
+
+    let targetBounds = null;
+    try {
+      const normal = typeof win.getNormalBounds === 'function' ? win.getNormalBounds() : null;
+      if (normal && normal.width > 0 && normal.height > 0) {
+        // Ensure the restored bounds are actually smaller than the maximized screen size
+        if (normal.width < area.width || normal.height < area.height) {
+          targetBounds = normal;
+        }
+      }
+    } catch (e) {
+      // Ignore
+    }
+
+    if (!targetBounds) {
+      const width = 1280;
+      const height = 720;
+      const x = area.x + Math.round((area.width - width) / 2);
+      const y = area.y + Math.round((area.height - height) / 2);
+      targetBounds = { x, y, width, height };
+    }
+
+    win.setBounds(targetBounds, false);
   } else {
     win.maximize();
   }

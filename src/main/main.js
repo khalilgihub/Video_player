@@ -493,8 +493,8 @@ app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512');
 let mainWindow = null;
 let mpvProcess = null;
 let fullscreenTransitionUntil = 0;
-const WINDOWED_WIDTH = 1920;
-const WINDOWED_HEIGHT = 1020;
+const WINDOWED_WIDTH = 1280;
+const WINDOWED_HEIGHT = 720;
 const FULLSCREEN_RESTORE_DELAY_MS = 140;
 const ENABLE_WINDOW_BOUNDS_CLAMP = false;
 // Transparent compositor is required so that mpv --wid rendering shows through
@@ -665,23 +665,49 @@ function normalizeBounds(bounds) {
 function capturePreFullscreenBounds(win, source = 'unknown') {
   if (!win || win.isDestroyed()) return;
   if (getTrackedFullscreen(win) || win.isFullScreen()) return;
+
+  win.__hybridPreFullscreenMaximized = win.isMaximized() || !!win.__hybridFakeMaximized;
+
   const bounds = normalizeBounds(win.getBounds());
   if (!bounds) return;
   win.__hybridPreFullscreenBounds = bounds;
-  fsdbg('captured pre-fullscreen bounds', { source, bounds });
+  fsdbg('captured pre-fullscreen bounds', { source, bounds, maximized: win.__hybridPreFullscreenMaximized });
 }
 
 function restorePreFullscreenBounds(win, source = 'unknown') {
   if (!win || win.isDestroyed()) return false;
-  const targetBounds = normalizeBounds(win.__hybridPreFullscreenBounds);
-  if (!targetBounds) return false;
-  if (win.isMaximized()) {
-    win.unmaximize();
+
+  const wasMaximized = !!win.__hybridPreFullscreenMaximized;
+  win.__hybridPreFullscreenMaximized = false;
+
+  if (wasMaximized) {
+    win.__hybridPreFullscreenBounds = null;
+    
+    // Temporarily set resizable to true so maximize works
+    win.setResizable(true);
+
+    if (win.__hybridUseFakeMaximize) {
+      applyFakeMaximize(win);
+    } else {
+      win.maximize();
+    }
+    fsdbg('restored pre-fullscreen state to maximized', { source });
+    return true;
   }
-  win.setBounds(targetBounds, false);
-  win.__hybridPreFullscreenBounds = null;
-  fsdbg('restored pre-fullscreen bounds', { source, bounds: targetBounds });
-  return true;
+
+  const targetBounds = normalizeBounds(win.__hybridPreFullscreenBounds);
+  if (targetBounds) {
+    // Temporarily set resizable to true so unmaximizing works
+    win.setResizable(true);
+    if (win.isMaximized()) {
+      win.unmaximize();
+    }
+    win.setBounds(targetBounds, false);
+    win.__hybridPreFullscreenBounds = null;
+    fsdbg('restored pre-fullscreen bounds', { source, bounds: targetBounds });
+    return true;
+  }
+  return false;
 }
 
 function applyWindowedSize(win) {
@@ -1147,14 +1173,17 @@ function pointInClientRect(point, rect) {
 }
 
 function resolveNcHitTest(win, lParamBuffer) {
-  if (!win || win.isDestroyed() || win.isMinimized()) return HTCLIENT;
-  if (!win.isResizable()) return HTCLIENT;
+  if (!win || win.isDestroyed() || win.isMinimized()) return undefined;
+  if (!win.isResizable()) return undefined;
+
+  // When maximized or fullscreen, lock all edges (treating them as standard client area)
+  // to prevent any DWM resize cursors/gestures from showing.
   if (getTrackedFullscreen(win) || win.isFullScreen() || win.isMaximized() || win.__hybridFakeMaximized) {
     return HTCLIENT;
   }
 
   const physicalPoint = readScreenPointFromLParam(lParamBuffer);
-  if (!physicalPoint) return HTCLIENT;
+  if (!physicalPoint) return undefined;
   const screenPoint = typeof screen.screenToDipPoint === 'function'
     ? screen.screenToDipPoint(physicalPoint)
     : physicalPoint;
@@ -1166,12 +1195,12 @@ function resolveNcHitTest(win, lParamBuffer) {
   };
 
   if (localPoint.x < 0 || localPoint.y < 0 || localPoint.x > bounds.width || localPoint.y > bounds.height) {
-    return HTNOWHERE;
+    return undefined;
   }
 
   const exclusions = Array.isArray(win.__hybridNcHitTestExclusions) ? win.__hybridNcHitTestExclusions : [];
   if (exclusions.some((rect) => pointInClientRect(localPoint, rect))) {
-    return HTCLIENT;
+    return undefined;
   }
 
   const left = localPoint.x <= RESIZE_BORDER_DIP;
@@ -1179,15 +1208,18 @@ function resolveNcHitTest(win, lParamBuffer) {
   const top = localPoint.y <= RESIZE_BORDER_DIP;
   const bottom = localPoint.y >= bounds.height - RESIZE_BORDER_DIP;
 
+  // In restore (windowed) mode:
+  // - All edges and corners are resizable.
   if (top && left) return HTTOPLEFT;
   if (top && right) return HTTOPRIGHT;
   if (bottom && left) return HTBOTTOMLEFT;
   if (bottom && right) return HTBOTTOMRIGHT;
   if (top) return HTTOP;
-  if (bottom) return HTBOTTOM;
   if (left) return HTLEFT;
+  if (bottom) return HTBOTTOM;
   if (right) return HTRIGHT;
-  return HTCLIENT;
+
+  return undefined;
 }
 
 function setupWindowsNcHitTestHook(win) {
@@ -1282,15 +1314,18 @@ function createMainWindow() {
   mainWindow.__hybridFakeMaximized = false;
   mainWindow.__hybridRestoreBounds = null;
   mainWindow.__hybridPrevResizable = null;
-  mainWindow.__hybridBaseResizable = mainWindow.isResizable();
+  mainWindow.__hybridBaseResizable = true;
   mainWindow.__hybridPrevFullscreenResizable = null;
   mainWindow.__hybridPreFullscreenBounds = null;
+  mainWindow.__hybridPreFullscreenMaximized = false;
   mainWindow.__hybridSuppressNextUnmaximizeEvent = false;
   mainWindow.__hybridConvertingNativeMaximize = false;
   mainWindow.__hybridNcHitTestExclusions = [];
   mainWindow.__hybridUseFakeMaximize = false;
-  if (mainWindow.__hybridUseFakeMaximize) {
+  if (process.platform === 'win32') {
     setupWindowsNcHitTestHook(mainWindow);
+  }
+  if (mainWindow.__hybridUseFakeMaximize) {
     setupWindowsNcActivateHook(mainWindow);
     scheduleWindowsBorderSuppression(mainWindow, 'createMainWindow');
   }
@@ -1383,6 +1418,8 @@ function createMainWindow() {
 
   // Smooth show – also spawn mpv once the window is visible
   mainWindow.once('ready-to-show', () => {
+    mainWindow.maximize();
+
     if (process.platform === 'win32' && mainWindow.__hybridUseFakeMaximize) {
       // Startup can arrive already natively-maximized (OS/session restore) without
       // reliably hitting our maximize interception path. Force-convert here.
@@ -1457,17 +1494,24 @@ function createMainWindow() {
       return;
     }
     mainWindow.__hybridFakeMaximized = false;
+
+    // Explicitly disable resizability when natively maximized (deferred)
+    if (typeof mainWindow.__hybridPrevResizable !== 'boolean') {
+      mainWindow.__hybridPrevResizable = mainWindow.isResizable();
+    }
+    setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      if (mainWindow.isResizable()) {
+        mainWindow.setResizable(false);
+      }
+    }, 50);
+
     emitWindowVisualState(mainWindow, 'maximize');
     mainWindow.webContents.send('window-state-changed', 'maximized');
   });
   mainWindow.on('unmaximize', () => {
     scheduleWindowsBorderSuppression(mainWindow, 'unmaximize');
     if (mainWindow.__hybridUseFakeMaximize) {
-      if (mainWindow.__hybridSuppressNextUnmaximizeEvent) {
-        mainWindow.__hybridSuppressNextUnmaximizeEvent = false;
-        logWindowDwmSnapshot(mainWindow, 'unmaximize-suppressed');
-        return;
-      }
       mainWindow.__hybridFakeMaximized = false;
       const baseResizable = typeof mainWindow.__hybridBaseResizable === 'boolean'
         ? mainWindow.__hybridBaseResizable
@@ -1479,6 +1523,20 @@ function createMainWindow() {
       mainWindow.__hybridPrevResizable = null;
     } else {
       mainWindow.__hybridFakeMaximized = false;
+
+      // Explicitly restore resizability when natively unmaximized (deferred)
+      const baseResizable = typeof mainWindow.__hybridBaseResizable === 'boolean'
+        ? mainWindow.__hybridBaseResizable
+        : mainWindow.isResizable();
+      const previousResizable = typeof mainWindow.__hybridPrevResizable === 'boolean'
+        ? mainWindow.__hybridPrevResizable
+        : baseResizable;
+      
+      setTimeout(() => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        mainWindow.setResizable(previousResizable);
+        mainWindow.__hybridPrevResizable = null;
+      }, 50);
     }
     fsdbg('window unmaximize');
     logWindowDwmSnapshot(mainWindow, 'unmaximize');
@@ -1499,6 +1557,9 @@ function createMainWindow() {
   mainWindow.on('leave-full-screen', () => {
     setResizableWhileFullscreen(mainWindow, false);
     mainWindow.__hybridFullscreenState = false;
+    
+    const wasMaximized = !!mainWindow.__hybridPreFullscreenMaximized;
+
     let windowedRestoreApplied = false;
     // Let Windows settle the transition first, then restore windowed bounds.
     const restoreWindowed = () => {
@@ -1519,7 +1580,7 @@ function createMainWindow() {
     fsdbg('window leave-full-screen');
     logWindowDwmSnapshot(mainWindow, 'leave-full-screen');
     emitWindowVisualState(mainWindow, 'leave-full-screen');
-    mainWindow.webContents.send('window-state-changed', 'normal');
+    mainWindow.webContents.send('window-state-changed', wasMaximized ? 'maximized' : 'normal');
   });
   mainWindow.on('focus', () => {
     if (process.platform === 'win32' && mainWindow.__hybridUseFakeMaximize) {

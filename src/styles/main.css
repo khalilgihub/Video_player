@@ -179,6 +179,7 @@ body.app-unfocused::after {
   align-items: center;
   gap: 10px;
   padding-left: 14px;
+  transition: margin-right 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   height: 100%;
   background: transparent !important;
   background-color: transparent !important;
@@ -227,6 +228,10 @@ body.has-native-window-controls .titlebar-controls {
 /* Reserve space so title text/drag area doesn't overlap native control buttons. */
 body.has-native-window-controls .titlebar-drag {
   padding-right: 140px;
+}
+
+body.playlist-open .titlebar-drag {
+  margin-right: 320px;
 }
 
 .titlebar-btn {

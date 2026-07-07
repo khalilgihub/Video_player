@@ -353,6 +353,28 @@ class HybridApp {
         document.body.classList.toggle('is-fullscreen', isFs);
         document.body.classList.toggle('is-maximized', isMax);
 
+        const btnMaximize = document.getElementById('btnMaximize');
+        if (btnMaximize) {
+          if (isMax) {
+            btnMaximize.title = 'Restore';
+            btnMaximize.setAttribute('aria-label', 'Restore window');
+            btnMaximize.innerHTML = `
+              <svg width="12" height="12" viewBox="0 0 12 12">
+                <path d="M3.5 1.5h7v7" fill="none" stroke="currentColor" stroke-width="1.2" />
+                <rect x="1.5" y="3.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.2" />
+              </svg>
+            `;
+          } else {
+            btnMaximize.title = 'Maximize';
+            btnMaximize.setAttribute('aria-label', 'Maximize window');
+            btnMaximize.innerHTML = `
+              <svg width="12" height="12" viewBox="0 0 12 12">
+                <rect x="1" y="1" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3" />
+              </svg>
+            `;
+          }
+        }
+
         const fsEnter = document.querySelector('.icon-fullscreen-enter');
         const fsExit = document.querySelector('.icon-fullscreen-exit');
         if (fsEnter && fsExit) {
