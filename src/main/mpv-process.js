@@ -195,7 +195,9 @@ class MpvProcess extends EventEmitter {
 
     const ytdlRawOptions = [];
     if (opts.enableYtdlRawOptions === true) {
-      ytdlRawOptions.push(`user-agent=${opts.ytdlUserAgent || defaultUserAgent}`);
+      if (opts.ytdlUserAgent) {
+        ytdlRawOptions.push(`user-agent=${opts.ytdlUserAgent}`);
+      }
       if (fs.existsSync(cookiesPath)) {
         ytdlRawOptions.push(`cookies=${cookiesPath}`);
         fsdbg('using cookies for ytdl', { cookiesPath });

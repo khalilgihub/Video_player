@@ -856,16 +856,26 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
   });
   ipcMain.handle('window:fullscreen', (_, state) => {
     logWindowIpcState(win, 'window:fullscreen:request', { requestedState: state });
+    const now = Date.now();
+    const lockUntil = win.__hybridFullscreenTransitionUntil || 0;
     const current = typeof win.__hybridFullscreenState === 'boolean'
       ? win.__hybridFullscreenState
       : win.isFullScreen();
+    if (now < lockUntil) {
+      logWindowIpcState(win, 'window:fullscreen:skipped', { current });
+      return current;
+    }
     const target = typeof state === 'boolean' ? state : !current;
     if (target) {
       capturePreFullscreenBounds(win, 'window:fullscreen');
       win.__hybridFakeMaximized = false;
       win.__hybridRestoreBounds = null;
     }
+    win.__hybridFullscreenTransitionUntil = now + 400;
     win.__hybridFullscreenState = !!target;
+    if (win.webContents && !win.webContents.isDestroyed()) {
+      win.webContents.send('window-fullscreen-transition-start', !!target);
+    }
     win.setFullScreen(target);
     logWindowIpcState(win, 'window:fullscreen:applied', { target });
     return target;

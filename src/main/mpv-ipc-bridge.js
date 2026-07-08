@@ -51,7 +51,17 @@ function setupMpvIpc(win, mpv) {
 
   const setTrackedFullscreen = (state) => {
     if (!win || win.isDestroyed()) return;
+    const now = Date.now();
+    const lockUntil = win.__hybridFullscreenTransitionUntil || 0;
+    if (now < lockUntil) {
+      fsdbg('setTrackedFullscreen skipped in mpv-ipc-bridge (transition lock)', { desired: state });
+      return;
+    }
+    win.__hybridFullscreenTransitionUntil = now + 400;
     win.__hybridFullscreenState = !!state;
+    if (win.webContents && !win.webContents.isDestroyed()) {
+      win.webContents.send('window-fullscreen-transition-start', !!state);
+    }
     win.setFullScreen(!!state);
   };
   const getUiLocked = () => {

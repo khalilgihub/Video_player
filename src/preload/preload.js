@@ -174,6 +174,7 @@ contextBridge.exposeInMainWorld('hybridAPI', {
     const validChannels = [
       'menu-action', 'open-file-from-args', 'window-state-changed',
       'window-is-fullscreen', 'window-is-maximized',
+      'window-fullscreen-transition-start',
       'screenshot-ready',
       'mpv:property-change', 'mpv:event'
     ];

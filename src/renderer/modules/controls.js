@@ -100,14 +100,38 @@ class HybridControls {
 
     // Click video container to toggle play (mpv renders natively, not a <video> element)
     const mpvContainer = document.getElementById('mpvContainer');
+    let clickTimeout = null;
     if (mpvContainer) {
-      mpvContainer.addEventListener('click', () => this.player.togglePlay());
-      mpvContainer.addEventListener('dblclick', (e) => handleFullscreenDblClick(e, 'mpvContainer'));
+      mpvContainer.addEventListener('click', (e) => {
+        if (shouldIgnoreFullscreenDblClick(e.target)) return;
+        if (clickTimeout) {
+          clearTimeout(clickTimeout);
+          clickTimeout = null;
+          return;
+        }
+        clickTimeout = setTimeout(() => {
+          this.player.togglePlay();
+          clickTimeout = null;
+        }, 250);
+      });
+      mpvContainer.addEventListener('dblclick', (e) => {
+        if (clickTimeout) {
+          clearTimeout(clickTimeout);
+          clickTimeout = null;
+        }
+        handleFullscreenDblClick(e, 'mpvContainer');
+      });
     }
 
     // Welcome overlay covers mpv surface; bind dblclick here too.
     const welcomeScreen = document.getElementById('welcomeScreen');
-    welcomeScreen?.addEventListener('dblclick', (e) => handleFullscreenDblClick(e, 'welcomeScreen'));
+    welcomeScreen?.addEventListener('dblclick', (e) => {
+      if (clickTimeout) {
+        clearTimeout(clickTimeout);
+        clickTimeout = null;
+      }
+      handleFullscreenDblClick(e, 'welcomeScreen');
+    });
 
     // Previous / Next
     document.getElementById('btnPrev').addEventListener('click', () => {

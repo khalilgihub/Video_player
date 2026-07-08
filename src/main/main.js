@@ -302,7 +302,7 @@ async function clipMediaSegment({ filePath, startTime, duration }) {
       settled = true;
       try {
         ffmpeg.kill('SIGKILL');
-      } catch {}
+      } catch { }
       reject(new Error('Clip export timed out'));
     }, CLIP_EXPORT_TIMEOUT_MS);
 
@@ -374,7 +374,11 @@ async function getYoutubeQualityHeights(url) {
   }
 
   let payload = null;
+  const cookiesPath = path.join(__dirname, '../../cookies.txt');
   const args = ['-J', '--no-warnings', '--no-playlist', target];
+  if (fs.existsSync(cookiesPath)) {
+    args.push('--cookies', cookiesPath);
+  }
 
   for (const bin of uniqueCandidates) {
     try {
@@ -492,7 +496,6 @@ app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512');
 
 let mainWindow = null;
 let mpvProcess = null;
-let fullscreenTransitionUntil = 0;
 const WINDOWED_WIDTH = 1280;
 const WINDOWED_HEIGHT = 720;
 const FULLSCREEN_RESTORE_DELAY_MS = 140;
@@ -628,7 +631,8 @@ function setTrackedFullscreen(win, target, source = 'unknown') {
   const current = getTrackedFullscreen(win);
 
   // Guard repeated toggles while Windows is transitioning fullscreen.
-  if (source.includes('toggle') && now < fullscreenTransitionUntil) {
+  const lockUntil = win.__hybridFullscreenTransitionUntil || 0;
+  if (source.includes('toggle') && now < lockUntil) {
     fsdbg('setTrackedFullscreen skipped (transition lock)', { source, desired, current });
     return current;
   }
@@ -642,9 +646,12 @@ function setTrackedFullscreen(win, target, source = 'unknown') {
     capturePreFullscreenBounds(win, source);
   }
 
-  fullscreenTransitionUntil = now + 350;
+  win.__hybridFullscreenTransitionUntil = now + 400;
   win.__hybridFullscreenState = desired;
   fsdbg('setTrackedFullscreen apply', { source, from: current, to: desired });
+  if (win.webContents && !win.webContents.isDestroyed()) {
+    win.webContents.send('window-fullscreen-transition-start', desired);
+  }
   win.setFullScreen(desired);
   return desired;
 }
@@ -682,7 +689,7 @@ function restorePreFullscreenBounds(win, source = 'unknown') {
 
   if (wasMaximized) {
     win.__hybridPreFullscreenBounds = null;
-    
+
     // Temporarily set resizable to true so maximize works
     win.setResizable(true);
 
@@ -808,7 +815,7 @@ function clampWindowToVisibleArea(win) {
   if (win.isMinimized()) return;
   if (getTrackedFullscreen(win) || win.isMaximized() || win.__hybridFakeMaximized) return;
   if (isClampingWindowBounds) return;
-  if (Date.now() < fullscreenTransitionUntil) return;
+  if (Date.now() < (win.__hybridFullscreenTransitionUntil || 0)) return;
 
   const bounds = win.getBounds();
   const display = screen.getDisplayMatching(bounds);
@@ -868,7 +875,7 @@ function createDefaultDatabase() {
       autoResume: true,
       volume: 1.0,
       equalizerPreset: 'flat',
-      equalizerBands: [0,0,0,0,0,0,0,0,0,0],
+      equalizerBands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       motionProfile: 'balanced',
       brandFontEnabled: true,
     },
@@ -1462,7 +1469,8 @@ function createMainWindow() {
         ytdlPath: resolvedYtdlpPath,
         hwdec: 'auto-safe',
         screenshotDir: fastScreenshotDir,
-        screenshotFormat: 'jpg'
+        screenshotFormat: 'jpg',
+        enableYtdlRawOptions: true
       });
       maindbg('mpv process spawned and IPC bridge ready');
     } catch (err) {
@@ -1531,7 +1539,7 @@ function createMainWindow() {
       const previousResizable = typeof mainWindow.__hybridPrevResizable === 'boolean'
         ? mainWindow.__hybridPrevResizable
         : baseResizable;
-      
+
       setTimeout(() => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
         mainWindow.setResizable(previousResizable);
@@ -1557,7 +1565,7 @@ function createMainWindow() {
   mainWindow.on('leave-full-screen', () => {
     setResizableWhileFullscreen(mainWindow, false);
     mainWindow.__hybridFullscreenState = false;
-    
+
     const wasMaximized = !!mainWindow.__hybridPreFullscreenMaximized;
 
     let windowedRestoreApplied = false;

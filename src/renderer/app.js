@@ -390,8 +390,9 @@ class HybridApp {
         if (this._fsTransitionTimer) clearTimeout(this._fsTransitionTimer);
         this._fsTransitionTimer = setTimeout(() => {
           document.body.classList.remove('fs-transition');
+          this._setVideoCurtain(false);
           this._fsTransitionTimer = null;
-        }, 440);
+        }, 500);
       };
 
       const DWM_RENDERER_DIAG = false;
@@ -457,6 +458,10 @@ class HybridApp {
           applyFsTransition();
           this.controlsModule?.revealChromeAfterWindowStateChange?.();
         }
+      });
+
+      window.hybridAPI.on('window-fullscreen-transition-start', (flag) => {
+        this._setVideoCurtain(true);
       });
 
       window.hybridAPI.on('window-is-maximized', (flag) => {
@@ -567,7 +572,7 @@ class HybridApp {
         }
       });
 
-      window.hybridAPI.mpv.onEvent((event) => {
+      window.hybridAPI.mpv.onEvent((event, data) => {
         viddbg('mpv:event', { event, pending: this._loadSpinnerPending });
 
         if (event === 'seek') {
@@ -591,6 +596,10 @@ class HybridApp {
         }
 
         if (event === 'end-file' || event === 'error') {
+          if (event === 'end-file' && data?.reason === 'stop' && this._loadSpinnerPending) {
+            viddbg('end-file ignored because new load is pending', { reason: data?.reason });
+            return;
+          }
           this._loadSpinnerPending = false;
           this._setNetworkLoading(false);
           this._setVideoCurtain(false);
@@ -1383,31 +1392,37 @@ class HybridApp {
         return;
       }
 
+      modal.hidden = true;
+      input.value = '';
+      window.HybridToast?.show('Opening stream...');
+
       this._closeSettingsModal();
       this._beginVideoLoadSpinner();
 
       ytdbg('network stream submit', { url, isYoutube: this._isYoutubeUrl(url) });
 
       if (this._isYoutubeUrl(url)) {
-        await this._refreshYoutubeQualityUi(url);
         const selected = this.currentStreamUrl === url ? this.currentStreamQuality : 'auto';
         try {
           await this._applyYoutubeQualityAndReload(selected, url);
         } catch {
           ytdbg('quality apply failed; fallback to auto', { url });
-          await window.hybridAPI.mpv.setProperty('ytdl-format', this._buildYtdlFormat('auto'));
-          await this._loadMediaReplace(url);
-          window.HybridToast?.show('Opened stream with Auto quality');
+          try {
+            await window.hybridAPI.mpv.setProperty('ytdl-format', this._buildYtdlFormat('auto'));
+            await this._loadMediaReplace(url);
+          } catch (err) {
+            ytdbg('youtube load fallback failed', { url, error: err });
+          }
         }
       } else {
         ytdbg('non-youtube stream load with auto format', { url });
-        await window.hybridAPI.mpv.setProperty('ytdl-format', this._buildYtdlFormat('auto'));
-        await this._loadMediaReplace(url);
+        try {
+          await window.hybridAPI.mpv.setProperty('ytdl-format', this._buildYtdlFormat('auto'));
+          await this._loadMediaReplace(url);
+        } catch (err) {
+          ytdbg('non-youtube stream load failed', { url, error: err });
+        }
       }
-
-      modal.hidden = true;
-      input.value = '';
-      window.HybridToast?.show('Opened network stream');
     });
 
     cancelBtn.addEventListener('click', () => {
