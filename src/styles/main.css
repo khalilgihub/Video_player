@@ -87,8 +87,7 @@ html,
 body {
   margin: 0;
   padding: 0;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
   height: 100%;
   overflow: hidden;
   font-family: var(--font-ui);
@@ -264,15 +263,18 @@ body.playlist-open .titlebar-drag {
 .app-main {
   display: flex;
   position: relative;
+  width: 100%;
+  min-width: 100%;
+  max-width: 100%;
   height: 100vh;
+  min-height: 100vh;
+  overflow: clip;
   padding-top: 0;
-  /* No padding - titlebar overlays */
   transform-origin: center center;
   transition:
     opacity var(--motion-slow) var(--motion-ease-emphasized),
     transform var(--motion-slow) var(--motion-ease-emphasized),
     filter var(--motion-slow) var(--motion-ease-standard);
-  will-change: opacity, transform, filter;
 }
 
 body.app-cold-start .app-main {
@@ -310,6 +312,7 @@ body.app-unfocused .welcome-bg-settings {
 .video-container {
   flex: 1;
   position: relative;
+  width: 100%;
   background-color: transparent;
   display: flex;
   align-items: center;
@@ -383,6 +386,7 @@ body.is-maximized .titlebar {
 
 body.is-fullscreen .video-container,
 body.is-maximized .video-container {
+  width: 100%;
   height: 100vh;
 }
 

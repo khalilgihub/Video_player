@@ -9,6 +9,7 @@
   bottom: 0;
   left: 0;
   right: 0;
+  width: 100%;
   /* Keep controls above the playlist sidebar (z-index 120) at all times so the
      close animation never gets covered mid-transition by the sliding sidebar. */
   z-index: 130;
@@ -158,6 +159,7 @@ body.playlist-open .progress-bar-container {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   -webkit-app-region: no-drag;
   pointer-events: none;
 }
