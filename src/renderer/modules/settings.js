@@ -423,6 +423,7 @@ class HybridSettings {
     this._bindBgSettings();
     this._bindQualityRadios();
     this._bindBgResets();
+    this._initCustomBackgroundSelect();
     this.loadPreferences();
 
     if (this.prefersReducedMotion?.addEventListener) {
@@ -987,6 +988,205 @@ class HybridSettings {
     });
   }
 
+  _initCustomBackgroundSelect() {
+    const nativeSelect = document.getElementById('welcomeBackgroundSelect');
+    if (!nativeSelect) return;
+
+    // Check if custom select is already initialized to prevent duplicate rendering
+    if (document.getElementById('welcomeBackgroundSelectContainer')) return;
+
+    // Create container
+    const container = document.createElement('div');
+    container.id = 'welcomeBackgroundSelectContainer';
+    container.className = 'custom-select-container';
+
+    // Create trigger button
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'custom-select-trigger';
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.setAttribute('aria-label', nativeSelect.getAttribute('aria-label') || 'Background effect');
+    
+    const triggerValue = document.createElement('span');
+    triggerValue.className = 'custom-select-value';
+    const triggerArrow = document.createElement('span');
+    triggerArrow.className = 'custom-select-arrow';
+    
+    trigger.appendChild(triggerValue);
+    trigger.appendChild(triggerArrow);
+    container.appendChild(trigger);
+
+    // Create dropdown menu container
+    const dropdown = document.createElement('div');
+    dropdown.className = 'custom-select-dropdown';
+    dropdown.setAttribute('role', 'listbox');
+    dropdown.hidden = true;
+    container.appendChild(dropdown);
+
+    // Populate custom select options from native select options
+    const rebuildOptions = () => {
+      dropdown.innerHTML = '';
+      const activeValue = nativeSelect.value;
+      
+      Array.from(nativeSelect.options).forEach((opt) => {
+        const optionEl = document.createElement('div');
+        optionEl.className = 'custom-select-option';
+        optionEl.dataset.value = opt.value;
+        optionEl.setAttribute('role', 'option');
+        optionEl.setAttribute('tabindex', '-1');
+        optionEl.textContent = opt.textContent;
+
+        if (opt.value === activeValue) {
+          optionEl.classList.add('active');
+          optionEl.setAttribute('aria-selected', 'true');
+          triggerValue.textContent = opt.textContent;
+
+          // Add clean active checkmark indicator
+          const checkIcon = document.createElement('span');
+          checkIcon.className = 'custom-select-option-check';
+          checkIcon.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+          optionEl.appendChild(checkIcon);
+        } else {
+          optionEl.setAttribute('aria-selected', 'false');
+        }
+
+        // Selection by click
+        optionEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          selectOption(opt.value);
+        });
+
+        dropdown.appendChild(optionEl);
+      });
+    };
+
+    const selectOption = (val) => {
+      nativeSelect.value = val;
+      nativeSelect.dispatchEvent(new Event('change'));
+      closeDropdown();
+      trigger.focus();
+    };
+
+    const openDropdown = () => {
+      rebuildOptions();
+      dropdown.hidden = false;
+      container.classList.add('open');
+      trigger.setAttribute('aria-expanded', 'true');
+      
+      // Focus currently selected option or the first one
+      const activeOption = dropdown.querySelector('.custom-select-option.active');
+      if (activeOption) {
+        activeOption.focus();
+      } else {
+        const first = dropdown.querySelector('.custom-select-option');
+        if (first) first.focus();
+      }
+    };
+
+    const closeDropdown = () => {
+      dropdown.hidden = true;
+      container.classList.remove('open');
+      trigger.setAttribute('aria-expanded', 'false');
+    };
+
+    // Click on trigger opens/closes dropdown
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (dropdown.hidden) {
+        openDropdown();
+      } else {
+        closeDropdown();
+      }
+    });
+
+    // Close dropdown on click outside
+    document.addEventListener('click', (e) => {
+      if (!container.contains(e.target)) {
+        closeDropdown();
+      }
+    });
+
+    // Handle trigger keydown
+    trigger.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openDropdown();
+      }
+    });
+
+    // Handle dropdown keyboard navigation
+    container.addEventListener('keydown', (e) => {
+      const activeEl = document.activeElement;
+      if (!activeEl || !activeEl.classList.contains('custom-select-option')) return;
+
+      const options = Array.from(dropdown.querySelectorAll('.custom-select-option'));
+      const currentIndex = options.indexOf(activeEl);
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const next = options[currentIndex + 1] || options[0];
+        next?.focus();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const prev = options[currentIndex - 1] || options[options.length - 1];
+        prev?.focus();
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        const val = activeEl.dataset.value;
+        if (val !== undefined) {
+          selectOption(val);
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeDropdown();
+        trigger.focus();
+      } else if (e.key === 'Tab') {
+        closeDropdown();
+      }
+    });
+
+    // Insert custom select container in the DOM right after the native select
+    nativeSelect.parentNode.insertBefore(container, nativeSelect.nextSibling);
+
+    // Initialize display values
+    rebuildOptions();
+  }
+
+  _syncCustomBackgroundSelect(value) {
+    const trigger = document.querySelector('#welcomeBackgroundSelectContainer .custom-select-trigger');
+    const triggerVal = trigger?.querySelector('.custom-select-value');
+    if (!triggerVal) return;
+
+    const nativeSelect = document.getElementById('welcomeBackgroundSelect');
+    if (!nativeSelect) return;
+
+    const opt = Array.from(nativeSelect.options).find(o => o.value === value);
+    if (opt) {
+      triggerVal.textContent = opt.textContent;
+    }
+
+    // Synchronize active checkmark indicator in dropdown options
+    const dropdown = document.querySelector('#welcomeBackgroundSelectContainer .custom-select-dropdown');
+    if (dropdown) {
+      dropdown.querySelectorAll('.custom-select-option').forEach(optionEl => {
+        const isMatched = (optionEl.dataset.value === value);
+        optionEl.classList.toggle('active', isMatched);
+        optionEl.setAttribute('aria-selected', String(isMatched));
+
+        let checkIcon = optionEl.querySelector('.custom-select-option-check');
+        if (isMatched && !checkIcon) {
+          checkIcon = document.createElement('span');
+          checkIcon.className = 'custom-select-option-check';
+          checkIcon.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+          optionEl.appendChild(checkIcon);
+        } else if (!isMatched && checkIcon) {
+          checkIcon.remove();
+        }
+      });
+    }
+  }
+
   _updateMountBackgrounds() {
     const activeBg = document.getElementById('welcomeBackgroundSelect')?.value || 'dither';
 
@@ -1210,6 +1410,7 @@ class HybridSettings {
     if (persist) {
       await window.hybridAPI.db.setPreference('welcomeBackground', value);
     }
+    this._syncCustomBackgroundSelect(value);
   }
 
   // Update the meta strip (tag + description) under the modal header.

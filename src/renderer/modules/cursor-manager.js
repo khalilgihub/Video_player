@@ -27,10 +27,34 @@ class CursorManager {
     this._isPlaying = false;
     this._isFullscreen = false;
     this._idleTimer = null;
+    this._isMouseDown = false;
 
     // Bind mouse activity listeners to the container (NOT document.body)
     this.container.addEventListener('mousemove', this._onActivity.bind(this), { passive: true });
-    this.container.addEventListener('mousedown', this._onActivity.bind(this), { passive: true });
+
+    // Track pointer/mouse down state globally to prevent hiding when dragging
+    window.addEventListener('mousedown', () => {
+      this._isMouseDown = true;
+      this._onActivity();
+    }, { passive: true });
+    window.addEventListener('pointerdown', () => {
+      this._isMouseDown = true;
+      this._onActivity();
+    }, { passive: true });
+
+    // Track mouseup/pointerup globally to release pointer down state
+    window.addEventListener('mouseup', () => {
+      this._isMouseDown = false;
+      this._onActivity();
+    }, { passive: true });
+    window.addEventListener('pointerup', () => {
+      this._isMouseDown = false;
+      this._onActivity();
+    }, { passive: true });
+    window.addEventListener('pointercancel', () => {
+      this._isMouseDown = false;
+      this._onActivity();
+    }, { passive: true });
   }
 
   // ─── Public API ────────────────────────────────────────
@@ -102,6 +126,10 @@ class CursorManager {
   }
 
   _hideCursor() {
+    if (this._isMouseDown) {
+      this._resetTimer();
+      return;
+    }
     this.container.classList.add('cursor-hidden');
     if (this._isFullscreen) {
       document.body.classList.add('force-hide-cursor');

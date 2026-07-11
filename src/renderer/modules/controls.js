@@ -585,8 +585,214 @@ class HybridControls {
 
   _setupVolumeControl() {
     this.volumeContainer = document.getElementById('volumeContainer');
+    this.btnVolume = document.getElementById('btnVolume');
 
-    // Slider input → set mpv volume (0-100 direct mapping)
+    // Hide native slider from visual rendering
+    if (this.volumeSlider) {
+      this.volumeSlider.style.display = 'none';
+    }
+
+    // Create custom slider container and elements
+    const customSlider = document.createElement('div');
+    customSlider.id = 'customVolumeSlider';
+    customSlider.className = 'custom-volume-slider';
+
+    const customBar = document.createElement('div');
+    customBar.className = 'custom-volume-bar';
+
+    const customFill = document.createElement('div');
+    customFill.id = 'customVolumeFill';
+    customFill.className = 'custom-volume-fill';
+
+    const customThumb = document.createElement('div');
+    customThumb.id = 'customVolumeThumb';
+    customThumb.className = 'custom-volume-thumb';
+
+    customBar.appendChild(customFill);
+    customSlider.appendChild(customBar);
+    customSlider.appendChild(customThumb);
+
+    const track = document.getElementById('volumeSliderTrack');
+    if (track) {
+      track.appendChild(customSlider);
+    }
+
+    // Elastic overflow state representation
+    this.volumeElasticState = {
+      overflow: 0,
+      region: 'middle' // 'left', 'right', 'middle'
+    };
+
+    const MAX_OVERFLOW = 30; // Max pixels of visual stretch
+    let springFrameId = null;
+    let position = 0;
+    let velocity = 0;
+    const target = 0;
+    const stiffness = 0.2; // snappiness
+    const damping = 0.55;  // damping of the oscillation
+
+    const timeDisplay = document.querySelector('.time-display');
+
+    const updateSliderUI = () => {
+      const overflow = this.volumeElasticState.overflow;
+      const region = this.volumeElasticState.region;
+
+      const rect = customSlider.getBoundingClientRect();
+      const width = rect.width || 72;
+
+      // Scale calculations for rubber banding
+      const scaleX = 1 + (overflow / width);
+      const scaleY = 1 - (overflow / MAX_OVERFLOW) * 0.2; // elastic thinning effect
+
+      customSlider.style.transform = `scale(${scaleX}, ${scaleY})`;
+
+      if (region === 'left') {
+        customSlider.style.transformOrigin = 'right center';
+        if (this.btnVolume) {
+          this.btnVolume.style.transform = `translateX(${-overflow}px)`;
+        }
+        if (this.volumeValue) {
+          this.volumeValue.style.transform = '';
+        }
+        if (timeDisplay) {
+          timeDisplay.style.transform = '';
+        }
+      } else if (region === 'right') {
+        customSlider.style.transformOrigin = 'left center';
+        if (this.btnVolume) {
+          this.btnVolume.style.transform = '';
+        }
+        if (this.volumeValue) {
+          this.volumeValue.style.transform = `translateX(${overflow}px)`;
+        }
+        if (timeDisplay) {
+          timeDisplay.style.transform = `translateX(${overflow}px)`;
+        }
+      } else {
+        customSlider.style.transformOrigin = 'center center';
+        if (this.btnVolume) {
+          this.btnVolume.style.transform = '';
+        }
+        if (this.volumeValue) {
+          this.volumeValue.style.transform = '';
+        }
+        if (timeDisplay) {
+          timeDisplay.style.transform = '';
+        }
+      }
+    };
+
+    const startSpring = () => {
+      if (springFrameId) cancelAnimationFrame(springFrameId);
+
+      const tick = () => {
+        if (this.isDraggingVolume) return;
+
+        const force = (target - position) * stiffness;
+        velocity = (velocity + force) * damping;
+        position += velocity;
+
+        this.volumeElasticState.overflow = position;
+        updateSliderUI();
+
+        if (Math.abs(position) > 0.05 || Math.abs(velocity) > 0.05) {
+          springFrameId = requestAnimationFrame(tick);
+        } else {
+          this.volumeElasticState.overflow = 0;
+          updateSliderUI();
+          springFrameId = null;
+        }
+      };
+
+      springFrameId = requestAnimationFrame(tick);
+    };
+
+    // Pointer events on the custom slider
+    this.isDraggingVolume = false;
+
+    customSlider.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      customSlider.setPointerCapture(e.pointerId);
+      this.isDraggingVolume = true;
+      this.volumeContainer.classList.add('expanded');
+
+      if (springFrameId) {
+        cancelAnimationFrame(springFrameId);
+        springFrameId = null;
+      }
+
+      handleDrag(e);
+    });
+
+    const handleDrag = (e) => {
+      const rect = customSlider.getBoundingClientRect();
+      const left = rect.left;
+      const right = rect.right;
+      const width = rect.width || 72;
+      const x = e.clientX;
+
+      let overflowVal = 0;
+      let region = 'middle';
+
+      if (x < left) {
+        region = 'left';
+        const diff = left - x;
+        // Natural exponential decay rubber-banding
+        overflowVal = MAX_OVERFLOW * (1 - Math.exp(-diff / 30));
+        position = overflowVal;
+
+        if (this.volumeSlider.value !== '0') {
+          this.volumeSlider.value = 0;
+          this.volumeSlider.dispatchEvent(new Event('input'));
+        }
+      } else if (x > right) {
+        region = 'right';
+        const diff = x - right;
+        // Natural exponential decay rubber-banding
+        overflowVal = MAX_OVERFLOW * (1 - Math.exp(-diff / 30));
+        position = overflowVal;
+
+        if (this.volumeSlider.value !== '100') {
+          this.volumeSlider.value = 100;
+          this.volumeSlider.dispatchEvent(new Event('input'));
+        }
+      } else {
+        region = 'middle';
+        overflowVal = 0;
+        position = 0;
+
+        const pct = Math.round(((x - left) / width) * 100);
+        this.volumeSlider.value = pct;
+        this.volumeSlider.dispatchEvent(new Event('input'));
+      }
+
+      this.volumeElasticState.overflow = overflowVal;
+      this.volumeElasticState.region = region;
+      updateSliderUI();
+    };
+
+    customSlider.addEventListener('pointermove', (e) => {
+      if (this.isDraggingVolume) {
+        handleDrag(e);
+      }
+    });
+
+    const endDrag = (e) => {
+      if (this.isDraggingVolume) {
+        this.isDraggingVolume = false;
+        this.volumeContainer.classList.remove('expanded');
+        try {
+          customSlider.releasePointerCapture(e.pointerId);
+        } catch (err) {}
+
+        startSpring();
+      }
+    };
+
+    customSlider.addEventListener('pointerup', endDrag);
+    customSlider.addEventListener('pointercancel', endDrag);
+
+    // Bind logic for settings synchronization and wheel scrolling on the native volume slider
     this.volumeSlider.addEventListener('input', () => {
       const value = parseInt(this.volumeSlider.value);          // 0-100
       this.currentVolume = value / 100;                         // normalised 0-1
@@ -596,14 +802,6 @@ class HybridControls {
       this._updateVolumeSliderFill();
     });
 
-    // Keep expanded while interacting
-    this.volumeSlider.addEventListener('mousedown', () => this.volumeContainer.classList.add('expanded'));
-    document.addEventListener('mouseup', () => {
-      this.volumeContainer.classList.remove('expanded');
-      this.volumeSlider.blur();
-    });
-
-    // Scroll wheel on entire volume container (button + track area)
     this.volumeContainer.addEventListener('wheel', (e) => {
       e.preventDefault();
       const delta = e.deltaY > 0 ? -5 : 5;
@@ -612,15 +810,20 @@ class HybridControls {
       this.volumeSlider.dispatchEvent(new Event('input'));
     });
 
-    // Initialise slider fill
     this._updateVolumeSliderFill();
   }
 
-  /** Sync CSS gradient fill on the horizontal volume slider */
   _updateVolumeSliderFill() {
     const pct = this.volumeSlider.value;
-    this.volumeSlider.style.background =
-      `linear-gradient(to right, var(--accent) ${pct}%, rgba(255,255,255,0.15) ${pct}%)`;
+    const customFill = document.getElementById('customVolumeFill');
+    const customThumb = document.getElementById('customVolumeThumb');
+
+    if (customFill) {
+      customFill.style.width = `${pct}%`;
+    }
+    if (customThumb) {
+      customThumb.style.left = `${pct}%`;
+    }
   }
 
   _updateVolumeIcon(volume) {
