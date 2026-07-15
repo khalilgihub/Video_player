@@ -277,6 +277,7 @@ class HybridPlayer {
   // ═══════════════════════════════════════════════════════
 
   async loadFile(filePath) {
+    const previousFilePath = this.currentFilePath;
     try {
       const settingsModal = document.getElementById('settingsModal');
       if (settingsModal) settingsModal.hidden = true;
@@ -306,38 +307,54 @@ class HybridPlayer {
       document.getElementById('titlebarText').textContent = fileName + ' — Hybrid Player';
 
       // Resume position
-      const prefs = await window.hybridAPI.db.getAllPreferences();
-      if (prefs.autoResume) {
-        const resumeTime = await window.hybridAPI.resume.get(filePath);
-        if (resumeTime > 5) {
-          // Small delay so mpv loads first
-          setTimeout(() => {
-            window.hybridAPI.mpv.seek(resumeTime, 'absolute');
-            window.HybridToast?.show(`Resuming from ${this.formatTime(resumeTime)}`);
-          }, 500);
+      try {
+        const prefs = await window.hybridAPI.db.getAllPreferences();
+        if (prefs.autoResume) {
+          const resumeTime = await window.hybridAPI.resume.get(filePath);
+          if (resumeTime > 5) {
+            // Small delay so mpv loads first
+            setTimeout(() => {
+              window.hybridAPI.mpv.seek(resumeTime, 'absolute');
+              window.HybridToast?.show(`Resuming from ${this.formatTime(resumeTime)}`);
+            }, 500);
+          }
         }
+      } catch (error) {
+        console.warn('Failed to restore resume position:', error);
       }
 
       // Saved speed
-      const savedSpeed = await window.hybridAPI.speed.get(filePath);
-      if (savedSpeed) {
-        window.hybridAPI.mpv.setSpeed(savedSpeed);
+      try {
+        const savedSpeed = await window.hybridAPI.speed.get(filePath);
+        if (savedSpeed) {
+          window.hybridAPI.mpv.setSpeed(savedSpeed);
+        }
+      } catch (error) {
+        console.warn('Failed to restore playback speed:', error);
       }
 
       await this._loadRememberedSubtitleDelay(filePath);
 
       // History
-      await window.hybridAPI.history.add({
-        path: filePath,
-        name: fileName,
-        duration: 0,
-        timestamp: Date.now()
-      });
+      try {
+        await window.hybridAPI.history.add({
+          path: filePath,
+          name: fileName,
+          duration: 0,
+          timestamp: Date.now()
+        });
+      } catch (error) {
+        console.warn('Playback started, but history could not be saved:', error);
+      }
 
       // mpv auto-plays after loadfile by default
+      return true;
     } catch (err) {
+      this.currentFilePath = previousFilePath;
+      window.HybridApp?._cancelVideoLoadSpinner?.();
       console.error('Failed to load file:', err);
       window.HybridToast?.show('Failed to load: ' + filePath.split(/[/\\]/).pop());
+      return false;
     }
   }
 

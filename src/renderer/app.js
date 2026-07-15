@@ -390,7 +390,6 @@ class HybridApp {
         if (this._fsTransitionTimer) clearTimeout(this._fsTransitionTimer);
         this._fsTransitionTimer = setTimeout(() => {
           document.body.classList.remove('fs-transition');
-          this._setVideoCurtain(false);
           this._fsTransitionTimer = null;
         }, 500);
       };
@@ -460,8 +459,8 @@ class HybridApp {
         }
       });
 
-      window.hybridAPI.on('window-fullscreen-transition-start', (flag) => {
-        this._setVideoCurtain(true);
+      window.hybridAPI.on('window-fullscreen-transition-start', () => {
+        applyFsTransition();
       });
 
       window.hybridAPI.on('window-is-maximized', (flag) => {
@@ -680,7 +679,7 @@ class HybridApp {
 
         btn.append(icon, label);
         btn.addEventListener('click', () => {
-          this.openFiles([item.path]);
+          this.openFiles([item.path], { replacePlaylist: true, playFirst: true });
         });
         container.appendChild(btn);
       });
@@ -1112,6 +1111,16 @@ class HybridApp {
       this._setNetworkLoading(false);
       this._setVideoCurtain(false);
     }, delay);
+  }
+
+  _cancelVideoLoadSpinner() {
+    if (this._loadSpinnerFailSafeTimer) {
+      clearTimeout(this._loadSpinnerFailSafeTimer);
+      this._loadSpinnerFailSafeTimer = null;
+    }
+    this._loadSpinnerPending = false;
+    this._setNetworkLoading(false);
+    this._setVideoCurtain(false);
   }
 
   _closeSettingsModal() {

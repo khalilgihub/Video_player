@@ -186,6 +186,17 @@ function sanitizeHistoryEntry(entry) {
   };
 }
 
+function isAvailableHistoryEntry(entry) {
+  const mediaPath = sanitizeMediaKey(entry?.path);
+  if (!mediaPath) return false;
+  if (/^(?:https?|rtsp|rtmp|rtmps|srt):\/\//i.test(mediaPath)) return true;
+  try {
+    return fs.statSync(mediaPath).isFile();
+  } catch {
+    return false;
+  }
+}
+
 function sanitizePlaylist(playlist) {
   if (!isPlainObject(playlist)) return null;
   const id = normalizeString(playlist.id, { max: 128 }) || Date.now().toString(36);
@@ -947,6 +958,16 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
 
   ipcMain.handle('history:getRecent', async (_, count) => {
     const limit = Math.round(clampNumber(count || 20, 1, 100, 20));
+    const availableHistory = db.history.filter(isAvailableHistoryEntry);
+    if (availableHistory.length !== db.history.length) {
+      db.history = availableHistory;
+      db.recentFiles = db.recentFiles.filter((mediaPath) => isAvailableHistoryEntry({ path: mediaPath }));
+      try {
+        saveDatabase(db);
+      } catch (error) {
+        console.warn('Failed to persist recently played cleanup:', error);
+      }
+    }
     return db.history.slice(0, limit);
   });
 

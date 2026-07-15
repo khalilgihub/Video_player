@@ -19,6 +19,8 @@ class HybridThumbnails {
     this._pending = false;
     this._requestToken = 0;
     this._queuedCapture = null;   // stores latest request while one is in-flight
+    this._mediaPath = null;
+    this.thumbEl = this.imgEl?.closest('.progress-hover-thumb') || null;
   }
 
   /**
@@ -29,10 +31,17 @@ class HybridThumbnails {
   generatePreview(time, percent) {
     if (!this.imgEl || !this.player.duration) return;
 
+    if (this._mediaPath !== this.player.currentFilePath) {
+      this._mediaPath = this.player.currentFilePath;
+      this.imgEl.removeAttribute('src');
+      this.thumbEl?.classList.remove('has-frame');
+    }
+
     // Skip if time hasn't meaningfully changed (within 0.1s of last request)
     if (Math.abs(time - this._lastRequestedTime) < 0.1) return;
 
     this._lastRequestedTime = time;
+    this.thumbEl?.classList.add('is-loading');
 
     const token = ++this._requestToken;
     clearTimeout(this._debounceTimer);
@@ -58,7 +67,16 @@ class HybridThumbnails {
         return;
       }
       if (result && result.dataUrl) {
-        this.imgEl.src = result.dataUrl;
+        const nextImage = new Image();
+        nextImage.src = result.dataUrl;
+        try {
+          await nextImage.decode();
+        } catch {
+          // The loaded data URL can still be displayed when decode() is unavailable.
+        }
+        if (token !== this._requestToken) return;
+        this.imgEl.src = nextImage.src;
+        this.thumbEl?.classList.add('has-frame');
         thumbdbg('[thumbnails] image updated for time', time.toFixed(2));
       }
     } catch (err) {
@@ -74,8 +92,10 @@ class HybridThumbnails {
         if (queued.token === this._requestToken) {
           thumbdbg('[thumbnails] draining queued capture for', queued.time.toFixed(2));
           this._capture(queued.time, queued.token);
+          return;
         }
       }
+      if (token === this._requestToken) this.thumbEl?.classList.remove('is-loading');
     }
   }
 
@@ -88,6 +108,7 @@ class HybridThumbnails {
     this._requestToken++;
     this._queuedCapture = null;
     clearTimeout(this._debounceTimer);
+    this.thumbEl?.classList.remove('is-loading');
   }
 }
 

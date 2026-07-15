@@ -8,6 +8,7 @@ class HybridPlaylist {
     this.player = player;
     this.items = [];
     this.currentIndex = -1;
+    this._playRequestId = 0;
     this.shuffle = false;
     this.repeat = 'none'; // 'none', 'one', 'all'
     
@@ -123,11 +124,17 @@ class HybridPlaylist {
     }
   }
 
-  playIndex(index) {
+  async playIndex(index) {
     if (index < 0 || index >= this.items.length) return;
+    const requestId = ++this._playRequestId;
     this.currentIndex = index;
-    this.player.loadFile(this.items[index].path);
     this._renderList();
+    const loaded = await this.player.loadFile(this.items[index].path);
+    if (!loaded && requestId === this._playRequestId) {
+      this.currentIndex = -1;
+      this._renderList();
+    }
+    return loaded;
   }
 
   playNext() {

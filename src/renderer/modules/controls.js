@@ -563,13 +563,26 @@ class HybridControls {
     // Hover preview
     container.addEventListener('mousemove', (e) => {
       if (!this.isDraggingProgress) {
+        const hoverThumb = document.getElementById('hoverThumb');
+        if (!this.player.currentFilePath || this.player.duration <= 0) {
+          hoverThumb.hidden = true;
+          window.HybridApp?.thumbnailModule?.cancelPending?.();
+          return;
+        }
+
         const percent = getPercent(e);
         const time = this.player.duration * percent / 100;
-        const hoverThumb = document.getElementById('hoverThumb');
         const hoverTime  = document.getElementById('hoverThumbTime');
-
         hoverThumb.hidden = false;
-        hoverThumb.style.left = `${percent}%`;
+        const containerRect = container.getBoundingClientRect();
+        const thumbHalfWidth = hoverThumb.offsetWidth / 2;
+        const hoverPosition = containerRect.width * percent / 100;
+        const clampedPosition = Math.max(
+          thumbHalfWidth,
+          Math.min(containerRect.width - thumbHalfWidth, hoverPosition)
+        );
+
+        hoverThumb.style.left = `${clampedPosition}px`;
         hoverTime.textContent = this.player.formatTime(time);
 
         // Generate thumbnail preview

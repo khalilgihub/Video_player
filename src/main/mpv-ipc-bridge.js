@@ -74,7 +74,7 @@ function setupMpvIpc(win, mpv) {
   let previewQueue = Promise.resolve();
   const previewCache = new Map();
   const previewCacheFiles = new Map();
-  const previewDir = path.join(app.getPath('temp'), 'hybrid-player-thumbs');
+  const previewDir = path.join(app.getPath('temp'), `hybrid-player-thumbs-${process.pid}`);
   const pausedFrameDir = path.join(app.getPath('temp'), 'hybrid-player-paused-frames');
   const pausedFrameFiles = [];
   const PAUSED_FRAME_MAX_FILES = 12;
@@ -119,6 +119,25 @@ function setupMpvIpc(win, mpv) {
     instance.once('ready', onReady);
   });
 
+  const waitForMpvEvent = (instance, eventName, timeoutMs = 4000) => new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      instance.removeListener(eventName, onEvent);
+      reject(new Error(`preview mpv ${eventName} timeout`));
+    }, timeoutMs);
+
+    const onEvent = (...args) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(args);
+    };
+
+    instance.once(eventName, onEvent);
+  });
+
   const ensurePreviewProcess = async () => {
     if (!previewMpv.process) {
       previewMpv.spawn(null, {
@@ -128,6 +147,14 @@ function setupMpvIpc(win, mpv) {
       });
     }
     await waitForMpvReady(previewMpv);
+  };
+
+  const seekPreviewFrame = async (time) => {
+    const frameReady = waitForMpvEvent(previewMpv, 'playback-restart', 4000);
+    await Promise.all([
+      previewMpv.command('seek', time, 'absolute+exact'),
+      frameReady,
+    ]);
   };
 
   previewMpv.on('error', (err) => {
@@ -851,13 +878,19 @@ function setupMpvIpc(win, mpv) {
 
         if (previewLoadedPath !== mediaPath) {
           seekdbg('loading preview media');
-          await previewMpv.loadFile(mediaPath);
+          const fileLoaded = waitForMpvEvent(previewMpv, 'file-loaded', 6000);
+          await Promise.all([previewMpv.loadFile(mediaPath), fileLoaded]);
           await previewMpv.pause();
           previewLoadedPath = mediaPath;
+
+          const warmupTime = rounded >= 0.5 ? rounded - 0.5 : rounded + 0.5;
+          const warmupPath = path.join(previewDir, '.warmup.jpg');
+          await seekPreviewFrame(warmupTime);
+          await previewMpv.command('screenshot-to-file', warmupPath, 'video');
+          fs.rmSync(warmupPath, { force: true });
         }
 
-        await previewMpv.command('seek', rounded, 'absolute+keyframes');
-        await new Promise((resolve) => setTimeout(resolve, 15));
+        await seekPreviewFrame(rounded);
 
         const safeName = crypto.createHash('sha1').update(cacheKey).digest('hex');
         const thumbPath = path.join(previewDir, `${safeName}.jpg`);
