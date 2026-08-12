@@ -988,25 +988,23 @@ class HybridSettings {
     });
   }
 
-  _initCustomBackgroundSelect() {
-    const nativeSelect = document.getElementById('welcomeBackgroundSelect');
-    if (!nativeSelect) return;
+  _createCustomSelect(nativeSelect) {
+    if (!nativeSelect || !(nativeSelect instanceof HTMLSelectElement)) return;
+    const containerId = nativeSelect.id ? `${nativeSelect.id}Container` : null;
+    if (containerId && document.getElementById(containerId)) return;
 
-    // Check if custom select is already initialized to prevent duplicate rendering
-    if (document.getElementById('welcomeBackgroundSelectContainer')) return;
+    nativeSelect.classList.add('has-custom-select');
 
-    // Create container
     const container = document.createElement('div');
-    container.id = 'welcomeBackgroundSelectContainer';
+    if (containerId) container.id = containerId;
     container.className = 'custom-select-container';
 
-    // Create trigger button
     const trigger = document.createElement('button');
     trigger.type = 'button';
     trigger.className = 'custom-select-trigger';
     trigger.setAttribute('aria-haspopup', 'listbox');
     trigger.setAttribute('aria-expanded', 'false');
-    trigger.setAttribute('aria-label', nativeSelect.getAttribute('aria-label') || 'Background effect');
+    trigger.setAttribute('aria-label', nativeSelect.getAttribute('aria-label') || 'Select option');
     
     const triggerValue = document.createElement('span');
     triggerValue.className = 'custom-select-value';
@@ -1017,18 +1015,19 @@ class HybridSettings {
     trigger.appendChild(triggerArrow);
     container.appendChild(trigger);
 
-    // Create dropdown menu container
     const dropdown = document.createElement('div');
     dropdown.className = 'custom-select-dropdown';
     dropdown.setAttribute('role', 'listbox');
     dropdown.hidden = true;
     container.appendChild(dropdown);
 
-    // Populate custom select options from native select options
     const rebuildOptions = () => {
       dropdown.innerHTML = '';
-      const activeValue = nativeSelect.value;
-      
+      const selectedOpt = nativeSelect.options[nativeSelect.selectedIndex] || nativeSelect.options[0];
+      if (selectedOpt) {
+        triggerValue.textContent = selectedOpt.textContent;
+      }
+
       Array.from(nativeSelect.options).forEach((opt) => {
         const optionEl = document.createElement('div');
         optionEl.className = 'custom-select-option';
@@ -1037,12 +1036,11 @@ class HybridSettings {
         optionEl.setAttribute('tabindex', '-1');
         optionEl.textContent = opt.textContent;
 
-        if (opt.value === activeValue) {
+        if (opt.value === nativeSelect.value) {
           optionEl.classList.add('active');
           optionEl.setAttribute('aria-selected', 'true');
           triggerValue.textContent = opt.textContent;
 
-          // Add clean active checkmark indicator
           const checkIcon = document.createElement('span');
           checkIcon.className = 'custom-select-option-check';
           checkIcon.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
@@ -1051,7 +1049,6 @@ class HybridSettings {
           optionEl.setAttribute('aria-selected', 'false');
         }
 
-        // Selection by click
         optionEl.addEventListener('click', (e) => {
           e.stopPropagation();
           selectOption(opt.value);
@@ -1064,6 +1061,7 @@ class HybridSettings {
     const selectOption = (val) => {
       nativeSelect.value = val;
       nativeSelect.dispatchEvent(new Event('change'));
+      rebuildOptions();
       closeDropdown();
       trigger.focus();
     };
@@ -1074,7 +1072,6 @@ class HybridSettings {
       container.classList.add('open');
       trigger.setAttribute('aria-expanded', 'true');
       
-      // Focus currently selected option or the first one
       const activeOption = dropdown.querySelector('.custom-select-option.active');
       if (activeOption) {
         activeOption.focus();
@@ -1090,24 +1087,30 @@ class HybridSettings {
       trigger.setAttribute('aria-expanded', 'false');
     };
 
-    // Click on trigger opens/closes dropdown
     trigger.addEventListener('click', (e) => {
       e.stopPropagation();
       if (dropdown.hidden) {
+        document.querySelectorAll('.custom-select-container.open').forEach(c => {
+          if (c !== container) {
+            const d = c.querySelector('.custom-select-dropdown');
+            const t = c.querySelector('.custom-select-trigger');
+            if (d) d.hidden = true;
+            if (t) t.setAttribute('aria-expanded', 'false');
+            c.classList.remove('open');
+          }
+        });
         openDropdown();
       } else {
         closeDropdown();
       }
     });
 
-    // Close dropdown on click outside
     document.addEventListener('click', (e) => {
       if (!container.contains(e.target)) {
         closeDropdown();
       }
     });
 
-    // Handle trigger keydown
     trigger.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
@@ -1115,7 +1118,6 @@ class HybridSettings {
       }
     });
 
-    // Handle dropdown keyboard navigation
     container.addEventListener('keydown', (e) => {
       const activeEl = document.activeElement;
       if (!activeEl || !activeEl.classList.contains('custom-select-option')) return;
@@ -1146,11 +1148,19 @@ class HybridSettings {
       }
     });
 
-    // Insert custom select container in the DOM right after the native select
-    nativeSelect.parentNode.insertBefore(container, nativeSelect.nextSibling);
+    nativeSelect.addEventListener('change', () => {
+      rebuildOptions();
+    });
 
-    // Initialize display values
+    if (nativeSelect.parentNode) {
+      nativeSelect.parentNode.insertBefore(container, nativeSelect.nextSibling);
+    }
     rebuildOptions();
+  }
+
+  _initCustomBackgroundSelect() {
+    const selects = document.querySelectorAll('.settings-modal select, #welcomeBackgroundSelect, .select-input');
+    selects.forEach(sel => this._createCustomSelect(sel));
   }
 
   _syncCustomBackgroundSelect(value) {

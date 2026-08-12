@@ -58,10 +58,30 @@
     var cl = document.querySelector('.controls-left');
     var cr = document.querySelector('.controls-right');
 
+    var curtain = document.getElementById('video-curtain');
+    var appMain = document.querySelector('.app-main');
+    var welcome = document.getElementById('welcomeScreen');
+    var mpvContainer = document.getElementById('mpvContainer');
+    var bodyBg = window.getComputedStyle(document.body).backgroundColor;
+    var appMainStyle = appMain ? window.getComputedStyle(appMain) : null;
+    var curtainStyle = curtain ? window.getComputedStyle(curtain) : null;
+    var welcomeStyle = welcome ? window.getComputedStyle(welcome) : null;
+    var mpvStyle = mpvContainer ? window.getComputedStyle(mpvContainer) : null;
+    var transparencyLine = '  transparency  bodyBg=' + bodyBg
+      + ' appMainBg=' + (appMainStyle ? appMainStyle.backgroundColor : 'n/a')
+      + ' appMainOpacity=' + (appMainStyle ? appMainStyle.opacity : 'n/a')
+      + ' curtainVisible=' + (curtain ? curtain.classList.contains('visible') : 'n/a')
+      + ' curtainOpacity=' + (curtainStyle ? curtainStyle.opacity : 'n/a')
+      + ' welcomeHidden=' + (welcome ? welcome.classList.contains('hidden') : 'n/a')
+      + ' welcomeOpacity=' + (welcomeStyle ? welcomeStyle.opacity : 'n/a')
+      + ' mpvDisplay=' + (mpvStyle ? mpvStyle.display : 'n/a')
+      + ' mpvOpacity=' + (mpvStyle ? mpvStyle.opacity : 'n/a');
+
     var lines = [
       '═══ ' + source + ' ═══',
       vp,
       bodyCls,
+      transparencyLine,
       fmtRect(bodyEl, '  body          ') + fmtComputed(bodyEl),
       fmtRect(appMain, '  app-main      ') + fmtComputed(appMain),
       fmtRect(vc,      '  videoContainer') + fmtComputed(vc),
@@ -125,6 +145,29 @@
     }
   });
   classObserver.observe(document.body, { attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+
+  // MutationObserver: curtain / welcome / mpv class changes (transparency moments)
+  function observeElementClass(el, label) {
+    if (!el) return;
+    var obs = new MutationObserver(function (mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var m = mutations[i];
+        if (m.type === 'attributes' && m.attributeName === 'class') {
+          var oldList = (m.oldValue || '').split(/\s+/);
+          var nowList = el.className.split(/\s+/);
+          var added = [];
+          var removed = [];
+          for (var a = 0; a < nowList.length; a++) { if (oldList.indexOf(nowList[a]) === -1) added.push(nowList[a]); }
+          for (var b = 0; b < oldList.length; b++) { if (nowList.indexOf(oldList[b]) === -1) removed.push(oldList[b]); }
+          probe(label + ' +[' + added.join(',') + '] -[' + removed.join(',') + ']');
+        }
+      }
+    });
+    obs.observe(el, { attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+  }
+  observeElementClass(document.getElementById('video-curtain'), 'curtainClass');
+  observeElementClass(document.getElementById('welcomeScreen'), 'welcomeClass');
+  observeElementClass(document.getElementById('mpvContainer'), 'mpvClass');
 
   // ResizeObserver on controlsWrapper
   var cwEl = document.getElementById('controlsWrapper');

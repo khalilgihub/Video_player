@@ -9,3 +9,5 @@ screenshots/
 
 _inspect_appasar/
 _inspect_installer/
+*.mkv
+assets/*.mkv

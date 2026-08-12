@@ -299,9 +299,6 @@ class HybridPlayer {
         throw new Error('Playback engine is not ready yet. Please try again.');
       }
 
-      // Hide welcome screen
-      this.welcomeScreen.classList.add('hidden');
-
       // Title bar
       const fileName = filePath.split(/[/\\]/).pop();
       document.getElementById('titlebarText').textContent = fileName + ' — Hybrid Player';
@@ -367,7 +364,6 @@ class HybridPlayer {
     this.currentFilePath = url;
     this._lastEndedMediaKey = null;
     this._lastEndedAt = 0;
-    this.welcomeScreen.classList.add('hidden');
     document.getElementById('titlebarText').textContent = 'Network Stream — Hybrid Player';
     window.hybridAPI.mpv.setProperty('vid', 'auto');
     window.hybridAPI.mpv.loadFile(url);

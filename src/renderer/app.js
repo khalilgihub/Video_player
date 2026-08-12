@@ -587,10 +587,11 @@ class HybridApp {
         }
 
         if (event === 'file-loaded') {
-          this._setVideoCurtain(false);
+          // Keep the black curtain up: file-loaded fires when demuxing
+          // finishes, BEFORE mpv has presented its first frame. Removing
+          // it here would open the transparency leak window.
           this._setNetworkLoading(false);
           this._debugRendererPlayback('event:file-loaded');
-          this._forcePlaybackSurfaceVisible('file-loaded');
           return;
         }
 
@@ -851,7 +852,6 @@ class HybridApp {
     }
 
     this.player.currentFilePath = filePathOrUrl;
-    this.player.welcomeScreen?.classList.add('hidden');
 
     const isUrl = this._isNetworkMediaUrl(filePathOrUrl);
     this.currentStreamUrl = isUrl ? filePathOrUrl : null;

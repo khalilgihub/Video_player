@@ -208,6 +208,11 @@ class MpvProcess extends EventEmitter {
       }
     }
 
+    // NOTE: Tried --background=color/--background-color, --d3d11-flip=no and
+    // --force-window=immediate to fight the transparent load window. They
+    // break frame presentation on this custom mpv build when embedding into
+    // the transparent Chromium window (verified: video never shows). The DOM
+    // video-curtain handles the load window instead.
     if (opts.attachWindow !== false && hwnd) {
       args.push(`--wid=${hwnd}`);
     } else if (opts.attachWindow !== false) {

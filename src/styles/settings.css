@@ -376,12 +376,13 @@ body[data-welcome-background] .bg-settings-panel {
 }
 
 /* Custom Select Redesign Styles */
-#welcomeBackgroundSelect {
+#welcomeBackgroundSelect,
+select.has-custom-select {
   position: absolute !important;
-  opacity: 0.01 !important;
+  opacity: 0.001 !important;
   pointer-events: none !important;
-  width: 20px !important;
-  height: 20px !important;
+  width: 1px !important;
+  height: 1px !important;
   z-index: -100 !important;
   border: none !important;
   margin: 0 !important;
@@ -390,22 +391,21 @@ body[data-welcome-background] .bg-settings-panel {
 
 .custom-select-container {
   position: relative;
-  flex: 1;
-  min-width: 0;
+  min-width: 120px;
 }
 
 .custom-select-trigger {
   width: 100%;
-  height: 36px;
-  border: 1px solid var(--welcome-picker-select-border, rgba(255, 255, 255, 0.22));
-  background: var(--welcome-picker-select-bg, rgba(8, 12, 26, 0.68));
-  color: var(--welcome-picker-select-fg, var(--bgp-fg, #fff));
-  border-radius: var(--bgp-radius, 8px);
-  padding: 0 16px 0 12px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary, #ffffff);
+  border-radius: 8px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-transform: none;
   outline: none;
   cursor: pointer;
   display: flex;
@@ -413,30 +413,30 @@ body[data-welcome-background] .bg-settings-panel {
   justify-content: space-between;
   text-align: left;
   box-sizing: border-box;
-  transition: border-color var(--motion-fast, 0.2s) var(--motion-ease-standard, ease),
-              box-shadow var(--motion-fast, 0.2s) var(--motion-ease-standard, ease),
-              background var(--motion-fast, 0.2s) var(--motion-ease-standard, ease);
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .custom-select-trigger:hover {
-  border-color: var(--welcome-picker-select-border-hover, rgba(255, 255, 255, 0.35));
-  background: rgba(8, 12, 26, 0.85);
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .custom-select-trigger:focus-visible {
-  border-color: var(--welcome-picker-select-focus-border, var(--accent, #00f5c4));
-  box-shadow: 0 0 0 3px var(--welcome-picker-select-focus-ring, rgba(255, 255, 255, 0.16));
+  border-color: var(--accent, #00f5c4);
+  outline: 1px solid var(--accent, #00f5c4);
+  outline-offset: 0;
+  box-shadow: none;
 }
 
 /* Arrow indicator inside the trigger button */
 .custom-select-arrow {
   width: 6px;
   height: 6px;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
   transform: translateY(-2px) rotate(45deg);
-  transition: transform var(--motion-fast, 0.2s) var(--motion-ease-standard, ease);
-  opacity: 0.8;
+  transition: transform 0.2s ease;
+  opacity: 0.7;
   margin-left: 8px;
   flex-shrink: 0;
 }
@@ -448,26 +448,28 @@ body[data-welcome-background] .bg-settings-panel {
 /* The actual dropdown menu containing option items */
 .custom-select-dropdown {
   position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  width: 100%;
-  background: linear-gradient(155deg, rgba(16, 21, 40, 0.96), rgba(10, 13, 26, 0.98));
-  backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 100%;
+  width: max-content;
+  max-width: 260px;
+  background: rgba(14, 18, 30, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   z-index: 1000;
-  padding: 6px 0;
-  max-height: 280px;
+  padding: 4px;
+  max-height: 240px;
   overflow-y: auto;
   box-sizing: border-box;
-  animation: dropdownFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: dropdownFadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* Custom scrollbar for options dropdown list */
 .custom-select-dropdown::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
 .custom-select-dropdown::-webkit-scrollbar-track {
   background: transparent;
@@ -483,7 +485,7 @@ body[data-welcome-background] .bg-settings-panel {
 @keyframes dropdownFadeIn {
   from {
     opacity: 0;
-    transform: translateY(-6px) scale(0.98);
+    transform: translateY(-4px) scale(0.98);
   }
   to {
     opacity: 1;
@@ -493,29 +495,33 @@ body[data-welcome-background] .bg-settings-panel {
 
 /* Dropdown option styling */
 .custom-select-option {
-  padding: 8px 14px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.7);
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: rgba(235, 240, 255, 0.82);
+  border-radius: 6px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  transition: background var(--motion-fast, 0.2s) ease,
-              color var(--motion-fast, 0.2s) ease;
+  gap: 12px;
+  transition: background 0.15s ease, color 0.15s ease;
   user-select: none;
 }
 
-.custom-select-option:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+.custom-select-option:hover,
+.custom-select-option:focus {
+  background: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+  outline: none;
 }
 
 .custom-select-option.active {
   color: var(--accent, #00f5c4);
-  background: rgba(0, 245, 196, 0.06);
+  background: rgba(0, 245, 196, 0.12);
+  font-weight: 600;
 }
 
 .custom-select-option-check {
@@ -602,8 +608,8 @@ body[data-welcome-background] .bg-settings-panel {
 }
 
 .bg-quality-pill input[type="radio"]:focus-visible + span {
-  outline: 2px solid var(--welcome-picker-select-focus-border, #fff);
-  outline-offset: 1px;
+  outline: 1px solid var(--welcome-picker-select-focus-border, #fff);
+  outline-offset: 0;
 }
 
 /* "Custom" quality option is now directly clickable. */
@@ -689,8 +695,8 @@ body[data-welcome-background] .bg-settings-panel {
 }
 
 .bg-reset:focus-visible {
-  outline: 2px solid var(--welcome-picker-select-focus-border, var(--bgp-accent));
-  outline-offset: 2px;
+  outline: 1px solid var(--welcome-picker-select-focus-border, var(--bgp-accent));
+  outline-offset: 0;
 }
 
 .bg-reset:disabled {
@@ -761,8 +767,8 @@ body[data-welcome-background] .bg-settings-panel {
 }
 
 .bg-setting-row input[type="range"]:focus-visible {
-  outline: 2px solid var(--welcome-picker-select-focus-border, var(--bgp-accent));
-  outline-offset: 4px;
+  outline: 1px solid var(--welcome-picker-select-focus-border, var(--bgp-accent));
+  outline-offset: 0;
 }
 
 .bg-setting-row input[type="range"]::-webkit-slider-thumb {
@@ -841,8 +847,8 @@ body[data-welcome-background] .bg-settings-panel {
 }
 
 .bg-color-input:focus-visible {
-  outline: 2px solid var(--welcome-picker-select-focus-border, var(--bgp-accent));
-  outline-offset: 2px;
+  outline: 1px solid var(--welcome-picker-select-focus-border, var(--bgp-accent));
+  outline-offset: 0;
 }
 
 .bg-color-input::-webkit-color-swatch-wrapper {
@@ -916,8 +922,8 @@ body[data-welcome-background] .bg-settings-panel {
 }
 
 .bg-toggle input:focus-visible + .bg-toggle-slider {
-  outline: 2px solid var(--welcome-picker-select-focus-border, var(--bgp-accent));
-  outline-offset: 2px;
+  outline: 1px solid var(--welcome-picker-select-focus-border, var(--bgp-accent));
+  outline-offset: 0;
 }
 
 /* ─── Empty state (lanyard, none) ─── */

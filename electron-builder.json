@@ -8,6 +8,7 @@
   "files": [
     "src/**/*",
     "assets/**/*",
+    "!assets/**/*.mkv",
     "package.json",
     "!node_modules/ffmpeg-static/**/*"
   ],
@@ -15,7 +16,13 @@
     {
       "from": "mpv/",
       "to": "mpv/",
-      "filter": ["**/*"]
+      "filter": [
+        "**/*",
+        "!include/**/*",
+        "!doc/**/*",
+        "!installer/**/*",
+        "!**/*.old"
+      ]
     },
     {
       "from": "node_modules/ffmpeg-static/",

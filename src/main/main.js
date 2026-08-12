@@ -959,6 +959,7 @@ function saveDatabase(db) {
     fs.renameSync(tmpPath, DB_PATH);
   } catch (e) {
     console.error('Failed to save database:', e);
+    throw e;
   }
 }
 

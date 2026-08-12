@@ -1508,6 +1508,8 @@ body[data-welcome-background='particles'] .welcome-bg-settings.bg-panel-open {
   width: min(440px, calc(100% - 12px));
   max-height: min(32vh, calc(100vh - 260px));
   overflow: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   margin: 0 auto;
   padding: 12px;
   border-radius: 14px;
@@ -1517,6 +1519,10 @@ body[data-welcome-background='particles'] .welcome-bg-settings.bg-panel-open {
   text-align: left;
   opacity: 0;
   transform: translateY(10px);
+}
+
+.welcome-recent::-webkit-scrollbar {
+  display: none;
 }
 
 body.welcome-active .titlebar {
@@ -1590,6 +1596,19 @@ body.welcome-active .welcome-recent {
   width: 100%;
   text-align: left;
   margin-top: 6px;
+  min-width: 0;
+}
+
+.recent-item svg {
+  flex-shrink: 0;
+}
+
+.recent-item span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .recent-item:hover {
@@ -1830,9 +1849,11 @@ body.welcome-active .welcome-recent {
 .modal-close:focus-visible,
 .select-input:focus-visible,
 .number-input:focus-visible,
-.network-stream-input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+.network-stream-input:focus-visible,
+.settings-action-btn:focus-visible,
+button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
 }
 
 /* ─── Input Styles ─── */
@@ -1888,8 +1909,8 @@ body.welcome-active .welcome-recent {
 }
 
 .range-input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 8px;
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
 }
 
 .range-input::-webkit-slider-thumb {
