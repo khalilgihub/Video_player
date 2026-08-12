@@ -970,7 +970,7 @@ class HybridApp {
     if (spinner) {
       spinner.classList.add('hidden');
     }
-    if (welcome) {
+    if (welcome && this.player?.currentFilePath) {
       welcome.classList.add('hidden');
     }
     if (this._isMpvPaused) {
