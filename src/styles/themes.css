@@ -80,9 +80,9 @@
   --border-color: rgba(255, 255, 255, 0.08);
   --border-focus: rgba(255, 255, 255, 0.2);
   
-  --accent: #e50914;
-  --accent-hover: #ff1a26;
-  --accent-dim: rgba(229, 9, 20, 0.3);
+  --accent: #10b981;
+  --accent-hover: #34d399;
+  --accent-dim: rgba(16, 185, 129, 0.3);
   
   --progress-bg: rgba(255, 255, 255, 0.15);
   --progress-buffer: rgba(255, 255, 255, 0.25);

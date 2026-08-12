@@ -1523,6 +1523,14 @@ body[data-welcome-background='particles'] .welcome-bg-settings.bg-panel-open {
   transform: translateY(10px);
 }
 
+.recent-empty {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  font-style: italic;
+  display: block;
+  padding: 4px 0;
+}
+
 .welcome-recent::-webkit-scrollbar {
   display: none;
 }

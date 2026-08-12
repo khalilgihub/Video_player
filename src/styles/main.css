@@ -346,7 +346,9 @@ body.app-unfocused .welcome-bg-settings {
   display: none;
   visibility: hidden;
   pointer-events: none;
-  transition: opacity 0.3s ease;
+  /* No fade-in: the moment the welcome screen is removed the curtain must
+     be fully opaque, or the transparent Chromium buffer leaks the desktop
+     during mpv's first-frame window (~300-1000ms). */
 }
 
 .video-curtain.visible {
@@ -1519,6 +1521,14 @@ body[data-welcome-background='particles'] .welcome-bg-settings.bg-panel-open {
   text-align: left;
   opacity: 0;
   transform: translateY(10px);
+}
+
+.recent-empty {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  font-style: italic;
+  display: block;
+  padding: 4px 0;
 }
 
 .welcome-recent::-webkit-scrollbar {

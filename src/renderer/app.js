@@ -655,7 +655,12 @@ class HybridApp {
     try {
       const recent = await window.hybridAPI.history.getRecent(5);
       const container = document.getElementById('recentFiles');
-      if (!container || !recent || recent.length === 0) return;
+      if (!container) return;
+
+      if (!recent || recent.length === 0) {
+        container.innerHTML = '<h4>Recently Played</h4><span class="recent-empty">No recently played files</span>';
+        return;
+      }
 
       const heading = document.createElement('h4');
       heading.textContent = 'Recently Played';
