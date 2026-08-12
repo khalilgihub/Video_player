@@ -234,22 +234,6 @@ Windows signing is enabled in `electron-builder.json`. Production release builds
 
 ---
 
-## Future Enhancements
-
-- [x] FFmpeg integration for clip export
-- [ ] ffprobe integration for extended codec info
-- [ ] AI-powered subtitle sync detection
-- [ ] OpenSubtitles API integration for auto-download
-- [ ] Chromecast / DLNA streaming
-- [ ] Discord Rich Presence
-- [ ] Plugin system for third-party extensions
-- [ ] Cloud sync for preferences
-- [ ] Auto-update system (electron-updater)
-- [ ] Crash reporting
-- [ ] Media server mode
-
----
-
 ## License
 
 MIT © Hybrid Player Team
