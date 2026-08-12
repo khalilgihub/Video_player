@@ -648,6 +648,8 @@ class HybridSettings {
   }
 
   _bindBgSettings() {
+    this._initAccordionGallery();
+
     // Trigger button toggles the panel (popover in the controls bar)
     const gearBtn = document.getElementById('bgSettingsToggle');
     const panel = document.getElementById('bgSettingsModal');
@@ -1193,6 +1195,105 @@ class HybridSettings {
         } else if (!isMatched && checkIcon) {
           checkIcon.remove();
         }
+      });
+    }
+  _initAccordionGallery() {
+    const modal = document.getElementById('accordionGalleryModal');
+    const container = document.getElementById('accordionGalleryContainer');
+    if (!modal || !container) return;
+
+    const bgEffects = [
+      { id: 'dither', title: 'Dither Waves', tag: 'BAYER SHADER', desc: 'Procedural retro Bayer matrix dithering canvas wave.', gradient: 'linear-gradient(135deg, #1e1b4b 0%, #311042 100%)' },
+      { id: 'dotgrid', title: 'Dot Grid', tag: 'DOT MATRIX', desc: 'Interactive dot matrix wave responding to cursor velocity.', gradient: 'linear-gradient(135deg, #064e3b 0%, #022c22 100%)' },
+      { id: 'pixelblast', title: 'Pixel Blast', tag: 'PARTICLE SHADER', desc: 'Cosmic particle burst simulation with glowing shockwaves.', gradient: 'linear-gradient(135deg, #4c1d95 0%, #1e1b4b 100%)' },
+      { id: 'colorbends', title: 'Color Bends', tag: 'FLUID GRADIENT', desc: 'Smooth liquid ambient color bends with chromatic motion.', gradient: 'linear-gradient(135deg, #831843 0%, #4c0519 100%)' },
+      { id: 'faulty', title: 'Faulty Terminal', tag: 'RETRO CRT', desc: 'Cyberpunk CRT scanline grid with flicker distortion.', gradient: 'linear-gradient(135deg, #14532d 0%, #052e16 100%)' },
+      { id: 'lanyard', title: 'Lanyard 3D', tag: 'PHYSICS ENGINE', desc: 'Interactive 3D cloth lanyard badge physics simulation.', gradient: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)' },
+      { id: 'gridmotion', title: 'Grid Motion', tag: 'PERSPECTIVE 3D', desc: 'Endless 3D perspective grid tunnel with neon pulse.', gradient: 'linear-gradient(135deg, #701a75 0%, #4a044e 100%)' },
+      { id: 'none', title: 'Minimal Off', tag: 'PURE BLACK', desc: 'Pure minimal black backdrop for maximum performance.', gradient: 'linear-gradient(135deg, #09090b 0%, #18181b 100%)' }
+    ];
+
+    const currentBg = document.getElementById('welcomeBackgroundSelect')?.value || 'dither';
+
+    container.innerHTML = '';
+    bgEffects.forEach((fx, idx) => {
+      const card = document.createElement('div');
+      const isActive = (fx.id === currentBg);
+      card.className = `accordion-card ${isActive ? 'active expanded' : ''}`;
+      card.dataset.bgId = fx.id;
+
+      card.innerHTML = `
+        <div class="accordion-card-visual" style="background: ${fx.gradient};"></div>
+        <div class="accordion-card-overlay"></div>
+        <div class="accordion-card-top">
+          <span class="accordion-card-num">0${idx + 1}</span>
+          <span class="accordion-card-active-badge">ACTIVE</span>
+        </div>
+        <div class="accordion-card-bottom">
+          <span class="accordion-gallery-badge">${fx.tag}</span>
+          <h3 class="accordion-card-title">${fx.title}</h3>
+          <p class="accordion-card-desc">${fx.desc}</p>
+          <div class="accordion-card-action">
+            <span>Apply Shader</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </div>
+        </div>
+      `;
+
+      card.addEventListener('mouseenter', () => {
+        container.querySelectorAll('.accordion-card').forEach(c => c.classList.remove('expanded'));
+        card.classList.add('expanded');
+      });
+
+      card.addEventListener('click', async () => {
+        container.querySelectorAll('.accordion-card').forEach(c => {
+          c.classList.remove('active');
+        });
+        card.classList.add('active');
+
+        const select = document.getElementById('welcomeBackgroundSelect');
+        if (select) {
+          select.value = fx.id;
+          select.dispatchEvent(new Event('change'));
+        }
+
+        setTimeout(() => {
+          modal.hidden = true;
+        }, 250);
+      });
+
+      container.appendChild(card);
+    });
+
+    // Wire trigger click handler
+    document.addEventListener('click', (e) => {
+      const trigger = e.target.closest('#welcomeBackgroundSelectContainer .custom-select-trigger, [data-open-gallery="bg"]');
+      if (trigger) {
+        e.preventDefault();
+        e.stopPropagation();
+        this._openAccordionGalleryModal();
+      }
+    });
+
+    modal.querySelectorAll('[data-close-modal="accordionGalleryModal"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        modal.hidden = true;
+      });
+    });
+  }
+
+  _openAccordionGalleryModal() {
+    const modal = document.getElementById('accordionGalleryModal');
+    if (!modal) return;
+    modal.hidden = false;
+
+    const currentBg = document.getElementById('welcomeBackgroundSelect')?.value || 'dither';
+    const container = document.getElementById('accordionGalleryContainer');
+    if (container) {
+      container.querySelectorAll('.accordion-card').forEach(card => {
+        const isAct = (card.dataset.bgId === currentBg);
+        card.classList.toggle('active', isAct);
+        card.classList.toggle('expanded', isAct);
       });
     }
   }
