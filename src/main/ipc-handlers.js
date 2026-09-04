@@ -7,6 +7,7 @@ const { app, dialog, screen } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { scheduleNativeDwmWindowStyles } = require('./native-dwm');
 const DWM_DIAG_LOG = false;
 const DWM_DIAG_ECHO_CONSOLE = false;
 const dwmPatchLastAt = new Map();
@@ -36,7 +37,7 @@ function toFiniteNumber(value, fallback = 0) {
 }
 
 const INVALID_PREF = Symbol('invalid-pref');
-const WELCOME_BACKGROUNDS = new Set(['none', 'dither', 'particles', 'faulty', 'dotgrid', 'pixelblast', 'gridmotion']);
+const WELCOME_BACKGROUNDS = new Set(['none', 'dither', 'particles', 'faulty', 'gridmotion']);
 const WELCOME_QUALITIES = new Set(['low', 'medium', 'high', 'custom']);
 const MOTION_PROFILES = new Set(['reduced', 'balanced', 'showcase']);
 const THEMES = new Set(['dark', 'oled', 'light']);
@@ -56,9 +57,6 @@ const BG_OPTION_PREFS = new Set([
   'bgOpts_dither',
   'bgOpts_particles',
   'bgOpts_faulty',
-  'bgOpts_dotgrid',
-  'bgOpts_colorbends',
-  'bgOpts_pixelblast',
   'bgOpts_gridmotion',
 ]);
 
@@ -123,6 +121,7 @@ function sanitizePreference(key, value) {
       return isHexColor(value) ? value : INVALID_PREF;
     case 'autoResume':
     case 'brandFontEnabled':
+    case 'autoOrganizeScreenshots':
       return !!value;
     case 'volume':
       return clampNumber(value, 0, 1, 1);
@@ -136,6 +135,11 @@ function sanitizePreference(key, value) {
       return WELCOME_BACKGROUNDS.has(value) ? value : INVALID_PREF;
     case 'welcomeQuality':
       return WELCOME_QUALITIES.has(value) ? value : INVALID_PREF;
+    case 'screenshotDir':
+      if (typeof value !== 'string') return INVALID_PREF;
+      return normalizeString(value, { max: 4096, trim: true }) || '';
+    case 'screenshotFormat':
+      return ['jpg', 'jpeg', 'png', 'webp'].includes(String(value).toLowerCase()) ? (String(value).toLowerCase() === 'jpeg' ? 'jpg' : String(value).toLowerCase()) : INVALID_PREF;
     default:
       return INVALID_PREF;
   }
@@ -186,15 +190,35 @@ function sanitizeHistoryEntry(entry) {
   };
 }
 
-function isAvailableHistoryEntry(entry) {
+async function isAvailableHistoryEntryAsync(entry) {
   const mediaPath = sanitizeMediaKey(entry?.path);
   if (!mediaPath) return false;
   if (/^(?:https?|rtsp|rtmp|rtmps|srt):\/\//i.test(mediaPath)) return true;
-  try {
-    return fs.statSync(mediaPath).isFile();
-  } catch {
-    return false;
-  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(false);
+      }
+    }, 250);
+
+    fs.promises.stat(mediaPath)
+      .then((stat) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(stat.isFile());
+        }
+      })
+      .catch(() => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(false);
+        }
+      });
+  });
 }
 
 function sanitizePlaylist(playlist) {
@@ -267,10 +291,17 @@ function capturePreFullscreenBounds(win, source = 'ipc') {
     ? win.__hybridFullscreenState
     : win.isFullScreen();
   if (fullscreen || win.isFullScreen()) return;
+
+  win.__hybridPreFullscreenMaximized = isWindowMaximized(win);
+
   const bounds = normalizeWindowBounds(win.getBounds());
   if (!bounds) return;
   win.__hybridPreFullscreenBounds = bounds;
-  logWindowIpcState(win, 'capture-pre-fullscreen-bounds', { source, bounds });
+  logWindowIpcState(win, 'capture-pre-fullscreen-bounds', {
+    source,
+    bounds,
+    maximized: win.__hybridPreFullscreenMaximized,
+  });
 }
 
 function getWorkAreaForWindow(win) {
@@ -296,7 +327,24 @@ function getWorkAreaForWindow(win) {
 }
 
 function isWindowMaximized(win) {
-  return !!win.__hybridFakeMaximized || win.isMaximized();
+  if (!win || win.isDestroyed()) return false;
+  if (win.__hybridFakeMaximized || win.isMaximized()) return true;
+  try {
+    const bounds = win.getBounds();
+    const display = screen.getDisplayMatching(bounds);
+    if (display && display.workArea) {
+      const wa = display.workArea;
+      return (
+        bounds.x <= wa.x + 8 &&
+        bounds.y <= wa.y + 8 &&
+        bounds.x + bounds.width >= wa.x + wa.width - 8 &&
+        bounds.y + bounds.height >= wa.y + wa.height - 8
+      );
+    }
+  } catch {
+    // Ignore bounds error
+  }
+  return false;
 }
 
 function emitWindowMaximizedState(win, maximized) {
@@ -344,125 +392,6 @@ function getNativeWindowHandleDecimal(win) {
   }
 }
 
-function applyDwmBorderColorNoneFallback(win, source = 'ipc') {
-  if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
-  const hwnd = getNativeWindowHandleDecimal(win);
-  if (!hwnd) return;
-
-  const key = String(win.id);
-  const now = Date.now();
-  const last = dwmPatchLastAt.get(key) || 0;
-  if (now - last < 240) return;
-  if (dwmPatchInFlight.has(key)) return;
-
-  dwmPatchLastAt.set(key, now);
-  dwmPatchInFlight.add(key);
-
-  const psExe = process.env.SystemRoot
-    ? path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
-    : 'powershell.exe';
-
-  const psScript = [
-    '$ErrorActionPreference = "Stop"',
-    `$hwnd = [IntPtr]::new(${hwnd})`,
-    'Add-Type -TypeDefinition @"',
-    'using System;',
-    'using System.Runtime.InteropServices;',
-    'public static class HybridDwmNative {',
-    '  [DllImport("dwmapi.dll")]',
-    '  public static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);',
-    '  [DllImport("user32.dll", EntryPoint="GetWindowLongPtrW", SetLastError=true)]',
-    '  public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);',
-    '  [DllImport("user32.dll", EntryPoint="SetWindowLongPtrW", SetLastError=true)]',
-    '  public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);',
-    '  [DllImport("user32.dll", SetLastError=true)]',
-    '  public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);',
-    '}',
-    '"@',
-    '$darkMode = 1',
-    '$borderColor = -2',
-    '$captionColor = 0',
-    '$textColor = 0',
-    '$cornerNoRound = 1',
-    '$GWL_STYLE = -16',
-    '$GWL_EXSTYLE = -20',
-    '$WS_CAPTION = 0x00C00000',
-    '$WS_THICKFRAME = 0x00040000',
-    '$WS_BORDER = 0x00800000',
-    '$WS_DLGFRAME = 0x00400000',
-    '$WS_EX_WINDOWEDGE = 0x00000100',
-    '$WS_EX_CLIENTEDGE = 0x00000200',
-    '$WS_EX_DLGMODALFRAME = 0x00000001',
-    '$SWP_NOSIZE = 0x0001',
-    '$SWP_NOMOVE = 0x0002',
-    '$SWP_NOZORDER = 0x0004',
-    '$SWP_NOACTIVATE = 0x0010',
-    '$SWP_FRAMECHANGED = 0x0020',
-    '$SWP_NOOWNERZORDER = 0x0200',
-    '$styleMask = $WS_CAPTION -bor $WS_THICKFRAME -bor $WS_BORDER -bor $WS_DLGFRAME',
-    '$exMask = $WS_EX_WINDOWEDGE -bor $WS_EX_CLIENTEDGE -bor $WS_EX_DLGMODALFRAME',
-    '$style = [int64][HybridDwmNative]::GetWindowLongPtr($hwnd, $GWL_STYLE)',
-    '$newStyle = $style -band (-bnot $styleMask)',
-    'if ($newStyle -ne $style) {',
-    '  [void][HybridDwmNative]::SetWindowLongPtr($hwnd, $GWL_STYLE, [IntPtr]$newStyle)',
-    '}',
-    '$exStyle = [int64][HybridDwmNative]::GetWindowLongPtr($hwnd, $GWL_EXSTYLE)',
-    '$newExStyle = $exStyle -band (-bnot $exMask)',
-    'if ($newExStyle -ne $exStyle) {',
-    '  [void][HybridDwmNative]::SetWindowLongPtr($hwnd, $GWL_EXSTYLE, [IntPtr]$newExStyle)',
-    '}',
-    '$swpFlags = $SWP_NOSIZE -bor $SWP_NOMOVE -bor $SWP_NOZORDER -bor $SWP_NOACTIVATE -bor $SWP_FRAMECHANGED -bor $SWP_NOOWNERZORDER',
-    '[void][HybridDwmNative]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, 0, 0, [uint32]$swpFlags)',
-    '[HybridDwmNative]::DwmSetWindowAttribute($hwnd, 19, [ref]$darkMode, 4) | Out-Null',
-    '[HybridDwmNative]::DwmSetWindowAttribute($hwnd, 20, [ref]$darkMode, 4) | Out-Null',
-    '[HybridDwmNative]::DwmSetWindowAttribute($hwnd, 34, [ref]$borderColor, 4) | Out-Null',
-    '[HybridDwmNative]::DwmSetWindowAttribute($hwnd, 35, [ref]$captionColor, 4) | Out-Null',
-    '[HybridDwmNative]::DwmSetWindowAttribute($hwnd, 36, [ref]$textColor, 4) | Out-Null',
-    '[HybridDwmNative]::DwmSetWindowAttribute($hwnd, 33, [ref]$cornerNoRound, 4) | Out-Null',
-  ].join('\n');
-
-  const encodedScript = Buffer.from(psScript, 'utf16le').toString('base64');
-  const child = spawn(
-    psExe,
-    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodedScript],
-    { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] }
-  );
-
-  let stderr = '';
-  child.stderr.on('data', (data) => {
-    stderr += String(data || '');
-  });
-
-  const finish = (status, detail = '') => {
-    dwmPatchInFlight.delete(key);
-    if (status === 'error') {
-      appendDebugLog('dwm-main-ipc', {
-        source: `nativeDwmFallback:${source}:error`,
-        ts: Date.now(),
-        detail,
-      });
-    } else {
-      appendDebugLog('dwm-main-ipc', {
-        source: `nativeDwmFallback:${source}:ok`,
-        ts: Date.now(),
-        hwnd,
-      });
-    }
-  };
-
-  child.on('error', (error) => {
-    finish('error', error?.message || String(error));
-  });
-
-  child.on('close', (code) => {
-    if (code === 0) {
-      finish('ok');
-      return;
-    }
-    finish('error', `exit=${code} stderr=${stderr.trim()}`);
-  });
-}
-
 function suppressWindowsNonClientBorder(win, source = 'ipc') {
   if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
   if (!win.__hybridUseFakeMaximize) return;
@@ -476,7 +405,6 @@ function suppressWindowsNonClientBorder(win, source = 'ipc') {
     if (typeof win.setAccentColor === 'function') {
       win.setAccentColor(false);
     }
-    applyDwmBorderColorNoneFallback(win, source);
     appendDebugLog('dwm-main-ipc', { source: `suppressBorder:${source}`, ts: Date.now() });
   } catch (error) {
     appendDebugLog('dwm-main-ipc', {
@@ -731,11 +659,25 @@ function toggleNativeMaximize(win) {
   } else {
     win.maximize();
   }
+  if (process.platform === 'win32') {
+    scheduleNativeDwmWindowStyles(win, [0, 80, 200, 350]);
+  }
   return win.isMaximized();
 }
 
 function toggleWindowMaximize(win) {
-  if (win && win.__hybridUseFakeMaximize) {
+  if (!win || win.isDestroyed()) return false;
+  const isFs = typeof win.__hybridFullscreenState === 'boolean'
+    ? win.__hybridFullscreenState
+    : win.isFullScreen();
+  if (isFs || win.isFullScreen()) {
+    win.setFullScreen(false);
+    if (process.platform === 'win32') {
+      scheduleNativeDwmWindowStyles(win, [0, 80, 200, 350]);
+    }
+    return isWindowMaximized(win);
+  }
+  if (win.__hybridUseFakeMaximize) {
     return toggleFakeMaximize(win);
   }
   return toggleNativeMaximize(win);
@@ -888,6 +830,9 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
       win.webContents.send('window-fullscreen-transition-start', !!target);
     }
     win.setFullScreen(target);
+    if (process.platform === 'win32') {
+      scheduleNativeDwmWindowStyles(win, [0, 80, 200, 350]);
+    }
     logWindowIpcState(win, 'window:fullscreen:applied', { target });
     return target;
   });
@@ -900,6 +845,10 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
   ipcMain.handle('window:set-ui-locked', (_, state) => {
     win.__hybridUiLocked = !!state;
     return win.__hybridUiLocked;
+  });
+  ipcMain.handle('window:set-prevent-exit-fullscreen', (_, state) => {
+    win.__hybridPreventExitFullscreen = !!state;
+    return win.__hybridPreventExitFullscreen;
   });
   ipcMain.handle('window:isMaximized', () => isWindowMaximized(win));
 
@@ -958,10 +907,22 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
 
   ipcMain.handle('history:getRecent', async (_, count) => {
     const limit = Math.round(clampNumber(count || 20, 1, 100, 20));
-    const availableHistory = db.history.filter(isAvailableHistoryEntry);
+    const historyChecks = await Promise.all(
+      db.history.map(async (entry) => ({
+        entry,
+        available: await isAvailableHistoryEntryAsync(entry),
+      }))
+    );
+    const availableHistory = historyChecks.filter((item) => item.available).map((item) => item.entry);
     if (availableHistory.length !== db.history.length) {
       db.history = availableHistory;
-      db.recentFiles = db.recentFiles.filter((mediaPath) => isAvailableHistoryEntry({ path: mediaPath }));
+      const recentChecks = await Promise.all(
+        db.recentFiles.map(async (mediaPath) => ({
+          mediaPath,
+          available: await isAvailableHistoryEntryAsync({ path: mediaPath }),
+        }))
+      );
+      db.recentFiles = recentChecks.filter((item) => item.available).map((item) => item.mediaPath);
       try {
         saveDatabase(db);
       } catch (error) {

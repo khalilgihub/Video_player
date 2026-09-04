@@ -17,6 +17,11 @@ const {
   resolveMpvBinary,
   resolveYtDlpBinary,
 } = require('./binary-resolver');
+const {
+  applyNativeDwmWindowStyles,
+  scheduleNativeDwmWindowStyles,
+} = require('./native-dwm');
+const { setupWindowsShellIntegration } = require('./windows-shell-integration');
 
 const YT_DEBUG = false;
 function ytdbg(...args) {
@@ -375,10 +380,11 @@ async function getYoutubeQualityHeights(url) {
 
   let payload = null;
   const cookiesPath = path.join(__dirname, '../../cookies.txt');
-  const args = ['-J', '--no-warnings', '--no-playlist', target];
+  const args = ['-J', '--no-warnings', '--no-playlist'];
   if (fs.existsSync(cookiesPath)) {
     args.push('--cookies', cookiesPath);
   }
+  args.push('--', target);
 
   for (const bin of uniqueCandidates) {
     try {
@@ -477,6 +483,22 @@ function registerSystemDialogHandlers(win) {
     ytdbg('ipc youtube:get-quality-heights response', { heights });
     return heights;
   });
+
+  ipcMain.handle('dialog:selectScreenshotDir', async (_, currentDir) => {
+    const defaultPath = typeof currentDir === 'string' && currentDir && fs.existsSync(currentDir)
+      ? currentDir
+      : path.join(app.getPath('userData'), 'screenshots');
+    const result = await dialog.showOpenDialog(win, {
+      title: 'Select Screenshot Directory',
+      defaultPath,
+      properties: ['openDirectory', 'createDirectory']
+    });
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
+  });
+
+  ipcMain.handle('app:get-default-screenshot-dir', async () => {
+    return path.join(app.getPath('userData'), 'screenshots');
+  });
 }
 
 // Hardware acceleration
@@ -503,10 +525,11 @@ const ENABLE_WINDOW_BOUNDS_CLAMP = false;
 // Transparent compositor is required so that mpv --wid rendering shows through
 // the Chromium layer. Without this the video appears black.
 const USE_WINDOWS_TRANSPARENT_COMPOSITOR = true;
-let isClampingWindowBounds = false;
+const WM_NCCALCSIZE = 0x0083;
 const WM_NCHITTEST = 0x0084;
+const WM_NCPAINT = 0x0085;
 const WM_NCACTIVATE = 0x0086;
-const HTNOWHERE = 0;
+const WM_ERASEBKGND = 0x0014;
 const HTCLIENT = 1;
 const HTLEFT = 10;
 const HTRIGHT = 11;
@@ -673,7 +696,7 @@ function capturePreFullscreenBounds(win, source = 'unknown') {
   if (!win || win.isDestroyed()) return;
   if (getTrackedFullscreen(win) || win.isFullScreen()) return;
 
-  win.__hybridPreFullscreenMaximized = win.isMaximized() || !!win.__hybridFakeMaximized;
+  win.__hybridPreFullscreenMaximized = isWindowMaximizedOrFullscreen(win);
 
   const bounds = normalizeBounds(win.getBounds());
   if (!bounds) return;
@@ -698,6 +721,9 @@ function restorePreFullscreenBounds(win, source = 'unknown') {
     } else {
       win.maximize();
     }
+    if (process.platform === 'win32') {
+      scheduleNativeDwmWindowStyles(win, [0, 80, 200, 350]);
+    }
     fsdbg('restored pre-fullscreen state to maximized', { source });
     return true;
   }
@@ -711,6 +737,9 @@ function restorePreFullscreenBounds(win, source = 'unknown') {
     }
     win.setBounds(targetBounds, false);
     win.__hybridPreFullscreenBounds = null;
+    if (process.platform === 'win32') {
+      scheduleNativeDwmWindowStyles(win, [0, 80, 200, 350]);
+    }
     fsdbg('restored pre-fullscreen bounds', { source, bounds: targetBounds });
     return true;
   }
@@ -878,6 +907,9 @@ function createDefaultDatabase() {
       equalizerBands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       motionProfile: 'balanced',
       brandFontEnabled: true,
+      screenshotDir: '',
+      screenshotFormat: 'jpg',
+      autoOrganizeScreenshots: true,
     },
     history: [],
     resumePositions: {},
@@ -950,17 +982,51 @@ function backupUnreadableDatabase() {
   }
 }
 
-function saveDatabase(db) {
+let dbSaveTimer = null;
+let pendingDb = null;
+
+async function flushDatabaseAsync() {
+  if (!pendingDb) return;
+  const dbToSave = pendingDb;
+  pendingDb = null;
+  if (dbSaveTimer) {
+    clearTimeout(dbSaveTimer);
+    dbSaveTimer = null;
+  }
+
   try {
     const dir = path.dirname(DB_PATH);
-    fs.mkdirSync(dir, { recursive: true });
+    await fs.promises.mkdir(dir, { recursive: true });
     const tmpPath = path.join(dir, `.${path.basename(DB_PATH)}.${process.pid}.${Date.now()}.tmp`);
-    fs.writeFileSync(tmpPath, JSON.stringify(normalizeDatabase(db, createDefaultDatabase()), null, 2), 'utf-8');
-    fs.renameSync(tmpPath, DB_PATH);
+    const serialized = JSON.stringify(normalizeDatabase(dbToSave, createDefaultDatabase()), null, 2);
+    await fs.promises.writeFile(tmpPath, serialized, 'utf-8');
+    await fs.promises.rename(tmpPath, DB_PATH);
   } catch (e) {
-    console.error('Failed to save database:', e);
-    throw e;
+    console.error('Failed to save database asynchronously:', e);
   }
+}
+
+function saveDatabase(db, { immediate = false } = {}) {
+  pendingDb = db;
+  if (immediate) {
+    try {
+      const dir = path.dirname(DB_PATH);
+      fs.mkdirSync(dir, { recursive: true });
+      const tmpPath = path.join(dir, `.${path.basename(DB_PATH)}.${process.pid}.${Date.now()}.tmp`);
+      fs.writeFileSync(tmpPath, JSON.stringify(normalizeDatabase(db, createDefaultDatabase()), null, 2), 'utf-8');
+      fs.renameSync(tmpPath, DB_PATH);
+      pendingDb = null;
+    } catch (e) {
+      console.error('Failed to save database immediately:', e);
+    }
+    return;
+  }
+
+  if (dbSaveTimer) clearTimeout(dbSaveTimer);
+  dbSaveTimer = setTimeout(() => {
+    dbSaveTimer = null;
+    flushDatabaseAsync().catch((err) => console.error('Background db save error:', err));
+  }, 120);
 }
 
 function emitWindowVisualState(win, source = 'unknown') {
@@ -989,136 +1055,10 @@ function getNativeWindowHandleDecimal(win) {
   }
 }
 
-function applyDwmBorderColorNoneFallback(win, source = 'unknown') {
-  if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
-  const hwnd = getNativeWindowHandleDecimal(win);
-  if (!hwnd) return;
-
-  const key = String(win.id);
-  const now = Date.now();
-  const last = dwmPatchLastAt.get(key) || 0;
-  if (now - last < 240) return;
-  if (dwmPatchInFlight.has(key)) return;
-
-  dwmPatchLastAt.set(key, now);
-  dwmPatchInFlight.add(key);
-
-  const psExe = process.env.SystemRoot
-    ? path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
-    : 'powershell.exe';
-
-  const psScript = [
-    '$ErrorActionPreference = "Stop"',
-    `$hwnd = [IntPtr]::new(${hwnd})`,
-    'Add-Type -TypeDefinition @"',
-    'using System;',
-    'using System.Runtime.InteropServices;',
-    'public static class HybridDwmNative {',
-    '  [DllImport("dwmapi.dll")]',
-    '  public static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);',
-    '  [DllImport("user32.dll", EntryPoint="GetWindowLongPtrW", SetLastError=true)]',
-    '  public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);',
-    '  [DllImport("user32.dll", EntryPoint="SetWindowLongPtrW", SetLastError=true)]',
-    '  public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);',
-    '  [DllImport("user32.dll", SetLastError=true)]',
-    '  public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);',
-    '}',
-    '"@',
-    '$darkMode = 1',
-    '$borderColor = -2',
-    '$captionColor = 0',
-    '$textColor = 0',
-    '$cornerNoRound = 1',
-    '$GWL_STYLE = -16',
-    '$GWL_EXSTYLE = -20',
-    '$WS_CAPTION = 0x00C00000',
-    '$WS_THICKFRAME = 0x00040000',
-    '$WS_BORDER = 0x00800000',
-    '$WS_DLGFRAME = 0x00400000',
-    '$WS_EX_WINDOWEDGE = 0x00000100',
-    '$WS_EX_CLIENTEDGE = 0x00000200',
-    '$WS_EX_DLGMODALFRAME = 0x00000001',
-    '$SWP_NOSIZE = 0x0001',
-    '$SWP_NOMOVE = 0x0002',
-    '$SWP_NOZORDER = 0x0004',
-    '$SWP_NOACTIVATE = 0x0010',
-    '$SWP_FRAMECHANGED = 0x0020',
-    '$SWP_NOOWNERZORDER = 0x0200',
-    '$styleMask = $WS_CAPTION -bor $WS_THICKFRAME -bor $WS_BORDER -bor $WS_DLGFRAME',
-    '$exMask = $WS_EX_WINDOWEDGE -bor $WS_EX_CLIENTEDGE -bor $WS_EX_DLGMODALFRAME',
-    '$style = [int64][HybridDwmNative]::GetWindowLongPtr($hwnd, $GWL_STYLE)',
-    '$newStyle = $style -band (-bnot $styleMask)',
-    'if ($newStyle -ne $style) {',
-    '  [void][HybridDwmNative]::SetWindowLongPtr($hwnd, $GWL_STYLE, [IntPtr]$newStyle)',
-    '}',
-    '$exStyle = [int64][HybridDwmNative]::GetWindowLongPtr($hwnd, $GWL_EXSTYLE)',
-    '$newExStyle = $exStyle -band (-bnot $exMask)',
-    'if ($newExStyle -ne $exStyle) {',
-    '  [void][HybridDwmNative]::SetWindowLongPtr($hwnd, $GWL_EXSTYLE, [IntPtr]$newExStyle)',
-    '}',
-    '$swpFlags = $SWP_NOSIZE -bor $SWP_NOMOVE -bor $SWP_NOZORDER -bor $SWP_NOACTIVATE -bor $SWP_FRAMECHANGED -bor $SWP_NOOWNERZORDER',
-    '[void][HybridDwmNative]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, 0, 0, [uint32]$swpFlags)',
-    '[HybridDwmNative]::DwmSetWindowAttribute($hwnd, 19, [ref]$darkMode, 4) | Out-Null',
-    '[HybridDwmNative]::DwmSetWindowAttribute($hwnd, 20, [ref]$darkMode, 4) | Out-Null',
-    '[HybridDwmNative]::DwmSetWindowAttribute($hwnd, 34, [ref]$borderColor, 4) | Out-Null',
-    '[HybridDwmNative]::DwmSetWindowAttribute($hwnd, 35, [ref]$captionColor, 4) | Out-Null',
-    '[HybridDwmNative]::DwmSetWindowAttribute($hwnd, 36, [ref]$textColor, 4) | Out-Null',
-    '[HybridDwmNative]::DwmSetWindowAttribute($hwnd, 33, [ref]$cornerNoRound, 4) | Out-Null',
-  ].join('\n');
-
-  const encodedScript = Buffer.from(psScript, 'utf16le').toString('base64');
-  const child = spawn(
-    psExe,
-    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodedScript],
-    { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] }
-  );
-
-  let stderr = '';
-  child.stderr.on('data', (data) => {
-    stderr += String(data || '');
-  });
-
-  const finish = (status, detail = '') => {
-    dwmPatchInFlight.delete(key);
-    if (status === 'error') {
-      appendDwmDiag('native-dwm-fallback', {
-        source,
-        status,
-        detail,
-        hwnd,
-      });
-    } else {
-      appendDwmDiag('native-dwm-fallback', {
-        source,
-        status,
-        hwnd,
-      });
-    }
-  };
-
-  child.on('error', (error) => {
-    finish('error', error?.message || String(error));
-  });
-
-  child.on('close', (code) => {
-    if (code === 0) {
-      finish('ok');
-      return;
-    }
-    finish('error', `exit=${code} stderr=${stderr.trim()}`);
-  });
-}
-
 function scheduleWindowsBorderSuppression(win, source = 'unknown') {
   if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
   if (!win.__hybridUseFakeMaximize) return;
-  const delays = [0, 50, 160, 340, 680, 1000, 1500, 2200];
-  for (const delayMs of delays) {
-    setTimeout(() => {
-      if (!win || win.isDestroyed()) return;
-      suppressWindowsNonClientBorder(win, `${source}+${delayMs}ms`);
-    }, delayMs);
-  }
+  suppressWindowsNonClientBorder(win, source);
 }
 
 function suppressWindowsNonClientBorder(win, source = 'unknown') {
@@ -1134,7 +1074,6 @@ function suppressWindowsNonClientBorder(win, source = 'unknown') {
     if (typeof win.setAccentColor === 'function') {
       win.setAccentColor(false);
     }
-    applyDwmBorderColorNoneFallback(win, source);
     fsdbg('windows non-client border suppressed', { source });
   } catch (error) {
     console.error('[window] failed to suppress non-client border', error?.message || error);
@@ -1180,18 +1119,62 @@ function pointInClientRect(point, rect) {
   );
 }
 
+function isWindowMaximizedOrFullscreen(win) {
+  if (!win || win.isDestroyed() || win.isMinimized()) return false;
+
+  if (
+    getTrackedFullscreen(win) ||
+    win.isFullScreen() ||
+    win.isMaximized() ||
+    !!win.__hybridFakeMaximized ||
+    !!win.__hybridFullscreenState
+  ) {
+    return true;
+  }
+
+  try {
+    const bounds = win.getBounds();
+    const display = screen.getDisplayMatching(bounds);
+    if (display) {
+      const wa = display.workArea;
+      const db = display.bounds;
+
+      const coversWorkArea =
+        bounds.x <= wa.x + 8 &&
+        bounds.y <= wa.y + 8 &&
+        bounds.x + bounds.width >= wa.x + wa.width - 8 &&
+        bounds.y + bounds.height >= wa.y + wa.height - 8;
+
+      if (coversWorkArea) return true;
+
+      const coversDisplay =
+        bounds.x <= db.x + 8 &&
+        bounds.y <= db.y + 8 &&
+        bounds.x + bounds.width >= db.x + db.width - 8 &&
+        bounds.y + bounds.height >= db.y + db.height - 8;
+
+      if (coversDisplay) return true;
+    }
+  } catch {
+    // Ignore bounds matching errors
+  }
+
+  return false;
+}
+
 function resolveNcHitTest(win, lParamBuffer) {
-  if (!win || win.isDestroyed() || win.isMinimized()) return undefined;
-  if (!win.isResizable()) return undefined;
+  if (!win || win.isDestroyed() || win.isMinimized()) return HTCLIENT;
 
   // When maximized or fullscreen, lock all edges (treating them as standard client area)
   // to prevent any DWM resize cursors/gestures from showing.
-  if (getTrackedFullscreen(win) || win.isFullScreen() || win.isMaximized() || win.__hybridFakeMaximized) {
+  if (isWindowMaximizedOrFullscreen(win)) {
     return HTCLIENT;
   }
 
+  if (!win.isResizable()) return HTCLIENT;
+
   const physicalPoint = readScreenPointFromLParam(lParamBuffer);
-  if (!physicalPoint) return undefined;
+  if (!physicalPoint) return HTCLIENT;
   const screenPoint = typeof screen.screenToDipPoint === 'function'
     ? screen.screenToDipPoint(physicalPoint)
     : physicalPoint;
@@ -1203,12 +1186,12 @@ function resolveNcHitTest(win, lParamBuffer) {
   };
 
   if (localPoint.x < 0 || localPoint.y < 0 || localPoint.x > bounds.width || localPoint.y > bounds.height) {
-    return undefined;
+    return HTCLIENT;
   }
 
   const exclusions = Array.isArray(win.__hybridNcHitTestExclusions) ? win.__hybridNcHitTestExclusions : [];
   if (exclusions.some((rect) => pointInClientRect(localPoint, rect))) {
-    return undefined;
+    return HTCLIENT;
   }
 
   const left = localPoint.x <= RESIZE_BORDER_DIP;
@@ -1227,7 +1210,7 @@ function resolveNcHitTest(win, lParamBuffer) {
   if (bottom) return HTBOTTOM;
   if (right) return HTRIGHT;
 
-  return undefined;
+  return HTCLIENT;
 }
 
 function setupWindowsNcHitTestHook(win) {
@@ -1237,7 +1220,36 @@ function setupWindowsNcHitTestHook(win) {
   win.hookWindowMessage(WM_NCHITTEST, (wParam, lParam) => {
     const hit = resolveNcHitTest(win, lParam);
     // Returning a hit-test code allows native resize cursors + edge resizing.
-    return hit;
+    return hit !== undefined ? hit : HTCLIENT;
+  });
+}
+
+function setupWindowsNcCalcSizeHook(win) {
+  if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
+  if (typeof win.hookWindowMessage !== 'function') return;
+
+  win.hookWindowMessage(WM_NCCALCSIZE, () => {
+    // Returning 0 ensures the client area covers the entire window rectangle,
+    // eliminating the standard Windows non-client titlebar and white borders.
+    return 0;
+  });
+}
+
+function setupWindowsNcPaintHook(win) {
+  if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
+  if (typeof win.hookWindowMessage !== 'function') return;
+
+  win.hookWindowMessage(WM_NCPAINT, () => {
+    return 0;
+  });
+}
+
+function setupWindowsEraseBkgndHook(win) {
+  if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
+  if (typeof win.hookWindowMessage !== 'function') return;
+
+  win.hookWindowMessage(WM_ERASEBKGND, () => {
+    return 1;
   });
 }
 
@@ -1245,16 +1257,8 @@ function setupWindowsNcActivateHook(win) {
   if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
   if (typeof win.hookWindowMessage !== 'function') return;
 
-  win.hookWindowMessage(WM_NCACTIVATE, (wParam) => {
-    const isActive = readWindowsMessageWord(wParam) !== 0;
-    if (!isActive) {
-      scheduleWindowsBorderSuppression(win, 'wm-ncactivate-inactive');
-      // Transparent frameless windows can flash an inactive top border here.
-      // Claiming this message avoids the default non-client repaint path.
-      return 1;
-    }
-    scheduleWindowsBorderSuppression(win, 'wm-ncactivate-active');
-    return undefined;
+  win.hookWindowMessage(WM_NCACTIVATE, () => {
+    return 1;
   });
 }
 
@@ -1296,7 +1300,7 @@ function createMainWindow() {
     transparent: useTransparentOnWindows,
     fullscreenable: true,
     backgroundColor: useTransparentOnWindows ? '#00000000' : '#000000',
-    hasShadow: true,
+    hasShadow: false,
     roundedCorners: false,
     titleBarStyle: 'hidden',
     titleBarOverlay: false,
@@ -1304,7 +1308,9 @@ function createMainWindow() {
       backgroundMaterial: 'none',
       accentColor: false,
     } : {}),
-    icon: path.join(__dirname, '../../assets/icons/icon.png'),
+    icon: process.platform === 'win32'
+      ? path.join(__dirname, '../../assets/icons/icon.ico')
+      : path.join(__dirname, '../../assets/icons/icon.png'),
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
       contextIsolation: true,
@@ -1316,9 +1322,16 @@ function createMainWindow() {
     },
     show: false
   });
+  try {
+    const iconTarget = process.platform === 'win32'
+      ? path.join(__dirname, '../../assets/icons/icon.ico')
+      : path.join(__dirname, '../../assets/icons/icon.png');
+    mainWindow.setIcon(iconTarget);
+  } catch (_) {}
   hardenWebContents(mainWindow);
   mainWindow.__hybridFullscreenState = false;
   mainWindow.__hybridUiLocked = false;
+  mainWindow.__hybridPreventExitFullscreen = false;
   mainWindow.__hybridFakeMaximized = false;
   mainWindow.__hybridRestoreBounds = null;
   mainWindow.__hybridPrevResizable = null;
@@ -1328,13 +1341,15 @@ function createMainWindow() {
   mainWindow.__hybridPreFullscreenMaximized = false;
   mainWindow.__hybridSuppressNextUnmaximizeEvent = false;
   mainWindow.__hybridConvertingNativeMaximize = false;
-  mainWindow.__hybridNcHitTestExclusions = [];
-  mainWindow.__hybridUseFakeMaximize = false;
   if (process.platform === 'win32') {
+    setupWindowsNcCalcSizeHook(mainWindow);
+    setupWindowsNcPaintHook(mainWindow);
+    setupWindowsEraseBkgndHook(mainWindow);
+    setupWindowsNcActivateHook(mainWindow);
     setupWindowsNcHitTestHook(mainWindow);
+    scheduleNativeDwmWindowStyles(mainWindow, [0, 80, 200]);
   }
   if (mainWindow.__hybridUseFakeMaximize) {
-    setupWindowsNcActivateHook(mainWindow);
     scheduleWindowsBorderSuppression(mainWindow, 'createMainWindow');
   }
   maindbg('created BrowserWindow for mpv composition', {
@@ -1401,26 +1416,12 @@ function createMainWindow() {
       return;
     }
 
-    if (key === 'f' || key === 'escape' || key === 'f11') {
-      fsdbg('before-input-event', {
-        key,
-        code: input.code,
-        focused: mainWindow.isFocused(),
-        fullscreen: mainWindow.isFullScreen()
-      });
-    }
-    if (key === 'f') {
+    if (key === 'f11') {
       event.preventDefault();
       const next = !getTrackedFullscreen(mainWindow);
       fsdbg('before-input-event toggle fullscreen', { from: getTrackedFullscreen(mainWindow), to: next });
       setTrackedFullscreen(mainWindow, next, 'before-input-toggle');
       return;
-    }
-
-    if (key === 'escape' && getTrackedFullscreen(mainWindow)) {
-      event.preventDefault();
-      fsdbg('before-input-event force exit fullscreen');
-      setTrackedFullscreen(mainWindow, false, 'before-input-escape');
     }
   });
 
@@ -1443,6 +1444,9 @@ function createMainWindow() {
     }
 
     mainWindow.show();
+    if (process.platform === 'win32') {
+      scheduleNativeDwmWindowStyles(mainWindow, [0, 80, 200, 350]);
+    }
     scheduleWindowsBorderSuppression(mainWindow, 'ready-to-show');
     emitWindowVisualState(mainWindow, 'ready-to-show');
     logWindowDwmSnapshot(mainWindow, 'ready-to-show');
@@ -1464,13 +1468,21 @@ function createMainWindow() {
         handleHex: Buffer.isBuffer(nativeHandle) ? nativeHandle.toString('hex') : null,
         mpvPath: resolvedMpvPath,
       });
-      const fastScreenshotDir = path.join(app.getPath('userData'), 'screenshots');
+      const currentDb = loadDatabase();
+      const defaultScreenshotDir = path.join(app.getPath('userData'), 'screenshots');
+      const savedScreenshotDir = currentDb?.preferences?.screenshotDir;
+      const effectiveScreenshotDir = (typeof savedScreenshotDir === 'string' && savedScreenshotDir.trim())
+        ? savedScreenshotDir.trim()
+        : defaultScreenshotDir;
+      const effectiveScreenshotFormat = currentDb?.preferences?.screenshotFormat || 'jpg';
+
       mpvProcess.spawn(nativeHandle, {
         mpvPath: resolvedMpvPath,
         ytdlPath: resolvedYtdlpPath,
         hwdec: 'auto-safe',
-        screenshotDir: fastScreenshotDir,
-        screenshotFormat: 'jpg',
+        screenshotDir: effectiveScreenshotDir,
+        screenshotFormat: effectiveScreenshotFormat,
+        autoOrganizeScreenshots: currentDb?.preferences?.autoOrganizeScreenshots !== false,
         enableYtdlRawOptions: true
       });
       maindbg('mpv process spawned and IPC bridge ready');
@@ -1495,6 +1507,9 @@ function createMainWindow() {
   // Track window state for renderer
   mainWindow.on('maximize', () => {
     scheduleWindowsBorderSuppression(mainWindow, 'maximize');
+    if (process.platform === 'win32') {
+      scheduleNativeDwmWindowStyles(mainWindow, [0, 80, 200, 350]);
+    }
     fsdbg('window maximize');
     logWindowDwmSnapshot(mainWindow, 'maximize');
     // Only intercept maximize when using transparent-window compositor mode on Windows.
@@ -1520,6 +1535,9 @@ function createMainWindow() {
   });
   mainWindow.on('unmaximize', () => {
     scheduleWindowsBorderSuppression(mainWindow, 'unmaximize');
+    if (process.platform === 'win32') {
+      scheduleNativeDwmWindowStyles(mainWindow, [0, 80, 200, 350]);
+    }
     if (mainWindow.__hybridUseFakeMaximize) {
       mainWindow.__hybridFakeMaximized = false;
       const baseResizable = typeof mainWindow.__hybridBaseResizable === 'boolean'
@@ -1555,19 +1573,43 @@ function createMainWindow() {
     emitWindowVisualState(mainWindow, 'unmaximize');
     mainWindow.webContents.send('window-state-changed', 'normal');
   });
+  mainWindow.on('restore', () => {
+    scheduleWindowsBorderSuppression(mainWindow, 'restore');
+    if (process.platform === 'win32') {
+      scheduleNativeDwmWindowStyles(mainWindow, [0, 80, 200, 350]);
+    }
+    fsdbg('window restore');
+    logWindowDwmSnapshot(mainWindow, 'restore');
+    emitWindowVisualState(mainWindow, 'restore');
+    mainWindow.webContents.send('window-state-changed', mainWindow.__hybridFakeMaximized ? 'maximized' : 'normal');
+  });
+  mainWindow.on('resized', () => {
+    if (process.platform === 'win32') {
+      scheduleNativeDwmWindowStyles(mainWindow, [0, 150]);
+    }
+  });
   mainWindow.on('enter-full-screen', () => {
     setResizableWhileFullscreen(mainWindow, true);
     mainWindow.__hybridFullscreenState = true;
+    if (process.platform === 'win32') {
+      scheduleNativeDwmWindowStyles(mainWindow, [0, 80, 200, 350]);
+    }
     fsdbg('window enter-full-screen');
     logWindowDwmSnapshot(mainWindow, 'enter-full-screen');
     emitWindowVisualState(mainWindow, 'enter-full-screen');
     mainWindow.webContents.send('window-state-changed', 'fullscreen');
   });
   mainWindow.on('leave-full-screen', () => {
-    setResizableWhileFullscreen(mainWindow, false);
+    const wasMaximized = !!mainWindow.__hybridPreFullscreenMaximized;
+    if (!wasMaximized) {
+      setResizableWhileFullscreen(mainWindow, false);
+    }
     mainWindow.__hybridFullscreenState = false;
 
-    const wasMaximized = !!mainWindow.__hybridPreFullscreenMaximized;
+    if (process.platform === 'win32') {
+      scheduleWindowsBorderSuppression(mainWindow, 'leave-full-screen');
+      scheduleNativeDwmWindowStyles(mainWindow, [0, 80, 200, 350]);
+    }
 
     let windowedRestoreApplied = false;
     // Let Windows settle the transition first, then restore windowed bounds.
@@ -1580,8 +1622,12 @@ function createMainWindow() {
         applyWindowedSize(mainWindow);
       }
       windowedRestoreApplied = true;
-      if (ENABLE_WINDOW_BOUNDS_CLAMP) {
+      if (ENABLE_WINDOW_BOUNDS_CLAMP && !wasMaximized) {
         clampWindowToVisibleArea(mainWindow);
+      }
+      if (process.platform === 'win32') {
+        scheduleWindowsBorderSuppression(mainWindow, 'leave-full-screen-settled');
+        scheduleNativeDwmWindowStyles(mainWindow, [0, 80, 200, 350]);
       }
     };
     setTimeout(restoreWindowed, FULLSCREEN_RESTORE_DELAY_MS);
@@ -1598,13 +1644,11 @@ function createMainWindow() {
         convertNativeMaximizeToFake(mainWindow, 'focus-native-maximized');
       }
     }
-    scheduleWindowsBorderSuppression(mainWindow, 'focus');
     fsdbg('window focus');
     logWindowDwmSnapshot(mainWindow, 'focus');
     scheduleBlurProbe(mainWindow, 'focus-probe');
   });
   mainWindow.on('blur', () => {
-    scheduleWindowsBorderSuppression(mainWindow, 'blur');
     fsdbg('window blur');
     logWindowDwmSnapshot(mainWindow, 'blur');
     scheduleBlurProbe(mainWindow, 'blur-probe');
@@ -1626,7 +1670,7 @@ function createMainWindow() {
 // Catches F11 and Escape even when the mpv native child window has
 // OS keyboard focus and the script-message relay hasn't fired.
 function setupGlobalShortcuts() {
-  const KEYS = ['F', 'F11', 'Escape'];
+  const KEYS = ['F11', 'Escape'];
 
   const unregisterManaged = () => {
     for (const key of KEYS) {
@@ -1655,6 +1699,10 @@ function setupGlobalShortcuts() {
 
   const exitFullscreen = () => {
     if (!canHandle()) return;
+    if (mainWindow.__hybridPreventExitFullscreen) {
+      mainWindow.webContents.send('keyboard-escape');
+      return;
+    }
     if (getTrackedFullscreen(mainWindow)) {
       fsdbg('globalShortcut exit fullscreen');
       setTrackedFullscreen(mainWindow, false, 'globalShortcut-escape');
@@ -1671,10 +1719,6 @@ function setupGlobalShortcuts() {
     fsdbg('globalShortcut sync', { focused, fullscreen: getTrackedFullscreen(mainWindow) });
 
     if (focused) {
-      if (!globalShortcut.isRegistered('F')) {
-        const ok = globalShortcut.register('F', toggleFullscreen);
-        fsdbg('globalShortcut register F', { ok });
-      }
       if (!globalShortcut.isRegistered('F11')) {
         const ok = globalShortcut.register('F11', toggleFullscreen);
         fsdbg('globalShortcut register F11', { ok });
@@ -1700,17 +1744,33 @@ function setupGlobalShortcuts() {
 function isPathInside(childPath, parentPath) {
   const child = path.resolve(childPath);
   const parent = path.resolve(parentPath);
-  const relative = path.relative(parent, child);
-  return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+  try {
+    const realChild = fs.realpathSync(child);
+    const realParent = fs.realpathSync(parent);
+    const relative = path.relative(realParent, realChild);
+    return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+  } catch {
+    const relative = path.relative(parent, child);
+    return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+  }
 }
 
 function getLocalFileProtocolRoots() {
-  return [
+  const tempDir = app.getPath('temp');
+  const roots = [
     path.join(app.getPath('userData'), 'screenshots'),
-    path.join(app.getPath('temp'), 'hybrid-player-thumbs'),
-    path.join(app.getPath('temp'), 'hybrid-player-paused-frames'),
+    path.join(tempDir, 'hybrid-player-thumbs'),
+    path.join(tempDir, `hybrid-player-thumbs-${process.pid}`),
+    path.join(tempDir, 'hybrid-player-paused-frames'),
     path.join(__dirname, '../../assets'),
   ];
+  if (mpvProcess && typeof mpvProcess.getScreenshotDir === 'function') {
+    const customDir = mpvProcess.getScreenshotDir();
+    if (typeof customDir === 'string' && customDir.trim()) {
+      roots.push(path.resolve(customDir.trim()));
+    }
+  }
+  return roots;
 }
 
 function resolveLocalFileProtocolPath(url) {
@@ -1743,6 +1803,26 @@ function resolveLocalFileProtocolPath(url) {
 
 // Initialize
 app.whenReady().then(() => {
+  setupWindowsShellIntegration(app);
+
+  // Clean up orphaned temporary directories from previous crashed/closed runs
+  try {
+    const tempDir = app.getPath('temp');
+    if (fs.existsSync(tempDir)) {
+      fs.readdirSync(tempDir).forEach((entry) => {
+        if (
+          entry.startsWith('hybrid-player-input-') ||
+          (entry.startsWith('hybrid-player-thumbs-') && entry !== `hybrid-player-thumbs-${process.pid}`)
+        ) {
+          const fullPath = path.join(tempDir, entry);
+          try {
+            fs.rmSync(fullPath, { recursive: true, force: true });
+          } catch {}
+        }
+      });
+    }
+  } catch {}
+
   // Register custom protocol for local files
   protocol.handle('local-file', (request) => {
     const filePath = resolveLocalFileProtocolPath(request.url);

@@ -12,8 +12,10 @@ const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
+const crypto = require('crypto');
 const EventEmitter = require('events');
 const { resolveMpvBinary, resolveYtDlpBinary } = require('./binary-resolver');
+const { resolveScreenshotSubfolder } = require('./media-folder-resolver');
 
 // Fullscreen/input trace logging.
 const FS_DEBUG = false;
@@ -42,6 +44,7 @@ function makePipeName(prefix = 'hybrid-mpv-ipc') {
 class MpvProcess extends EventEmitter {
   constructor(options = {}) {
     super();
+    this.options = options;
     /** @type {import('child_process').ChildProcess|null} */
     this.process = null;
     /** @type {net.Socket|null} */
@@ -59,6 +62,7 @@ class MpvProcess extends EventEmitter {
     this.observeDefaults = options.observeDefaults !== false;
     this._screenshotDir = '';
     this._screenshotFormat = 'png';
+    this._autoOrganizeScreenshots = options.autoOrganizeScreenshots !== false;
     this._inputConfDir = null;
   }
 
@@ -146,6 +150,8 @@ class MpvProcess extends EventEmitter {
       'UP    script-message hybrid-volume-up',
       'DOWN  script-message hybrid-volume-down',
       'm    script-message hybrid-toggle-mute',
+      'a    script-message hybrid-cycle-audio',
+      'A    script-message hybrid-cycle-audio',
       'u    script-message hybrid-unlock-ui',
       'U    script-message hybrid-unlock-ui',
       '',
@@ -170,14 +176,21 @@ class MpvProcess extends EventEmitter {
       `--hwdec=${opts.hwdec || 'auto-safe'}`,
       '--vo=gpu',
       '--ytdl=yes',
-      // Subtitle defaults
+      // Subtitle defaults & rock-solid multi-speaker synchronization
       '--sub-auto=fuzzy',
       '--sub-file-paths=subs:subtitles',
+      '--sub-fix-timing=no',
+      '--demuxer-mkv-subtitle-preroll=yes',
+      '--sub-ass-use-video-data=all',
+      '--sub-ass-override=scale',
       // Screenshot defaults
       `--screenshot-directory=${screenshotDir}`,
       '--screenshot-template=hybrid-player-%tY-%tm-%td-%tH-%tM-%tS',
       `--screenshot-format=${this._screenshotFormat}`,
       '--screenshot-jpeg-quality=92',
+      '--screenshot-webp-quality=92',
+      '--screenshot-webp-compression=0',
+      '--screenshot-webp-lossless=no',
       // Input: disable defaults, use our input.conf that relays via script-message
       '--no-config',
       '--input-default-bindings=no',
@@ -472,8 +485,10 @@ class MpvProcess extends EventEmitter {
   pause() { return this.setProperty('pause', true);  }
 
   async togglePause() {
-    const paused = await this.getProperty('pause');
-    return this.setProperty('pause', !paused);
+    const paused = !!(await this.getProperty('pause'));
+    const nextPaused = !paused;
+    await this.setProperty('pause', nextPaused);
+    return nextPaused;
   }
 
   stop() {
@@ -506,6 +521,7 @@ class MpvProcess extends EventEmitter {
   // ── Audio tracks ───────────────────────────────────────
   cycleAudio() { return this.command('cycle', 'audio'); }
   setAudio(trackId) { return this.setProperty('aid', trackId); }
+  setAudioDelay(sec) { return this.setProperty('audio-delay', sec); }
 
   // ── Chapters ───────────────────────────────────────────
   setChapter(idx) { return this.setProperty('chapter', idx); }
@@ -526,21 +542,52 @@ class MpvProcess extends EventEmitter {
     ]);
   }
 
+  setAutoOrganizeScreenshots(enabled) {
+    this._autoOrganizeScreenshots = enabled !== false;
+  }
+
+  getAutoOrganizeScreenshots() {
+    return this._autoOrganizeScreenshots !== false;
+  }
+
+  async getEffectiveScreenshotDir() {
+    const baseDir = this._screenshotDir || await this.getProperty('screenshot-directory').catch(() => '');
+    if (!this._autoOrganizeScreenshots) {
+      return baseDir || '.';
+    }
+
+    try {
+      const currentPath = await this.getProperty('path').catch(() => '');
+      const mediaTitle = await this.getProperty('media-title').catch(() => '');
+      const subfolder = resolveScreenshotSubfolder({ filePath: currentPath, mediaTitle });
+      if (subfolder && typeof subfolder === 'string') {
+        const fullDir = path.join(baseDir || '.', subfolder);
+        if (!fs.existsSync(fullDir)) {
+          fs.mkdirSync(fullDir, { recursive: true });
+        }
+        return fullDir;
+      }
+    } catch (_) {}
+
+    return baseDir || '.';
+  }
+
   // ── Screenshot ─────────────────────────────────────────
   /**
-   * Take a screenshot saved to the pre-configured directory.
+   * Take a single screenshot saved to the pre-configured directory with zero collisions.
    * @param {'video'|'subtitles'|'window'} mode
-   * @returns {Promise<string>} the path mpv wrote to (obtained via filename property)
+   * @returns {Promise<string>} the path mpv wrote to
    */
   async screenshot(mode = 'video') {
-    const dir = this._screenshotDir || await this.getProperty('screenshot-directory').catch(() => '');
+    const dir = await this.getEffectiveScreenshotDir();
     const fmt = this._screenshotFormat || await this.getProperty('screenshot-format').catch(() => 'jpg');
 
-    // Build the expected filename and await mpv command ACK.
+    // Zero-collision single screenshot filename (timestamp + ms + random nonce)
     const now = new Date();
     const pad = (n, w = 2) => String(n).padStart(w, '0');
     const ms = pad(now.getMilliseconds(), 3);
-    const expectedName = `hybrid-player-${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}-${ms}.${fmt}`;
+    const nonce = crypto.randomBytes(3).toString('hex');
+    const expectedName = `hybrid-player-${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}-${ms}-${nonce}.${fmt}`;
     const expectedPath = path.join(dir || '.', expectedName);
 
     const maybePath = await this.command('screenshot-to-file', expectedPath, mode);
@@ -551,19 +598,90 @@ class MpvProcess extends EventEmitter {
   }
 
   /**
+   * Capture a single frame in an ongoing burst session with sequential indexing inside a dedicated burst subfolder.
+   * Guaranteed zero collision and numerical sorting.
+   * @param {string} sessionId
+   * @param {number} seqNum
+   * @param {'video'|'subtitles'|'window'} mode
+   */
+  async screenshotBurstFrame(sessionId, seqNum, mode = 'video') {
+    const dir = await this.getEffectiveScreenshotDir();
+    const fmt = this._screenshotFormat || await this.getProperty('screenshot-format').catch(() => 'jpg');
+
+    // Dedicated burst subfolder per session
+    const burstFolder = `burst_${sessionId}`;
+    const burstDirPath = path.join(dir || '.', burstFolder);
+    if (!fs.existsSync(burstDirPath)) {
+      fs.mkdirSync(burstDirPath, { recursive: true });
+    }
+
+    const seqPadded = String(seqNum).padStart(5, '0');
+    const fileName = `frame-${seqPadded}.${fmt}`;
+    const expectedPath = path.join(burstDirPath, fileName);
+
+    await this.command('screenshot-to-file', expectedPath, mode);
+    return { framePath: expectedPath, fileName, burstFolder, seqNum };
+  }
+
+  /**
+   * Finalizes a burst session:
+   * - If total frames >= 20: keeps files organized inside dedicated burst subfolder.
+   * - If total frames < 20: moves files into main screenshots folder and cleans up subfolder.
+   * @param {string} sessionId
+   * @param {number} totalCount
+   */
+  async finalizeBurstSession(sessionId, totalCount) {
+    const dir = await this.getEffectiveScreenshotDir();
+    const burstFolder = `burst_${sessionId}`;
+    const burstDirPath = path.join(dir || '.', burstFolder);
+
+    if (!fs.existsSync(burstDirPath)) {
+      return { inSubfolder: false, count: 0, folderName: '' };
+    }
+
+    const files = fs.readdirSync(burstDirPath);
+    const count = Number.isInteger(Number(totalCount)) && Number(totalCount) > 0 ? Number(totalCount) : files.length;
+
+    // If fewer than 20 frames, keep in main screenshots folder
+    if (count < 20) {
+      for (const file of files) {
+        const srcPath = path.join(burstDirPath, file);
+        const destName = `hybrid-burst-${sessionId}_${file}`;
+        const destPath = path.join(dir || '.', destName);
+        try {
+          fs.renameSync(srcPath, destPath);
+        } catch (e) {
+          try {
+            fs.copyFileSync(srcPath, destPath);
+            fs.unlinkSync(srcPath);
+          } catch (_) {}
+        }
+      }
+      try {
+        fs.rmdirSync(burstDirPath);
+      } catch (_) {}
+
+      return { inSubfolder: false, count, folderName: '' };
+    }
+
+    return { inSubfolder: true, count, folderName: burstFolder };
+  }
+
+  /**
    * Fire-and-forget screenshot path for immediate UI response.
    * Returns the expected file path immediately while mpv writes asynchronously.
    * @param {'video'|'subtitles'|'window'} mode
    * @returns {Promise<string>}
    */
   async screenshotFast(mode = 'video') {
-    const dir = this._screenshotDir || await this.getProperty('screenshot-directory').catch(() => '');
+    const dir = await this.getEffectiveScreenshotDir();
     const fmt = this._screenshotFormat || await this.getProperty('screenshot-format').catch(() => 'jpg');
 
     const now = new Date();
     const pad = (n, w = 2) => String(n).padStart(w, '0');
     const ms = pad(now.getMilliseconds(), 3);
-    const expectedName = `hybrid-player-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}-${ms}.${fmt}`;
+    const nonce = crypto.randomBytes(3).toString('hex');
+    const expectedName = `hybrid-player-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}-${ms}-${nonce}.${fmt}`;
     const expectedPath = path.join(dir || '.', expectedName);
 
     this.command('screenshot-to-file', expectedPath, mode).catch((error) => {
@@ -571,6 +689,46 @@ class MpvProcess extends EventEmitter {
     });
 
     return expectedPath;
+  }
+
+  setScreenshotDir(dir) {
+    if (typeof dir === 'string' && dir.trim()) {
+      const cleanDir = dir.trim();
+      if (!fs.existsSync(cleanDir)) {
+        try {
+          fs.mkdirSync(cleanDir, { recursive: true });
+        } catch (e) {
+          mpverr('Failed to create screenshot directory:', e?.message || e);
+        }
+      }
+      this._screenshotDir = cleanDir;
+      this.setProperty('screenshot-directory', cleanDir).catch(() => {});
+      return true;
+    }
+    return false;
+  }
+
+  getScreenshotDir() {
+    return this._screenshotDir;
+  }
+
+  setScreenshotFormat(fmt) {
+    if (typeof fmt === 'string' && fmt.trim()) {
+      const cleanFmt = fmt.trim().toLowerCase() === 'jpeg' ? 'jpg' : fmt.trim().toLowerCase();
+      this._screenshotFormat = cleanFmt;
+      this.setProperty('screenshot-format', cleanFmt).catch(() => {});
+      if (cleanFmt === 'webp') {
+        this.setProperty('screenshot-webp-quality', 92).catch(() => {});
+        this.setProperty('screenshot-webp-compression', 0).catch(() => {});
+        this.setProperty('screenshot-webp-lossless', 'no').catch(() => {});
+      }
+      return true;
+    }
+    return false;
+  }
+
+  getScreenshotFormat() {
+    return this._screenshotFormat;
   }
 
   // ─── Lifecycle ─────────────────────────────────────────
@@ -581,7 +739,14 @@ class MpvProcess extends EventEmitter {
       this.socket = null;
     }
     if (this.process) {
-      this.process.kill();
+      const pid = this.process.pid;
+      if (process.platform === 'win32' && pid) {
+        try {
+          require('child_process').execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
+        } catch {}
+      } else {
+        try { this.process.kill('SIGTERM'); } catch {}
+      }
       this.process = null;
     }
     if (this._inputConfDir) {

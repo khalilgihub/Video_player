@@ -7,6 +7,7 @@
 const { ipcMain, shell, app } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const crypto = require('crypto');
 const { fileURLToPath } = require('url');
 const { MpvProcess } = require('./mpv-process');
@@ -392,51 +393,73 @@ function setupMpvIpc(win, mpv) {
     return 'image/png';
   };
 
-  const buildScreenshotPayload = (filePath) => {
+  const buildInlinePreviewDataUrl = async (filePath, mimeType, maxWaitMs = 500) => {
+    const startTime = Date.now();
+    let attempts = 0;
+    while (Date.now() - startTime < maxWaitMs) {
+      attempts++;
+      try {
+        if (fs.existsSync(filePath)) {
+          const stat = fs.statSync(filePath);
+          if (stat.isFile() && stat.size > 0 && stat.size <= MAX_INLINE_PREVIEW_BYTES) {
+            const raw = fs.readFileSync(filePath);
+            if (raw && raw.length > 0) {
+              console.log(`[SCREENSHOT][main] Generated inline preview base64 (${raw.length} bytes, took ${Date.now() - startTime}ms after ${attempts} checks)`);
+              return `data:${mimeType};base64,${raw.toString('base64')}`;
+            }
+          }
+        }
+      } catch (_) {
+        // file writing in progress
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    console.warn(`[SCREENSHOT][main] Timed out waiting for screenshot file at ${filePath} (${attempts} attempts)`);
+    return null;
+  };
+
+  const buildScreenshotPayload = async (filePath) => {
     const mimeType = getImageMimeType(filePath);
     const normalizedPath = path.resolve(filePath).replace(/\\/g, '/');
     const fileUrl = `local-file:///${encodeURI(normalizedPath)}`;
+    const previewDataUrl = await buildInlinePreviewDataUrl(filePath, mimeType);
     return {
       filePath,
       mimeType,
       previewUrl: fileUrl,
+      previewDataUrl: previewDataUrl || undefined,
     };
-  };
-
-  const buildInlinePreviewDataUrl = (filePath, mimeType) => {
-    try {
-      const stat = fs.statSync(filePath);
-      if (!stat.isFile() || stat.size > MAX_INLINE_PREVIEW_BYTES) return null;
-      const raw = fs.readFileSync(filePath);
-      if (!raw || raw.length === 0) return null;
-      return `data:${mimeType};base64,${raw.toString('base64')}`;
-    } catch {
-      return null;
-    }
   };
 
   const emitScreenshotReady = (payload) => {
     if (!win || win.isDestroyed()) return;
-    // Trigger preview at the exact command ACK boundary from mpv.
+    console.log('[SCREENSHOT][main] Emitting screenshot-ready event with payload:', {
+      filePath: payload.filePath,
+      hasInlineData: !!payload.previewDataUrl,
+      dataUrlLength: payload.previewDataUrl ? payload.previewDataUrl.length : 0,
+      previewUrl: payload.previewUrl,
+    });
     win.webContents.send('screenshot-ready', payload);
   };
 
   const captureScreenshotWithAck = async (mode, debugMeta = null) => {
+    console.log('[SCREENSHOT][main] Capture requested, mode:', mode);
     const filePath = await mpv.screenshot(mode || 'video');
     if (typeof filePath !== 'string' || !filePath) {
       throw new Error('Screenshot path is invalid');
     }
+    console.log('[SCREENSHOT][main] mpv screenshot written to:', filePath);
 
-    const payload = buildScreenshotPayload(filePath);
+    const payload = await buildScreenshotPayload(filePath);
     emitScreenshotReady(payload);
     return payload;
   };
 
-  const capturePausedFrameSilent = async (mode = 'video') => {
+  const capturePausedFrameSilent = async (mode = 'subtitles') => {
     const stamp = Date.now();
     const nonce = crypto.randomBytes(8).toString('hex');
     const framePath = path.join(pausedFrameDir, `paused-frame-${stamp}-${nonce}.jpg`);
-    await mpv.command('screenshot-to-file', framePath, mode || 'video');
+    await mpv.command('screenshot-to-file', framePath, mode || 'subtitles');
     if (!fs.existsSync(framePath)) {
       throw new Error('Paused frame capture failed');
     }
@@ -448,11 +471,7 @@ function setupMpvIpc(win, mpv) {
       fs.unlink(stale, () => {});
     }
 
-    const payload = buildScreenshotPayload(framePath);
-    const previewDataUrl = buildInlinePreviewDataUrl(framePath, payload.mimeType);
-    if (previewDataUrl) {
-      payload.previewDataUrl = previewDataUrl;
-    }
+    const payload = await buildScreenshotPayload(framePath);
     return payload;
   };
 
@@ -623,10 +642,16 @@ function setupMpvIpc(win, mpv) {
         break;
 
       case 'hybrid-exit-fullscreen':
-        if (win && !win.isDestroyed() && getTrackedFullscreen()) {
-          fsdbg('action exit fullscreen');
-          setTrackedFullscreen(false);
-          fsdbg('action exit fullscreen done', { to: false });
+        if (win && !win.isDestroyed()) {
+          if (win.__hybridPreventExitFullscreen) {
+            win.webContents.send('keyboard-escape');
+            break;
+          }
+          if (getTrackedFullscreen()) {
+            fsdbg('action exit fullscreen');
+            setTrackedFullscreen(false);
+            fsdbg('action exit fullscreen done', { to: false });
+          }
         }
         break;
 
@@ -643,6 +668,13 @@ function setupMpvIpc(win, mpv) {
           if (mpv.ready) mpv.togglePause();
           _clickTimer = null;
         }, 250);
+        break;
+
+      /* ── Audio Track / Voice Switcher ───────────────── */
+      case 'hybrid-cycle-audio':
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('menu-action', 'cycle-audio');
+        }
         break;
 
       case 'hybrid-mouse-dblclick':
@@ -803,6 +835,10 @@ function setupMpvIpc(win, mpv) {
     const safeId = Number.isInteger(Number(id)) ? Number(id) : null;
     return safeId === null ? false : withReady(() => mpv.setAudio(safeId), false);
   });
+  ipcMain.handle('mpv:set-audio-delay', async (_, sec) => {
+    const safeDelay = sanitizeNumber(sec, -600, 600, null);
+    return safeDelay === null ? false : withReady(() => mpv.setAudioDelay(safeDelay), false);
+  });
 
   // ── Chapters ───────────────────────────────────────────
   ipcMain.handle('mpv:set-chapter', async (_, idx) => {
@@ -826,25 +862,230 @@ function setupMpvIpc(win, mpv) {
   ipcMain.handle('mpv:clear-ab-loop', async () => withReady(() => mpv.clearABLoop(), false));
 
   // ── Screenshot ─────────────────────────────────────────
-  ipcMain.handle('mpv:screenshot-fast', async (_, mode, debugMeta) => {
-    return withReady(() => captureScreenshotWithAck(sanitizeScreenshotMode(mode), debugMeta), null);
-  });
-
   ipcMain.handle('mpv:screenshot', async (_, mode, debugMeta) => {
     return withReady(() => captureScreenshotWithAck(sanitizeScreenshotMode(mode), debugMeta), null);
   });
 
-  ipcMain.handle('mpv:capture-paused-frame', async (_, mode) => {
-    return withReady(() => capturePausedFrameSilent(sanitizeScreenshotMode(mode)), null);
+  ipcMain.handle('mpv:screenshot-burst-frame', async (_, sessionId, seqNum, mode) => {
+    const safeSessionId = typeof sessionId === 'string' ? sessionId.replace(/[^a-zA-Z0-9_-]/g, '') : 'session';
+    const safeSeq = Number.isInteger(Number(seqNum)) ? Number(seqNum) : 1;
+    return withReady(() => mpv.screenshotBurstFrame(safeSessionId, safeSeq, sanitizeScreenshotMode(mode)), null);
+  });
+
+  ipcMain.handle('mpv:finalize-burst-session', async (_, sessionId, totalCount) => {
+    const safeSessionId = typeof sessionId === 'string' ? sessionId.replace(/[^a-zA-Z0-9_-]/g, '') : 'session';
+    const safeCount = Number.isInteger(Number(totalCount)) ? Number(totalCount) : 0;
+    return withReady(() => mpv.finalizeBurstSession(safeSessionId, safeCount), { inSubfolder: false, count: 0, folderName: '' });
+  });
+
+  ipcMain.handle('mpv:capture-paused-frame', async (_, mode = 'subtitles') => {
+    return withReady(() => capturePausedFrameSilent(sanitizeScreenshotMode(mode || 'subtitles')), null);
+  });
+
+  ipcMain.handle('mpv:set-screenshot-dir', async (_, dir) => {
+    if (typeof dir === 'string' && dir.trim()) {
+      return mpv.setScreenshotDir(dir.trim());
+    }
+    return false;
+  });
+
+  ipcMain.handle('mpv:get-screenshot-dir', async () => {
+    return typeof mpv.getScreenshotDir === 'function' ? mpv.getScreenshotDir() : (mpv._screenshotDir || '');
+  });
+
+  ipcMain.handle('mpv:set-screenshot-format', async (_, fmt) => {
+    if (typeof fmt === 'string' && fmt.trim()) {
+      return mpv.setScreenshotFormat(fmt.trim());
+    }
+    return false;
+  });
+
+  ipcMain.handle('mpv:get-screenshot-format', async () => {
+    return typeof mpv.getScreenshotFormat === 'function' ? mpv.getScreenshotFormat() : (mpv._screenshotFormat || 'jpg');
+  });
+
+  ipcMain.handle('mpv:set-auto-organize-screenshots', async (_, enabled) => {
+    if (typeof mpv.setAutoOrganizeScreenshots === 'function') {
+      mpv.setAutoOrganizeScreenshots(enabled !== false);
+      return true;
+    }
+    return false;
+  });
+
+  ipcMain.handle('mpv:get-effective-screenshot-dir', async () => {
+    if (typeof mpv.getEffectiveScreenshotDir === 'function') {
+      return await mpv.getEffectiveScreenshotDir();
+    }
+    return typeof mpv.getScreenshotDir === 'function' ? mpv.getScreenshotDir() : (mpv._screenshotDir || '');
   });
 
   ipcMain.handle('mpv:screenshot-open-folder', async () => {
-    const dir = await withReady(() => mpv.getProperty('screenshot-directory'), null);
-    const screenshotRoot = path.join(app.getPath('userData'), 'screenshots');
-    if (typeof dir === 'string' && dir && fs.existsSync(dir) && isPathInside(dir, screenshotRoot)) {
-      shell.openPath(dir);
+    let dir = '';
+    if (typeof mpv.getEffectiveScreenshotDir === 'function') {
+      dir = await mpv.getEffectiveScreenshotDir();
     }
-    return true;
+    if (!dir || !fs.existsSync(dir)) {
+      dir = (typeof mpv.getScreenshotDir === 'function' ? mpv.getScreenshotDir() : mpv._screenshotDir)
+        || await withReady(() => mpv.getProperty('screenshot-directory'), null);
+    }
+    if (typeof dir === 'string' && dir && fs.existsSync(dir)) {
+      shell.openPath(dir);
+      return true;
+    }
+    return false;
+  });
+
+  const stagedUndoMap = new Map();
+
+  const getUndoDir = () => {
+    const undoDir = path.join(app.getPath('temp'), 'hybrid_screenshot_undo');
+    if (!fs.existsSync(undoDir)) {
+      try { fs.mkdirSync(undoDir, { recursive: true }); } catch {}
+    }
+    return undoDir;
+  };
+
+  const isSubPath = (parentDir, childPath) => {
+    if (!parentDir || !childPath) return false;
+    const rel = path.relative(path.resolve(parentDir), path.resolve(childPath));
+    return !rel.startsWith('..') && !path.isAbsolute(rel);
+  };
+
+  const isAllowedScreenshotPath = async (targetPath) => {
+    if (!targetPath || typeof targetPath !== 'string') return false;
+    const ext = path.extname(targetPath).toLowerCase();
+    if (!['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) {
+      return false;
+    }
+    const cleanTarget = path.resolve(targetPath.trim());
+    const candidateDirs = [
+      typeof mpv.getScreenshotDir === 'function' ? mpv.getScreenshotDir() : mpv._screenshotDir,
+      typeof mpv.getEffectiveScreenshotDir === 'function' ? await mpv.getEffectiveScreenshotDir() : null,
+      app.getPath('temp'),
+      os.tmpdir(),
+    ].filter(Boolean);
+
+    return candidateDirs.some((dir) => isSubPath(dir, cleanTarget));
+  };
+
+  ipcMain.handle('mpv:delete-screenshot', async (_, filePath) => {
+    if (!filePath || typeof filePath !== 'string') {
+      return { success: false, error: 'Invalid file path' };
+    }
+
+    const cleanPath = path.resolve(filePath.trim());
+
+    if (!(await isAllowedScreenshotPath(cleanPath))) {
+      return { success: false, error: 'Access denied: Path is outside screenshot directories or has invalid extension' };
+    }
+
+    if (!fs.existsSync(cleanPath)) {
+      return { success: false, error: 'File does not exist' };
+    }
+
+    try {
+      // Create thumbnail base64 data for visual in-card deletion animation
+      let previewDataUrl = '';
+      try {
+        const ext = path.extname(cleanPath).toLowerCase();
+        const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg';
+        const buffer = fs.readFileSync(cleanPath);
+        previewDataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
+      } catch (_) {}
+
+      // Move file to session undo staging folder so it can be restored on 'Z'
+      const undoDir = getUndoDir();
+      const fileName = path.basename(cleanPath);
+      const tempPath = path.join(undoDir, `${Date.now()}_${Math.random().toString(36).substring(2, 6)}_${fileName}`);
+
+      try {
+        fs.renameSync(cleanPath, tempPath);
+      } catch (moveErr) {
+        fs.copyFileSync(cleanPath, tempPath);
+        fs.unlinkSync(cleanPath);
+      }
+
+      // Record staged item to prevent unauthorized restoration
+      stagedUndoMap.set(tempPath, {
+        originalPath: cleanPath,
+        stagedAt: Date.now(),
+      });
+
+      console.log('[SCREENSHOT][main] Staged screenshot for undo:', cleanPath, '->', tempPath);
+      return {
+        success: true,
+        filePath: cleanPath,
+        tempPath,
+        fileName,
+        previewDataUrl,
+      };
+    } catch (err) {
+      console.error('[SCREENSHOT][main] Failed to delete screenshot:', err);
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mpv:restore-screenshot', async (_, payload) => {
+    const tempPath = payload?.tempPath ? path.resolve(String(payload.tempPath).trim()) : '';
+    const originalPath = (payload?.originalPath || payload?.filePath)
+      ? path.resolve(String(payload.originalPath || payload.filePath).trim())
+      : '';
+    if (!tempPath || !originalPath) {
+      return { success: false, error: 'Missing tempPath or originalPath' };
+    }
+
+    const undoDir = getUndoDir();
+    if (!isSubPath(undoDir, tempPath)) {
+      return { success: false, error: 'Access denied: Staged file must reside within undo directory' };
+    }
+
+    const staged = stagedUndoMap.get(tempPath);
+    if (!staged || staged.originalPath !== originalPath) {
+      return { success: false, error: 'Access denied: Staged file does not match recorded deletion target' };
+    }
+
+    if (!(await isAllowedScreenshotPath(originalPath))) {
+      return { success: false, error: 'Access denied: Restoration target is outside screenshot directories' };
+    }
+
+    if (!fs.existsSync(tempPath)) {
+      return { success: false, error: 'Staged file does not exist' };
+    }
+
+    try {
+      const parentDir = path.dirname(originalPath);
+      if (!fs.existsSync(parentDir)) {
+        fs.mkdirSync(parentDir, { recursive: true });
+      }
+
+      try {
+        fs.renameSync(tempPath, originalPath);
+      } catch (moveErr) {
+        fs.copyFileSync(tempPath, originalPath);
+        fs.unlinkSync(tempPath);
+      }
+
+      stagedUndoMap.delete(tempPath);
+
+      let previewDataUrl = '';
+      try {
+        const ext = path.extname(originalPath).toLowerCase();
+        const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg';
+        const buffer = fs.readFileSync(originalPath);
+        previewDataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
+      } catch (_) {}
+
+      console.log('[SCREENSHOT][main] Restored screenshot:', originalPath);
+      return {
+        success: true,
+        filePath: originalPath,
+        fileName: path.basename(originalPath),
+        previewDataUrl,
+      };
+    } catch (err) {
+      console.error('[SCREENSHOT][main] Failed to restore screenshot:', err);
+      return { success: false, error: err.message };
+    }
   });
 
   // ── Thumbnail capture for seek-bar hover preview ──────

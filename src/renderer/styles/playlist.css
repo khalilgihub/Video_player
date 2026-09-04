@@ -23,10 +23,11 @@
               opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1),
               box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1),
               visibility 0s linear 0s;
-  z-index: 140;
+  z-index: 1300;
   overflow: hidden;
   box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
   will-change: transform, opacity;
+  -webkit-app-region: no-drag;
 }
  
 .sidebar-playlist.collapsed {
@@ -49,13 +50,20 @@
   height: 46px;
   box-sizing: border-box;
   border-bottom: 1px solid var(--border-color);
-  -webkit-app-region: no-drag;
+  -webkit-app-region: no-drag !important;
 }
 
 .sidebar-header-left {
   display: flex;
   align-items: center;
   gap: 8px;
+  -webkit-app-region: no-drag !important;
+}
+
+#btnClosePlaylist {
+  -webkit-app-region: no-drag !important;
+  position: relative;
+  z-index: 1310;
 }
 
 .sidebar-header h3 {
@@ -95,9 +103,10 @@
   color: var(--text-primary);
 }
 
+.sidebar-btn:focus,
 .sidebar-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: none !important;
+  box-shadow: none !important;
   background: var(--bg-tertiary);
   color: var(--text-primary);
 }

@@ -4,16 +4,35 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- 
+    Content Security Policy:
+    The two script-src SHA-256 hashes correspond to the inline <script type="importmap">:
+    - 'sha256-fb6Uj16LDIOrheWsSE7ph0d3MvkdjXynno0M9kRBogE=' : LF line endings (POSIX / CI)
+    - 'sha256-TCqvLcgtwCyfBRB+3CINeizMm8fW3i944920CRdHMxw=' : CRLF line endings (Windows)
+    DO NOT remove either hash or inline importmap script loading will fail under CSP on corresponding platforms.
+  -->
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self' 'sha256-jItqmzgjJiElhKzbalARhUbtLxTAo8vaPNIB8Cjpjzg=' 'sha256-Zf00y2Qa1MPalnrac/mKRQpvEobwsc3QqTxhvepFY2Y='; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: local-file:; media-src 'self' blob: data: local-file:; connect-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none';">
+    content="default-src 'self'; script-src 'self' 'sha256-fb6Uj16LDIOrheWsSE7ph0d3MvkdjXynno0M9kRBogE=' 'sha256-TCqvLcgtwCyfBRB+3CINeizMm8fW3i944920CRdHMxw='; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: local-file:; media-src 'self' blob: data: local-file:; connect-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none';">
   <title>Hybrid Player</title>
   <link rel="stylesheet" href="./styles/themes.css">
   <link rel="stylesheet" href="./styles/main.css">
-  <link rel="stylesheet" href="./styles/lanyard.css">
   <link rel="stylesheet" href="./styles/controls.css">
   <link rel="stylesheet" href="./styles/playlist.css">
   <link rel="stylesheet" href="./styles/settings.css">
   <link rel="stylesheet" href="./styles/animations.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../../node_modules/three/build/three.module.js",
+        "three/examples/jsm/": "../../node_modules/three/examples/jsm/",
+        "postprocessing": "../../node_modules/postprocessing/build/index.js",
+        "ogl": "../../node_modules/ogl/src/index.js",
+        "gsap": "../../node_modules/gsap/index.js",
+        "gsap/InertiaPlugin": "../../node_modules/gsap/InertiaPlugin.js",
+        "gsap/": "../../node_modules/gsap/"
+      }
+    }
+  </script>
 </head>
 
 <body class="app-cold-start" data-theme="dark" data-motion-profile="balanced">
@@ -254,7 +273,7 @@
           <rect y="5" width="12" height="1.5" fill="currentColor" />
         </svg>
       </button>
-      <button class="titlebar-btn" id="btnMaximize" type="button" title="Maximize" aria-label="Maximize window">
+      <button class="titlebar-btn" id="btnMaximize" type="button" title="Maximize (F11)" aria-label="Maximize window">
         <svg width="12" height="12" viewBox="0 0 12 12">
           <rect x="1" y="1" width="10" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3" />
         </svg>
@@ -286,9 +305,6 @@
         <div id="particlesMount" class="particles-mount" aria-hidden="true"></div>
         <div id="faultyMount" class="faulty-mount" aria-hidden="true"></div>
         <div id="ditherMount" class="dither-mount" aria-hidden="true"></div>
-        <div id="dotGridMount" class="dotgrid-mount" aria-hidden="true"></div>
-        <div id="colorBendsMount" class="colorbends-mount" aria-hidden="true"></div>
-        <div id="lanyardMount" class="lanyard-mount" aria-hidden="true"></div>
         <div class="welcome-content">
           <div class="welcome-actions">
             <button class="btn-primary" id="btnOpenFile" type="button">
@@ -331,6 +347,7 @@
       </div>
 
       <div id="skip-indicator" class="osd-hidden" aria-hidden="true"></div>
+      <div id="screenshotDeleteIndicator" class="osd-hidden screenshot-delete-indicator" aria-hidden="true"></div>
 
       <div class="recording-indicator" id="recordingIndicator" hidden>
         <span class="recording-dot" aria-hidden="true"></span>
@@ -443,6 +460,13 @@
               </svg>
             </button>
 
+            <!-- Subs / Dubs Switcher -->
+            <button class="ctrl-btn" id="btnAudioTrack" type="button" title="Subs / Dubs (A)" aria-label="Toggle Subs and Dubs">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path d="M12 3a9 9 0 0 0-9 9v7c0 1.1.9 2 2 2h4v-8H5v-1a7 7 0 0 1 14 0v1h-4v8h4c1.1 0 2-.9 2-2v-7a9 9 0 0 0-9-9z" />
+              </svg>
+            </button>
+
             <!-- Subtitles -->
             <button class="ctrl-btn" id="btnSubtitles" type="button" title="Subtitles (C)" aria-label="Subtitles">
               <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
@@ -451,13 +475,25 @@
               </svg>
             </button>
 
-            <!-- A-B Loop -->
-            <button class="ctrl-btn" id="btnABLoop" type="button" title="A-B Loop (L)" aria-label="A-B loop">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M17 1l4 4-4 4" />
-                <path d="M3 11V9a4 4 0 0 1 4-4h14" />
-                <path d="M7 23l-4-4 4-4" />
-                <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+            <!-- Playlist, Repeat & Shuffle Group -->
+            <button class="ctrl-btn" id="btnPlaylist" type="button" title="Playlist (Ctrl+L)" aria-label="Playlist"
+              aria-expanded="false">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z" />
+              </svg>
+            </button>
+
+            <button class="ctrl-btn" id="btnRepeat" type="button" title="Repeat Off (L)" aria-label="Repeat mode" data-repeat="none">
+              <svg class="icon-repeat" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
+                <text class="repeat-one-digit" x="12" y="14.8" text-anchor="middle" font-size="8.5" font-weight="900" font-family="system-ui, -apple-system, sans-serif" fill="currentColor" style="display:none;">1</text>
+              </svg>
+            </button>
+
+            <button class="ctrl-btn" id="btnShuffle" type="button" title="Shuffle Off" aria-label="Shuffle mode" aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path
+                  d="M10.59 9.17 5.41 4 4 5.41l5.17 5.18 1.42-1.42zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.14L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z" />
               </svg>
             </button>
 
@@ -466,14 +502,6 @@
               <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
                 <path
                   d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" />
-              </svg>
-            </button>
-
-            <!-- Playlist Toggle -->
-            <button class="ctrl-btn" id="btnPlaylist" type="button" title="Playlist (Ctrl+L)" aria-label="Playlist"
-              aria-expanded="false">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
-                <path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z" />
               </svg>
             </button>
 
@@ -548,6 +576,7 @@
           aria-label="Repeat playlist" aria-pressed="false">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
             <path d="M7 7h11v3l4-4-4-4v3H5v6h2V7zm10 10H6v-3l-4 4 4 4v-3h13v-6h-2v4z" />
+            <text class="repeat-one-digit" x="12" y="14.8" text-anchor="middle" font-size="8.5" font-weight="900" font-family="system-ui, -apple-system, sans-serif" fill="currentColor" style="display:none;">1</text>
           </svg>
         </button>
         <button class="sidebar-btn" id="btnClearPlaylist" type="button" title="Clear Playlist"
@@ -575,7 +604,12 @@
       <div class="modal-header">
         <h3 id="equalizerModalTitle">Audio Equalizer</h3>
         <button class="modal-close" type="button" data-close-modal="equalizerModal"
-          aria-label="Close equalizer">&times;</button>
+          aria-label="Close equalizer">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <line x1="1.5" y1="1.5" x2="10.5" y2="10.5" />
+            <line x1="10.5" y1="1.5" x2="1.5" y2="10.5" />
+          </svg>
+        </button>
       </div>
       <div class="equalizer-presets">
         <select id="eqPresetSelect" class="select-input" aria-label="Equalizer preset">
@@ -607,19 +641,36 @@
       <div class="modal-header">
         <h3 id="speedModalTitle">Playback Speed</h3>
         <button class="modal-close" type="button" data-close-modal="speedModal"
-          aria-label="Close playback speed">&times;</button>
+          aria-label="Close playback speed">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <line x1="1.5" y1="1.5" x2="10.5" y2="10.5" />
+            <line x1="10.5" y1="1.5" x2="1.5" y2="10.5" />
+          </svg>
+        </button>
       </div>
       <div class="speed-options">
-        <button class="speed-btn" type="button" data-speed="0.25" aria-pressed="false">0.25x</button>
-        <button class="speed-btn" type="button" data-speed="0.5" aria-pressed="false">0.5x</button>
-        <button class="speed-btn" type="button" data-speed="0.75" aria-pressed="false">0.75x</button>
-        <button class="speed-btn active" type="button" data-speed="1" aria-pressed="true">Normal</button>
-        <button class="speed-btn" type="button" data-speed="1.25" aria-pressed="false">1.25x</button>
-        <button class="speed-btn" type="button" data-speed="1.5" aria-pressed="false">1.5x</button>
-        <button class="speed-btn" type="button" data-speed="1.75" aria-pressed="false">1.75x</button>
-        <button class="speed-btn" type="button" data-speed="2" aria-pressed="false">2x</button>
-        <button class="speed-btn" type="button" data-speed="3" aria-pressed="false">3x</button>
-        <button class="speed-btn" type="button" data-speed="4" aria-pressed="false">4x</button>
+        <div class="speed-row speed-row-slow">
+          <span class="speed-group-label">Slow</span>
+          <div class="speed-buttons-wrap">
+            <button class="speed-btn" type="button" data-speed="0.25" aria-pressed="false">0.25x</button>
+            <button class="speed-btn" type="button" data-speed="0.5" aria-pressed="false">0.5x</button>
+            <button class="speed-btn" type="button" data-speed="0.75" aria-pressed="false">0.75x</button>
+          </div>
+        </div>
+        <div class="speed-row speed-row-center">
+          <button class="speed-btn speed-btn-normal active" type="button" data-speed="1" aria-pressed="true">Normal (1.0x)</button>
+        </div>
+        <div class="speed-row speed-row-fast">
+          <span class="speed-group-label">Fast</span>
+          <div class="speed-buttons-wrap">
+            <button class="speed-btn" type="button" data-speed="1.25" aria-pressed="false">1.25x</button>
+            <button class="speed-btn" type="button" data-speed="1.5" aria-pressed="false">1.5x</button>
+            <button class="speed-btn" type="button" data-speed="1.75" aria-pressed="false">1.75x</button>
+            <button class="speed-btn" type="button" data-speed="2" aria-pressed="false">2x</button>
+            <button class="speed-btn" type="button" data-speed="3" aria-pressed="false">3x</button>
+            <button class="speed-btn" type="button" data-speed="4" aria-pressed="false">4x</button>
+          </div>
+        </div>
       </div>
       <div class="speed-custom">
         <label for="customSpeedSlider">Custom Speed</label>
@@ -636,7 +687,12 @@
       <div class="modal-header">
         <h3 id="subtitleModalTitle">Subtitles</h3>
         <button class="modal-close" type="button" data-close-modal="subtitleModal"
-          aria-label="Close subtitles">&times;</button>
+          aria-label="Close subtitles">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <line x1="1.5" y1="1.5" x2="10.5" y2="10.5" />
+            <line x1="10.5" y1="1.5" x2="1.5" y2="10.5" />
+          </svg>
+        </button>
       </div>
       <div class="subtitle-options">
         <div class="subtitle-section">
@@ -647,29 +703,96 @@
           <button class="btn-secondary" id="btnLoadSubtitle" type="button">Load External Subtitle</button>
         </div>
         <div class="subtitle-section">
-          <h4>Sync Adjustment</h4>
-          <div class="subtitle-sync">
-            <button class="btn-small" id="subSyncMinus" type="button">-100ms</button>
-            <span id="subSyncValue">0ms</span>
-            <button class="btn-small" id="subSyncPlus" type="button">+100ms</button>
+          <div class="subtitle-section-header">
+            <h4>Sync Adjustment</h4>
+            <span id="subSyncValue" class="sync-value-badge">0.0s</span>
+          </div>
+          <div class="subtitle-sync-slider-container">
+            <span class="sync-slider-limit">-10s</span>
+            <input type="range" id="subSyncSlider" min="-10" max="10" step="0.1" value="0" class="range-input sync-range-input" aria-label="Subtitle sync adjustment slider">
+            <span class="sync-slider-limit">+10s</span>
+          </div>
+          <div class="subtitle-sync-actions">
+            <button class="btn-small" id="subSyncMinusLarge" type="button" title="Shift subtitles 0.5s earlier">-0.5s</button>
+            <button class="btn-small" id="subSyncMinus" type="button" title="Shift subtitles 0.1s earlier">-0.1s</button>
+            <button class="btn-small btn-sync-reset" id="subSyncReset" type="button" title="Reset subtitle delay to 0.0s">Reset</button>
+            <button class="btn-small" id="subSyncPlus" type="button" title="Shift subtitles 0.1s later">+0.1s</button>
+            <button class="btn-small" id="subSyncPlusLarge" type="button" title="Shift subtitles 0.5s later">+0.5s</button>
+          </div>
+          <div class="subtitle-sync-hint">
+            <span>Earlier (−)</span>
+            <span>Later (+)</span>
           </div>
         </div>
         <div class="subtitle-section">
           <h4>Appearance</h4>
           <div class="setting-row">
             <label for="subFontSize">Font Size</label>
-            <input type="range" id="subFontSize" min="12" max="64" value="28" class="range-input">
-            <span id="subFontSizeVal">28px</span>
+            <div class="setting-row-control">
+              <input type="range" id="subFontSize" min="12" max="64" value="28" class="range-input">
+              <span id="subFontSizeVal">28px</span>
+            </div>
           </div>
           <div class="setting-row">
             <label for="subFontColor">Font Color</label>
             <input type="color" id="subFontColor" value="#ffffff" class="color-input">
           </div>
           <div class="setting-row">
-            <label for="subBgColor">Background</label>
+            <label for="subBgColor">Background Color</label>
             <input type="color" id="subBgColor" value="#000000" class="color-input">
-            <input type="range" id="subBgOpacity" min="0" max="100" value="60" class="range-input range-small"
-              aria-label="Subtitle background opacity">
+          </div>
+          <div class="setting-row">
+            <label for="subBgOpacity">Background Opacity</label>
+            <div class="setting-row-control">
+              <input type="range" id="subBgOpacity" min="0" max="100" value="60" class="range-input"
+                aria-label="Subtitle background opacity">
+              <span id="subBgOpacityVal">60%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ AUDIO & VOICE PANEL ═══ -->
+  <div class="modal-overlay" id="audioModal" role="dialog" aria-modal="true" aria-labelledby="audioModalTitle"
+    tabindex="-1" hidden>
+    <div class="modal-panel audio-panel subtitle-panel">
+      <div class="modal-header">
+        <h3 id="audioModalTitle">Audio & Voice</h3>
+        <button class="modal-close" type="button" data-close-modal="audioModal"
+          aria-label="Close audio settings">&times;</button>
+      </div>
+      <div class="subtitle-options">
+        <!-- Anime Mode Switch (Subs vs Dubs) -->
+        <div class="subtitle-section">
+          <h4>Anime Preset (Subs / Dubs)</h4>
+          <div class="subtitle-track-list" id="animePresets">
+            <button class="subtitle-track-btn" id="btnQuickSubs" type="button">
+              Subs (Japanese + Subtitles)
+            </button>
+            <button class="subtitle-track-btn" id="btnQuickDubs" type="button">
+              Dubs (English Voice)
+            </button>
+          </div>
+        </div>
+
+        <!-- Audio Track / Voice Selection -->
+        <div class="subtitle-section">
+          <h4>Voice / Audio Track</h4>
+          <div id="audioTracks" class="subtitle-track-list">
+            <!-- Dynamically populated with track pills -->
+          </div>
+        </div>
+
+        <!-- Sync Adjustment -->
+        <div class="subtitle-section">
+          <h4>Audio Sync</h4>
+          <div class="subtitle-sync">
+            <button class="btn-small" id="audioSyncMinus" type="button">-100ms</button>
+            <span id="audioSyncValue">0ms</span>
+            <button class="btn-small" id="audioSyncPlus" type="button">+100ms</button>
+            <button class="btn-small" id="audioSyncReset" type="button">Reset</button>
           </div>
         </div>
       </div>
@@ -683,7 +806,12 @@
       <div class="modal-header">
         <h3 id="settingsModalTitle">Settings</h3>
         <button class="modal-close" type="button" data-close-modal="settingsModal"
-          aria-label="Close settings">&times;</button>
+          aria-label="Close settings">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <line x1="1.5" y1="1.5" x2="10.5" y2="10.5" />
+            <line x1="10.5" y1="1.5" x2="1.5" y2="10.5" />
+          </svg>
+        </button>
       </div>
       <div class="settings-body">
         <div class="settings-content">
@@ -723,9 +851,39 @@
                 <label for="settMotionProfile">Motion Profile</label>
                 <select id="settMotionProfile" class="select-input">
                   <option value="reduced">Reduced</option>
-                  <option value="balanced" selected>Balanced</option>
+                  <option value="balanced">Balanced</option>
                   <option value="showcase">Showcase</option>
                 </select>
+              </div>
+            </div>
+
+            <div class="setting-group">
+              <h4>Screenshots</h4>
+              <div class="setting-row setting-row-stack">
+                <label for="settScreenshotDirDisplay">Save Directory</label>
+                <div class="setting-path-box">
+                  <input type="text" id="settScreenshotDirDisplay" class="setting-path-input" readonly placeholder="Default (App Data/Screenshots)">
+                  <div class="setting-path-actions">
+                    <button type="button" class="btn-secondary btn-compact" id="settBrowseScreenshotDir" title="Select custom screenshot folder">Browse...</button>
+                    <button type="button" class="btn-secondary btn-compact" id="settOpenScreenshotDir" title="Open screenshot folder in file explorer">Open Folder</button>
+                    <button type="button" class="btn-secondary btn-compact" id="settResetScreenshotDir" title="Reset to default screenshot folder">Reset</button>
+                  </div>
+                </div>
+              </div>
+              <div class="setting-row">
+                <label for="settScreenshotFormat">Image Format</label>
+                <select id="settScreenshotFormat" class="select-input">
+                  <option value="jpg">JPEG (.jpg)</option>
+                  <option value="png">PNG (.png)</option>
+                  <option value="webp">WebP (.webp)</option>
+                </select>
+              </div>
+              <div class="setting-row">
+                <label for="settAutoOrganizeShots">Auto-Organize Folders</label>
+                <label class="toggle">
+                  <input type="checkbox" id="settAutoOrganizeShots" checked aria-label="Auto-organize screenshots by show and season">
+                  <span class="toggle-slider"></span>
+                </label>
               </div>
             </div>
 
@@ -753,7 +911,12 @@
       <div class="modal-header">
         <h3 id="networkStreamModalTitle">Open Link</h3>
         <button class="modal-close" type="button" data-close-modal="networkStreamModal"
-          aria-label="Close open link">&times;</button>
+          aria-label="Close open link">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <line x1="1.5" y1="1.5" x2="10.5" y2="10.5" />
+            <line x1="10.5" y1="1.5" x2="1.5" y2="10.5" />
+          </svg>
+        </button>
       </div>
       <form id="networkStreamForm" class="network-stream-body">
         <label for="networkStreamInput" class="network-stream-label">YouTube / Stream URL</label>
@@ -775,38 +938,82 @@
   <script src="../renderer/modules/cursor-manager.js"></script>
   <script src="../renderer/modules/player.js"></script>
   <script src="../renderer/modules/controls.js"></script>
-  <script src="../renderer/modules/controls-layout-debug.js"></script>
   <script src="../renderer/modules/playlist.js"></script>
   <script src="../renderer/modules/subtitles.js"></script>
+  <script src="../renderer/modules/audio.js"></script>
   <script src="../renderer/modules/equalizer.js"></script>
   <script src="../renderer/modules/settings.js"></script>
   <script src="../renderer/modules/shortcuts.js"></script>
   <script src="../renderer/modules/thumbnails.js"></script>
   <script src="../renderer/modules/gestures.js"></script>
   <script src="../renderer/app.js"></script>
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "../../node_modules/three/build/three.module.js",
-        "three/examples/jsm/": "../../node_modules/three/examples/jsm/",
-        "cannon-es": "../../node_modules/cannon-es/dist/cannon-es.js",
-        "meshline": "../../node_modules/meshline/dist/index.js",
-        "postprocessing": "../../node_modules/postprocessing/build/index.js",
-        "ogl": "../../node_modules/ogl/src/index.js",
-        "gsap": "../../node_modules/gsap/index.js",
-        "gsap/InertiaPlugin": "../../node_modules/gsap/InertiaPlugin.js",
-        "gsap/": "../../node_modules/gsap/"
-      }
-    }
-  </script>
   <script type="module" src="../renderer/modules/faultyTerminal.js"></script>
   <script type="module" src="../renderer/modules/ditherWaves.js"></script>
-  <script type="module" src="../renderer/modules/dotGrid.js"></script>
   <script type="module" src="../renderer/modules/particles.js"></script>
+  <script type="module" src="../renderer/modules/gridMotion.js"></script>
 
   <!-- ═══ BACKGROUND SETTINGS MODAL (Chameleon — skins per active effect) ═══ -->
   <div class="modal-overlay" id="bgSettingsModal" role="dialog" aria-modal="true" aria-labelledby="bgSettingsModalTitle"
     tabindex="-1" hidden>
+
+    <!-- ═══ LEFT-SIDE ACCORDION GALLERY POPOVER (Positioned outside panel) ═══ -->
+    <div class="bg-accordion-popover" id="bgAccordionPopover" hidden aria-label="Effect gallery drawer">
+      <div class="bg-accordion-popover-header">
+        <div class="bg-accordion-popover-title-group">
+          <span class="bg-accordion-popover-title">Background Effects</span>
+          <span class="bg-accordion-popover-sub">Select an effect to customize parameters</span>
+        </div>
+        <button class="bg-accordion-popover-close" id="bgAccordionPopoverClose" type="button" aria-label="Close effect gallery">&times;</button>
+      </div>
+      <div class="bg-accordion-gallery" id="bgAccordionGallery" role="radiogroup" aria-label="Background effect gallery">
+        <div class="bg-accordion-item active" data-bg="dither" tabindex="0" role="radio" aria-checked="true">
+          <div class="bg-accordion-live-mount" id="bgLiveMount_dither"></div>
+          <div class="bg-accordion-preview bg-preview-dither"></div>
+          <div class="bg-accordion-content">
+            <span class="bg-accordion-tag">Dither Waves</span>
+            <span class="bg-accordion-desc">Animated bayer dither</span>
+          </div>
+          <div class="bg-accordion-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+        </div>
+        <div class="bg-accordion-item" data-bg="particles" tabindex="0" role="radio" aria-checked="false">
+          <div class="bg-accordion-live-mount" id="bgLiveMount_particles"></div>
+          <div class="bg-accordion-preview bg-preview-particles"></div>
+          <div class="bg-accordion-content">
+            <span class="bg-accordion-tag">Particles</span>
+            <span class="bg-accordion-desc">Drifting particle field</span>
+          </div>
+          <div class="bg-accordion-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+        </div>
+        <div class="bg-accordion-item" data-bg="faulty" tabindex="0" role="radio" aria-checked="false">
+          <div class="bg-accordion-live-mount" id="bgLiveMount_faulty"></div>
+          <div class="bg-accordion-preview bg-preview-faulty"></div>
+          <div class="bg-accordion-content">
+            <span class="bg-accordion-tag">Faulty Terminal</span>
+            <span class="bg-accordion-desc">CRT glitch & scanlines</span>
+          </div>
+          <div class="bg-accordion-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+        </div>
+        <div class="bg-accordion-item" data-bg="gridmotion" tabindex="0" role="radio" aria-checked="false">
+          <div class="bg-accordion-live-mount" id="bgLiveMount_gridmotion"></div>
+          <div class="bg-accordion-preview bg-preview-gridmotion"></div>
+          <div class="bg-accordion-content">
+            <span class="bg-accordion-tag">Grid Motion</span>
+            <span class="bg-accordion-desc">Gliding item lattice</span>
+          </div>
+          <div class="bg-accordion-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+        </div>
+        <div class="bg-accordion-item" data-bg="none" tabindex="0" role="radio" aria-checked="false">
+          <div class="bg-accordion-live-mount" id="bgLiveMount_none"></div>
+          <div class="bg-accordion-preview bg-preview-none"></div>
+          <div class="bg-accordion-content">
+            <span class="bg-accordion-tag">Default</span>
+            <span class="bg-accordion-desc">Pure black backdrop</span>
+          </div>
+          <div class="bg-accordion-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-panel modal-small bg-settings-panel">
       <div class="modal-header">
         <div class="modal-title-group">
@@ -814,18 +1021,29 @@
           <p class="bg-modal-subtitle" id="bgModalSubtitle">Dither Waves · animated bayer dither</p>
         </div>
         <button class="modal-close" type="button" data-close-modal="bgSettingsModal"
-          aria-label="Close background settings">&times;</button>
+          aria-label="Close background settings">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+            <line x1="1.5" y1="1.5" x2="10.5" y2="10.5" />
+            <line x1="10.5" y1="1.5" x2="1.5" y2="10.5" />
+          </svg>
+        </button>
       </div>
 
       <div class="bg-settings-body">
         <div class="bg-settings-global">
-          <div class="bg-setting-row">
-            <label for="welcomeBackgroundSelect" class="bg-row-label">Effect</label>
-            <select id="welcomeBackgroundSelect" class="bg-setting-select" aria-label="Background effect">
+          <div class="bg-setting-row bg-effect-picker-row">
+            <label class="bg-row-label">Background</label>
+            <button id="bgEffectPickerBtn" class="bg-effect-picker-btn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="Change background">
+              <span class="bg-effect-picker-badge" id="bgEffectPickerBadge">
+                <span class="bg-effect-picker-name" id="bgEffectPickerName">Change Background</span>
+              </span>
+              <svg class="bg-effect-picker-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <select id="welcomeBackgroundSelect" class="bg-setting-select" aria-label="Background effect" hidden>
               <option value="dither">Dither</option>
               <option value="particles">Particles</option>
               <option value="faulty">Faulty Terminal</option>
-              <option value="dotgrid">Dot Grid</option>
+              <option value="gridmotion">Grid Motion</option>
               <option value="none">Default</option>
             </select>
           </div>
@@ -956,7 +1174,12 @@
             <button type="button" class="bg-reset" data-reset-bg="faulty">Reset</button>
           </div>
           <section class="bg-subsection">
-            <h5>Glitch</h5>
+            <h5>Layout & Glitch</h5>
+            <div class="bg-setting-row">
+              <label for="bgFaultyScale">Scale</label>
+              <input type="range" id="bgFaultyScale" min="0.5" max="8" step="0.1" value="1.2">
+              <span class="bg-setting-value">1.2</span>
+            </div>
             <div class="bg-setting-row">
               <label for="bgFaultyGlitch">Glitch</label>
               <input type="range" id="bgFaultyGlitch" min="0" max="3" step="0.1" value="1">
@@ -1003,57 +1226,6 @@
           </section>
         </div>
 
-        <!-- DOT GRID -->
-        <div class="bg-settings-group" data-bg="dotgrid">
-          <div class="bg-group-head">
-            <span class="bg-group-tag">Dot Grid</span>
-            <button type="button" class="bg-reset" data-reset-bg="dotgrid">Reset</button>
-          </div>
-          <section class="bg-subsection">
-            <h5>Layout</h5>
-            <div class="bg-setting-row">
-              <label for="bgDotgridDotSize">Dot Size</label>
-              <input type="range" id="bgDotgridDotSize" min="2" max="24" step="1" value="16">
-              <span class="bg-setting-value">16</span>
-            </div>
-            <div class="bg-setting-row">
-              <label for="bgDotgridGap">Gap</label>
-              <input type="range" id="bgDotgridGap" min="4" max="64" step="2" value="32">
-              <span class="bg-setting-value">32</span>
-            </div>
-          </section>
-          <section class="bg-subsection">
-            <h5>Interaction</h5>
-            <div class="bg-setting-row">
-              <label for="bgDotgridProximity">Proximity</label>
-              <input type="range" id="bgDotgridProximity" min="40" max="300" step="10" value="150">
-              <span class="bg-setting-value">150</span>
-            </div>
-            <div class="bg-setting-row">
-              <label for="bgDotgridShockRadius">Shock Radius</label>
-              <input type="range" id="bgDotgridShockRadius" min="100" max="500" step="25" value="250">
-              <span class="bg-setting-value">250</span>
-            </div>
-          </section>
-          <section class="bg-subsection">
-            <h5>Appearance</h5>
-            <div class="bg-setting-row">
-              <label for="bgDotgridBaseColor">Base Color</label>
-              <div class="bg-color-control">
-                <input type="color" id="bgDotgridBaseColor" value="#5227FF" class="bg-color-input">
-                <span class="bg-color-hex" data-for="bgDotgridBaseColor">#5227FF</span>
-              </div>
-            </div>
-            <div class="bg-setting-row">
-              <label for="bgDotgridActiveColor">Active Color</label>
-              <div class="bg-color-control">
-                <input type="color" id="bgDotgridActiveColor" value="#5227FF" class="bg-color-input">
-                <span class="bg-color-hex" data-for="bgDotgridActiveColor">#5227FF</span>
-              </div>
-            </div>
-          </section>
-        </div>
-
         <!-- DEFAULT (none) — no settings -->
         <div class="bg-settings-group" data-bg="none">
           <div class="bg-group-head">
@@ -1062,21 +1234,6 @@
           <p class="bg-settings-empty">No effect applied — pure black backdrop.</p>
         </div>
       </div>
-    </div>
-  </div>
-
-  <!-- ═══ ACCORDION GALLERY BACKGROUND PICKER MODAL ═══ -->
-  <div class="modal-overlay" id="accordionGalleryModal" role="dialog" aria-modal="true" aria-labelledby="accordionGalleryTitle" tabindex="-1" hidden>
-    <div class="accordion-gallery-modal">
-      <div class="accordion-gallery-header">
-        <div class="accordion-gallery-title-wrap">
-          <span class="accordion-gallery-badge">BACKGROUND SHADERS</span>
-          <h2 id="accordionGalleryTitle">Accordion Effect Gallery</h2>
-          <p class="accordion-gallery-subtitle">Hover to preview, click any background card to apply it instantly</p>
-        </div>
-        <button class="modal-close" type="button" data-close-modal="accordionGalleryModal" aria-label="Close gallery">&times;</button>
-      </div>
-      <div class="accordion-gallery-container" id="accordionGalleryContainer"></div>
     </div>
   </div>
 

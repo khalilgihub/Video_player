@@ -5,7 +5,7 @@
 
 @font-face {
   font-family: 'Sora Local';
-  src: url('../../assets/fonts/Sora-Regular.ttf') format('truetype');
+  src: url('../../../assets/fonts/Sora-Regular.ttf') format('truetype');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -13,7 +13,7 @@
 
 @font-face {
   font-family: 'Sora Local';
-  src: url('../../assets/fonts/Sora-SemiBold.ttf') format('truetype');
+  src: url('../../../assets/fonts/Sora-SemiBold.ttf') format('truetype');
   font-weight: 600;
   font-style: normal;
   font-display: swap;
@@ -21,7 +21,7 @@
 
 @font-face {
   font-family: 'Sora Local';
-  src: url('../../assets/fonts/Sora-Bold.ttf') format('truetype');
+  src: url('../../../assets/fonts/Sora-Bold.ttf') format('truetype');
   font-weight: 700;
   font-style: normal;
   font-display: swap;
@@ -29,7 +29,7 @@
 
 @font-face {
   font-family: 'IBM Plex Sans Local';
-  src: url('../../assets/fonts/IBMPlexSans-Regular.ttf') format('truetype');
+  src: url('../../../assets/fonts/IBMPlexSans-Regular.ttf') format('truetype');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -37,7 +37,7 @@
 
 @font-face {
   font-family: 'IBM Plex Sans Local';
-  src: url('../../assets/fonts/IBMPlexSans-Medium.ttf') format('truetype');
+  src: url('../../../assets/fonts/IBMPlexSans-Medium.ttf') format('truetype');
   font-weight: 500;
   font-style: normal;
   font-display: swap;
@@ -45,7 +45,7 @@
 
 @font-face {
   font-family: 'IBM Plex Sans Local';
-  src: url('../../assets/fonts/IBMPlexSans-SemiBold.ttf') format('truetype');
+  src: url('../../../assets/fonts/IBMPlexSans-SemiBold.ttf') format('truetype');
   font-weight: 600;
   font-style: normal;
   font-display: swap;
@@ -80,9 +80,9 @@
   --border-color: rgba(255, 255, 255, 0.08);
   --border-focus: rgba(255, 255, 255, 0.2);
   
-  --accent: #10b981;
-  --accent-hover: #34d399;
-  --accent-dim: rgba(16, 185, 129, 0.3);
+  --accent: #e50914;
+  --accent-hover: #ff1a26;
+  --accent-dim: rgba(229, 9, 20, 0.3);
   
   --progress-bg: rgba(255, 255, 255, 0.15);
   --progress-buffer: rgba(255, 255, 255, 0.25);

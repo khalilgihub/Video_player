@@ -1,6 +1,13 @@
 /**
  * Hybrid Player - Keyboard Shortcuts Module
- * Customizable keyboard shortcuts for all player actions
+ * 
+ * Features & Keybindings:
+ * - Playback: Space / K (Play/Pause), [ / ] (Speed down/up), , / . (Frame back/forward)
+ * - Seeking: Left / Right Arrow (±5s), J / L (±10s), 0–9 (Jump to 0%–90%)
+ * - Audio: Up / Down Arrow (Volume ±5%), M (Mute/Unmute), E (Equalizer modal)
+ * - View & Chrome: F / Double-Click (Toggle Fullscreen), Escape (Exit Fullscreen), I (Stats for Nerds), B (Background settings)
+ * - Track Selection: N / P (Next/Previous track), C (Toggle subtitles), S (Take screenshot)
+ * - Input Safety: Ignores hotkeys when typing in text inputs, textareas, or select dropdowns.
  */
 
 class HybridShortcuts {
@@ -27,11 +34,17 @@ class HybridShortcuts {
       'Comma': 'frame-backward',
       'KeyI': 'toggle-stats',
       'KeyC': 'toggle-subtitles',
+      'KeyG': 'sub-delay-down',
+      'KeyH': 'sub-delay-up',
+      'KeyA': 'cycle-audio',
       'KeyN': 'next-track',
       'KeyP': 'previous-track',
       'KeyE': 'toggle-equalizer',
+      'KeyL': 'toggle-repeat',
       'KeyT': 'toggle-time-format',
       'KeyS': 'screenshot',
+      'KeyD': 'delete-latest-screenshot',
+      'KeyZ': 'restore-latest-screenshot',
       'KeyB': 'toggle-bg-settings',
       'Digit0': 'seek-0',
       'Digit1': 'seek-10',
@@ -46,6 +59,8 @@ class HybridShortcuts {
     };
 
     this.shortcuts = { ...this.defaults };
+    this._keySHoldTimer = null;
+    this._keySPressed = false;
     this._bindKeyboard();
     this._bindMenuActions();
   }
@@ -53,7 +68,13 @@ class HybridShortcuts {
   _bindKeyboard() {
     document.addEventListener('keydown', (e) => {
       // Don't intercept when typing in inputs
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
+      if (
+        e.target.tagName === 'INPUT' ||
+        e.target.tagName === 'SELECT' ||
+        e.target.tagName === 'TEXTAREA' ||
+        e.target.isContentEditable ||
+        e.target.closest?.('input, select, textarea, [contenteditable="true"]')
+      ) {
         return;
       }
 
@@ -61,6 +82,45 @@ class HybridShortcuts {
       const anyModalOpen = document.querySelector('.modal-overlay:not([hidden])');
 
       const code = e.code;
+
+      // Special handling when screenshot carousel is open
+      if (this.player?.isScreenshotCarouselOpen?.()) {
+        if (code === 'ArrowLeft') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.player.navigateScreenshotCarousel(-1);
+          return;
+        }
+        if (code === 'ArrowRight') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.player.navigateScreenshotCarousel(1);
+          return;
+        }
+        if (code === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.player.closeScreenshotCarousel();
+          return;
+        }
+        const carouselMode = this.player?.getCarouselMode?.() || 'delete';
+        if (carouselMode === 'restore') {
+          if (code === 'Enter' || (code === 'KeyZ' && !e.ctrlKey && !e.altKey && !e.metaKey)) {
+            e.preventDefault();
+            e.stopPropagation();
+            this.player.restoreSelectedCarouselScreenshot();
+            return;
+          }
+        } else {
+          if (code === 'Enter' || (code === 'KeyD' && !e.ctrlKey && !e.altKey && !e.metaKey)) {
+            e.preventDefault();
+            e.stopPropagation();
+            this.player.deleteSelectedCarouselScreenshot();
+            return;
+          }
+        }
+      }
+
       const action = this._getModifiedShortcutAction(e) || this.shortcuts[code];
 
       if (code === 'KeyF' || code === 'Escape') {
@@ -81,13 +141,49 @@ class HybridShortcuts {
       }
       
       // Some actions should work even in modals
-      if (action !== 'toggle-play' && action !== 'exit-fullscreen' && anyModalOpen) return;
+      if (action !== 'toggle-play' && anyModalOpen) return;
+
+      // Special handling for KeyS (Hold-to-Burst frame capture vs Single Tap)
+      if (code === 'KeyS' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        if (!e.repeat) {
+          this._keySPressed = true;
+          if (this._keySHoldTimer) clearTimeout(this._keySHoldTimer);
+          this._keySHoldTimer = setTimeout(() => {
+            if (this._keySPressed && !this.player._isBurstCapturing) {
+              this.player.startBurstCapture();
+            }
+          }, 200);
+        } else {
+          if (!this.player._isBurstCapturing) {
+            this.player.startBurstCapture();
+          }
+        }
+        return;
+      }
 
       e.preventDefault();
       if (action === 'toggle-fullscreen' || action === 'exit-fullscreen') {
         console.log('[FSDBG][renderer-shortcuts] execute action', action);
       }
       this._executeAction(action, e);
+    });
+
+    document.addEventListener('keyup', (e) => {
+      if (e.code === 'KeyS') {
+        if (this._keySHoldTimer) {
+          clearTimeout(this._keySHoldTimer);
+          this._keySHoldTimer = null;
+        }
+
+        if (this.player._isBurstCapturing) {
+          this.player.stopBurstCapture();
+        } else if (this._keySPressed) {
+          // Short tap (< 200ms) -> single screenshot
+          this.player.takeScreenshot();
+        }
+        this._keySPressed = false;
+      }
     });
   }
 
@@ -112,6 +208,10 @@ class HybridShortcuts {
         return 'toggle-settings';
       case 'KeyS':
         return 'toggle-recording';
+      case 'KeyZ':
+        return 'toggle-restore-carousel';
+      case 'KeyD':
+        return 'toggle-screenshot-carousel';
       case 'KeyQ':
         return 'quit';
       default:
@@ -125,10 +225,50 @@ class HybridShortcuts {
     });
   }
 
+  handleAction(action, event) {
+    return this._executeAction(action, event);
+  }
+
   _executeAction(action, event) {
+    const welcome = document.getElementById('welcomeScreen');
+    const hasMedia = !welcome || welcome.classList.contains('hidden') || !!this.player?.currentFilePath || !!window.HybridApp?._loadSpinnerPending;
+
+    const mediaRequiredActions = [
+      'toggle-play',
+      'cycle-audio',
+      'stop',
+      'seek-back-5',
+      'seek-forward-5',
+      'seek-back-10',
+      'seek-forward-10',
+      'seek-0', 'seek-10', 'seek-20', 'seek-30', 'seek-40', 'seek-50', 'seek-60', 'seek-70', 'seek-80', 'seek-90',
+      'speed-up',
+      'speed-down',
+      'frame-forward',
+      'frame-backward',
+      'toggle-stats',
+      'toggle-subtitles',
+      'sub-delay-down',
+      'sub-delay-up',
+      'screenshot',
+      'delete-latest-screenshot',
+      'restore-latest-screenshot',
+      'toggle-time-format',
+      'toggle-repeat',
+      'toggle-ab-loop',
+    ];
+
+    if (mediaRequiredActions.includes(action) && !hasMedia) {
+      return;
+    }
+
     switch (action) {
       case 'toggle-play':
         this.player.togglePlay();
+        break;
+
+      case 'cycle-audio':
+        this.player.cycleAudioTrack();
         break;
       
       case 'stop':
@@ -211,6 +351,14 @@ class HybridShortcuts {
       case 'toggle-subtitles':
         this.controls.toggleModal('subtitleModal');
         break;
+
+      case 'sub-delay-down':
+        window.HybridApp?.subtitleModule?.adjustSync(-0.1);
+        break;
+
+      case 'sub-delay-up':
+        window.HybridApp?.subtitleModule?.adjustSync(0.1);
+        break;
       
       case 'toggle-equalizer':
         this.controls.toggleModal('equalizerModal');
@@ -230,6 +378,22 @@ class HybridShortcuts {
         this.player.takeScreenshot();
         break;
 
+      case 'delete-latest-screenshot':
+        this.player.deleteLatestScreenshot();
+        break;
+
+      case 'restore-latest-screenshot':
+        this.player.restoreLatestScreenshot();
+        break;
+
+      case 'toggle-screenshot-carousel':
+        this.player.toggleScreenshotCarousel();
+        break;
+
+      case 'toggle-restore-carousel':
+        this.player.toggleRestoreCarousel();
+        break;
+
       case 'toggle-recording':
         window.HybridApp?.toggleClipRecording();
         break;
@@ -238,13 +402,23 @@ class HybridShortcuts {
         window.HybridApp?.setLocked(false);
         break;
       
+      case 'toggle-repeat':
+      case 'toggle-ab-loop':
+        window.HybridApp?.playlistModule?.cycleRepeat() || this.player?.playlist?.cycleRepeat();
+        break;
+
       case 'toggle-playlist':
         this.controls.togglePlaylist();
         break;
 
-      case 'toggle-bg-settings':
-        this.controls.toggleModal('bgSettingsModal');
+      case 'toggle-bg-settings': {
+        const welcomeScreen = document.getElementById('welcomeScreen');
+        const isMediaActive = !welcomeScreen || welcomeScreen.classList.contains('hidden') || !!this.player?.currentFilePath || !!window.HybridApp?._loadSpinnerPending;
+        if (!isMediaActive) {
+          this.controls.toggleModal('bgSettingsModal');
+        }
         break;
+      }
 
       case 'toggle-settings':
         this.controls.toggleModal('settingsModal');

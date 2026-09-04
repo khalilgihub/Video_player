@@ -295,6 +295,7 @@ class HybridApp {
       this.controlsModule = new HybridControls(this.player);
       this.playlistModule = new HybridPlaylist(this.player);
       this.subtitleModule = new HybridSubtitles(this.player);
+      this.audioModule    = new HybridAudio(this.player);
       this.equalizerModule = new HybridEqualizer(this.player);
       this.settingsModule = new HybridSettings(this.player);
       this.shortcutModule = new HybridShortcuts(this.player, this.controlsModule);
@@ -355,8 +356,18 @@ class HybridApp {
 
         const btnMaximize = document.getElementById('btnMaximize');
         if (btnMaximize) {
-          if (isMax) {
-            btnMaximize.title = 'Restore';
+          if (isFs) {
+            btnMaximize.title = 'Exit Fullscreen (F / Esc)';
+            btnMaximize.setAttribute('aria-label', 'Exit Fullscreen');
+            btnMaximize.innerHTML = `
+              <svg width="12" height="12" viewBox="0 0 12 12">
+                <rect x="1" y="1" width="10" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.2" />
+                <line x1="6" y1="8" x2="6" y2="10.5" stroke="currentColor" stroke-width="1.2" />
+                <line x1="3.5" y1="10.5" x2="8.5" y2="10.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+              </svg>
+            `;
+          } else if (isMax) {
+            btnMaximize.title = 'Restore Down';
             btnMaximize.setAttribute('aria-label', 'Restore window');
             btnMaximize.innerHTML = `
               <svg width="12" height="12" viewBox="0 0 12 12">
@@ -365,7 +376,7 @@ class HybridApp {
               </svg>
             `;
           } else {
-            btnMaximize.title = 'Maximize';
+            btnMaximize.title = 'Maximize (F11)';
             btnMaximize.setAttribute('aria-label', 'Maximize window');
             btnMaximize.innerHTML = `
               <svg width="12" height="12" viewBox="0 0 12 12">
@@ -497,6 +508,15 @@ class HybridApp {
           this.controlsModule?.revealChromeAfterWindowStateChange?.();
         }
       });
+      if (typeof window.hybridAPI?.window?.isMaximized === 'function') {
+        window.hybridAPI.window.isMaximized().then((isMax) => {
+          if (isMax) {
+            this._windowVisualState.isMaximized = true;
+            this._windowVisualState.isFullscreen = false;
+            applyWindowVisualClasses();
+          }
+        }).catch(() => {});
+      }
 
       window.addEventListener('blur', () => {
         updateAppPresenceState();
@@ -575,11 +595,14 @@ class HybridApp {
         viddbg('mpv:event', { event, pending: this._loadSpinnerPending });
 
         if (event === 'seek') {
-          this._setNetworkLoading(true);
+          if (this.currentPlaybackType === 'youtube' || this.currentPlaybackType === 'network') {
+            this._setNetworkLoading(true);
+          }
           return;
         }
 
         if (event === 'playback-restart') {
+          this._hasStartedPlaying = true;
           this._completeVideoLoadSpinner();
           this._debugRendererPlayback('event:playback-restart');
           this._forcePlaybackSurfaceVisible('playback-restart');
@@ -600,6 +623,7 @@ class HybridApp {
             viddbg('end-file ignored because new load is pending', { reason: data?.reason });
             return;
           }
+          this._hasStartedPlaying = false;
           this._loadSpinnerPending = false;
           this._setNetworkLoading(false);
           this._setVideoCurtain(false);
@@ -623,6 +647,7 @@ class HybridApp {
         }
 
         if (name === 'time-pos' && Number(value) > 0) {
+          this._hasStartedPlaying = true;
           this._setVideoCurtain(false);
           if (!this._playbackDiagLogged && Number(value) >= 0.8) {
             this._playbackDiagLogged = true;
@@ -637,7 +662,9 @@ class HybridApp {
         }
 
         if (name === 'seeking') {
-          this._setNetworkLoading(!!value);
+          if (this.currentPlaybackType === 'youtube' || this.currentPlaybackType === 'network') {
+            this._setNetworkLoading(!!value);
+          }
           if (!value && this._isMpvPaused) {
             this._schedulePausedFrameCapture('prop:seeking=false', { delayMs: 140, force: true });
           }
@@ -655,12 +682,7 @@ class HybridApp {
     try {
       const recent = await window.hybridAPI.history.getRecent(5);
       const container = document.getElementById('recentFiles');
-      if (!container) return;
-
-      if (!recent || recent.length === 0) {
-        container.innerHTML = '<h4>Recently Played</h4><span class="recent-empty">No recently played files</span>';
-        return;
-      }
+      if (!container || !recent || recent.length === 0) return;
 
       const heading = document.createElement('h4');
       heading.textContent = 'Recently Played';
@@ -852,11 +874,13 @@ class HybridApp {
     this._isMpvPaused = false;
     this._stopPausedFrameHeartbeat();
     this._hidePausedFrameOverlay('sync-ui-after-load');
+    this.controlsModule?.hidePlayPauseIndicator?.();
     if (this.isClipRecording && this.recordSourcePath && this.recordSourcePath !== filePathOrUrl) {
       this.cancelClipRecording('Clip recording stopped because the source changed');
     }
 
     this.player.currentFilePath = filePathOrUrl;
+    this.player.isPlaying = true;
 
     const isUrl = this._isNetworkMediaUrl(filePathOrUrl);
     this.currentStreamUrl = isUrl ? filePathOrUrl : null;
@@ -882,8 +906,10 @@ class HybridApp {
   _setNetworkLoading(visible) {
     const spinner = document.getElementById('networkLoadingSpinner');
     if (!spinner) return;
-    spinner.classList.toggle('hidden', !visible);
-    viddbg('spinner', { visible, className: spinner.className });
+    const isNetwork = this.currentPlaybackType === 'youtube' || this.currentPlaybackType === 'network';
+    const shouldShow = !!visible && isNetwork;
+    spinner.classList.toggle('hidden', !shouldShow);
+    viddbg('spinner', { visible, shouldShow, className: spinner.className });
   }
 
   _setVideoCurtain(visible) {
@@ -962,6 +988,12 @@ class HybridApp {
     }
   }
 
+  // ─── Playback Surface & Anti-Transparency First-Frame Handoff ──
+  // CRITICAL ARCHITECTURE NOTE (DO NOT REMOVE / DO NOT ALTER HANDOFF TIMING):
+  // Because the Electron window is transparent, this method coordinates the exact millisecond
+  // when mpv presents its first decoded frame.
+  // Removing #video-curtain and #welcomeScreen SIMULTANEOUSLY upon `playback-restart` prevents
+  // the transparent background from briefly leaking the Windows desktop.
   _forcePlaybackSurfaceVisible(reason) {
     const curtain = document.getElementById('video-curtain');
     const spinner = document.getElementById('networkLoadingSpinner');
@@ -975,7 +1007,7 @@ class HybridApp {
     if (spinner) {
       spinner.classList.add('hidden');
     }
-    if (welcome && this.player?.currentFilePath) {
+    if (welcome) {
       welcome.classList.add('hidden');
     }
     if (this._isMpvPaused) {
@@ -1013,12 +1045,7 @@ class HybridApp {
   }
 
   _startPausedFrameHeartbeat() {
-    if (this._pausedFrameHeartbeatTimer) return;
-    this._pausedFrameHeartbeatTimer = setInterval(() => {
-      if (!this._isMpvPaused) return;
-      if (document.visibilityState !== 'visible') return;
-      this._schedulePausedFrameCapture('paused-heartbeat', { delayMs: 0, force: false });
-    }, 4500);
+    // Repetitive screenshot polling removed to prevent disk and heap churn while idle.
   }
 
   _stopPausedFrameHeartbeat() {
@@ -1050,7 +1077,7 @@ class HybridApp {
 
     this._pausedFrameCaptureInFlight = true;
     try {
-      const payload = await window.hybridAPI.mpv.capturePausedFrame?.('video');
+      const payload = await window.hybridAPI.mpv.capturePausedFrame?.('subtitles');
       const previewDataUrl = typeof payload?.previewDataUrl === 'string' ? payload.previewDataUrl.trim() : '';
       const previewUrl = typeof payload?.previewUrl === 'string' ? payload.previewUrl.trim() : '';
       if (!previewDataUrl && !previewUrl) return;
@@ -1078,6 +1105,7 @@ class HybridApp {
     }
 
     this._loadSpinnerPending = true;
+    this._hasStartedPlaying = false;
     this._playbackDiagLogged = false;
     this._stopPausedFrameHeartbeat();
     this._hidePausedFrameOverlay('begin-load');
@@ -1339,9 +1367,32 @@ class HybridApp {
     await this._loadMediaReplace(targetUrl);
 
     if (playbackTime > 1) {
-      await new Promise((resolve) => setTimeout(resolve, 450));
-      await window.hybridAPI.mpv.command('seek', playbackTime, 'absolute+exact');
-      ytdbg('seek restored', { playbackTime });
+      let restored = false;
+      let cleanup = null;
+      let timeoutTimer = null;
+
+      const restoreSeek = async () => {
+        if (restored) return;
+        restored = true;
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+        if (typeof cleanup === 'function') cleanup();
+        try {
+          await window.hybridAPI.mpv.command('seek', playbackTime, 'absolute+exact');
+          ytdbg('seek restored on stream load', { playbackTime });
+        } catch (error) {
+          ytdbg('seek restore failed', { error: String(error?.message || error) });
+        }
+      };
+
+      cleanup = window.hybridAPI.mpv.onEvent((event) => {
+        if (event === 'playback-restart' || event === 'file-loaded') {
+          restoreSeek();
+        }
+      });
+
+      timeoutTimer = setTimeout(() => {
+        restoreSeek();
+      }, 6000);
     }
 
     this.currentStreamQuality = selectedHeight || 'auto';
@@ -1406,7 +1457,7 @@ class HybridApp {
         return;
       }
 
-      modal.hidden = true;
+      this._closeNetworkStreamModal();
       input.value = '';
       window.HybridToast?.show('Opening stream...');
 
@@ -1440,8 +1491,35 @@ class HybridApp {
     });
 
     cancelBtn.addEventListener('click', () => {
-      modal.hidden = true;
+      this._closeNetworkStreamModal();
     });
+  }
+
+  _closeNetworkStreamModal() {
+    const modal = document.getElementById('networkStreamModal');
+    if (!modal || modal.hidden || modal.classList.contains('modal-closing')) return;
+
+    if (window.HybridApp?.settingsModule?._closeModal) {
+      window.HybridApp.settingsModule._closeModal(modal);
+      return;
+    }
+
+    modal.classList.add('modal-closing');
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      modal.removeEventListener('animationend', handleAnimEnd);
+      modal.classList.remove('modal-closing');
+      modal.hidden = true;
+    };
+    const handleAnimEnd = (e) => {
+      if (e.target === modal || e.target.classList?.contains('modal-panel')) {
+        finish();
+      }
+    };
+    modal.addEventListener('animationend', handleAnimEnd);
+    setTimeout(finish, 220);
   }
 
   _showNetworkStreamModal() {
@@ -1449,6 +1527,7 @@ class HybridApp {
     const input = document.getElementById('networkStreamInput');
     if (!modal || !input) return;
 
+    modal.classList.remove('modal-closing');
     if (this.currentStreamUrl) {
       input.value = this.currentStreamUrl;
     }
@@ -1503,7 +1582,7 @@ class HybridApp {
         btnPlaylist.classList.remove('active');
       }
       document.body.classList.remove('playlist-open');
-      this.cursorManager?.show();
+      this.cursorManager?.resume();
     } else {
       this.cursorManager?.resume();
     }

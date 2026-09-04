@@ -8,7 +8,8 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('hybridAPI', {
   app: {
-    getStartupDiagnostics: () => ipcRenderer.invoke('app:get-startup-diagnostics')
+    getStartupDiagnostics: () => ipcRenderer.invoke('app:get-startup-diagnostics'),
+    getDefaultScreenshotDir: () => ipcRenderer.invoke('app:get-default-screenshot-dir')
   },
 
   // ─── Window Controls ───────────────────────────────────
@@ -25,6 +26,7 @@ contextBridge.exposeInMainWorld('hybridAPI', {
     isFullScreen: () => ipcRenderer.invoke('window:isFullScreen'),
     isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
     setUiLocked: (state) => ipcRenderer.invoke('window:set-ui-locked', state),
+    setPreventExitFullscreen: (state) => ipcRenderer.invoke('window:set-prevent-exit-fullscreen', state),
     onStateChanged: (cb) => {
       const listener = (_, state) => cb(state);
       ipcRenderer.on('window-state-changed', listener);
@@ -65,6 +67,7 @@ contextBridge.exposeInMainWorld('hybridAPI', {
 
     // Audio
     setAudio: (id) => ipcRenderer.invoke('mpv:set-audio', id),
+    setAudioDelay: (sec) => ipcRenderer.invoke('mpv:set-audio-delay', sec),
 
     // Chapters
     setChapter: (idx) => ipcRenderer.invoke('mpv:set-chapter', idx),
@@ -80,9 +83,18 @@ contextBridge.exposeInMainWorld('hybridAPI', {
 
     // Screenshot
     screenshot: (mode, debugMeta) => ipcRenderer.invoke('mpv:screenshot', mode, debugMeta),
-    screenshotFast: (mode, debugMeta) => ipcRenderer.invoke('mpv:screenshot-fast', mode, debugMeta),
+    screenshotBurstFrame: (sessionId, seqNum, mode) => ipcRenderer.invoke('mpv:screenshot-burst-frame', sessionId, seqNum, mode),
+    finalizeBurstSession: (sessionId, totalCount) => ipcRenderer.invoke('mpv:finalize-burst-session', sessionId, totalCount),
     capturePausedFrame: (mode) => ipcRenderer.invoke('mpv:capture-paused-frame', mode),
+    setScreenshotDir: (dir) => ipcRenderer.invoke('mpv:set-screenshot-dir', dir),
+    getScreenshotDir: () => ipcRenderer.invoke('mpv:get-screenshot-dir'),
+    setScreenshotFormat: (fmt) => ipcRenderer.invoke('mpv:set-screenshot-format', fmt),
+    getScreenshotFormat: () => ipcRenderer.invoke('mpv:get-screenshot-format'),
     screenshotOpenFolder: () => ipcRenderer.invoke('mpv:screenshot-open-folder'),
+    deleteScreenshot: (filePath) => ipcRenderer.invoke('mpv:delete-screenshot', filePath),
+    restoreScreenshot: (payload) => ipcRenderer.invoke('mpv:restore-screenshot', payload),
+    setAutoOrganizeScreenshots: (enabled) => ipcRenderer.invoke('mpv:set-auto-organize-screenshots', enabled),
+    getEffectiveScreenshotDir: () => ipcRenderer.invoke('mpv:get-effective-screenshot-dir'),
 
     // Thumbnail capture for seek-bar hover preview
     captureThumbnail: (time) => ipcRenderer.invoke('mpv:capture-thumbnail', time),
@@ -105,7 +117,8 @@ contextBridge.exposeInMainWorld('hybridAPI', {
     openFile: () => ipcRenderer.invoke('dialog:openFile'),
     openMultiple: () => ipcRenderer.invoke('dialog:openMultiple'),
     openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
-    openSubtitle: () => ipcRenderer.invoke('dialog:openSubtitle')
+    openSubtitle: () => ipcRenderer.invoke('dialog:openSubtitle'),
+    selectScreenshotDir: (currentDir) => ipcRenderer.invoke('dialog:selectScreenshotDir', currentDir),
   },
 
   // ─── File Operations ──────────────────────────────────
@@ -124,6 +137,7 @@ contextBridge.exposeInMainWorld('hybridAPI', {
     getPreference: (key) => ipcRenderer.invoke('db:getPreference', key),
     setPreference: (key, value) => ipcRenderer.invoke('db:setPreference', key, value),
     getAllPreferences: () => ipcRenderer.invoke('db:getAllPreferences'),
+    getPreferences: () => ipcRenderer.invoke('db:getAllPreferences'),
     saveAllPreferences: (prefs) => ipcRenderer.invoke('db:saveAllPreferences', prefs)
   },
 
@@ -176,7 +190,7 @@ contextBridge.exposeInMainWorld('hybridAPI', {
       'window-is-fullscreen', 'window-is-maximized',
       'window-fullscreen-transition-start',
       'screenshot-ready',
-      'mpv:property-change', 'mpv:event'
+      'mpv:property-change', 'mpv:event', 'keyboard-escape'
     ];
     if (validChannels.includes(channel)) {
       const listener = (_, ...args) => callback(...args);
@@ -185,4 +199,8 @@ contextBridge.exposeInMainWorld('hybridAPI', {
     }
     return () => {};
   },
+});
+
+ipcRenderer.on('keyboard-escape', () => {
+  document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true, cancelable: true }));
 });

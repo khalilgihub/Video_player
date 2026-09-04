@@ -1,15 +1,28 @@
 /**
- * Hybrid Player - Settings Module
- * Manages the settings panel and preferences persistence
+ * Hybrid Player - Settings & Preferences Module
+ * 
+ * Responsibilities:
+ * 1. General Preferences:
+ *    - Auto-Resume playback position (persisted per-file via SQLite / preferences service).
+ *    - Playback Speed memory (restores preferred speed per media path).
+ *    - Hardware Acceleration (d3d11va / nvdec / auto / off) toggle sent to mpv.
+ *    - Double-Click gesture action (Toggle Fullscreen / Play-Pause / None).
+ *    - Screenshot export directory & format (PNG / JPEG / WebP).
+ * 2. Visual Themes:
+ *    - Theme selector (Default Obsidian, Pure OLED Black, Cyberpunk, Forest, Crimson, Synthwave).
+ * 3. Animated Welcome Backgrounds:
+ *    - Multi-engine shader controls: Dither Waves (WebGL), Particles (WebGL), Faulty CRT Terminal (WebGL), Grid Motion (Interactive 3D lattice).
+ *    - Quality presets: Low, Medium, High, Custom.
+ * 4. Modal Lifecycle & Accessibility:
+ *    - Page inertness isolation (`inert` attribute applied to background elements).
+ *    - Focus trapping and restoration on modal dismissal.
  */
 
 // Default options for each background effect
 const BG_DEFAULTS = Object.freeze({
   dither: { speed: 0.05, frequency: 3, amplitude: 0.3, color: '#808080', bgColor: '#000000', pixelSize: 1, colorNum: 4 },
   particles: { count: 300, speed: 0.1, spread: 10, color: '#ffffff', size: 100, alpha: false },
-  faulty: { glitch: 1, scanlines: 0.7, flicker: 1, aberration: 0, curvature: 0.1, tint: '#A7EF9E', brightness: 0.8 },
-  dotgrid: { dotSize: 2, gap: 14, baseColor: '#5227FF', activeColor: '#5227FF', proximity: 150, shockRadius: 250, bgColor: '#000000' },
-  pixelblast: { pixelSize: 6, density: 1.0, scale: 2.0, color: '#B497CF', shapeType: 'diamond' },
+  faulty: { scale: 1.2, glitch: 1, scanlines: 0.7, flicker: 1, aberration: 0, curvature: 0.2, tint: '#A7EF9E', brightness: 0.8 },
   gridmotion: { gradientColor: '#000000', speed: 1.0, maxMove: 300, customPictures: [] },
 });
 
@@ -18,25 +31,19 @@ const BG_QUALITY_PRESETS = Object.freeze({
   low: {
     dither: { speed: 0.05, frequency: 2.55, amplitude: 0.26, color: '#808080', bgColor: '#000000', pixelSize: 4, colorNum: 4 },
     particles: { count: 135, speed: 0.09, spread: 9, color: '#ffffff', size: 85, alpha: false },
-    faulty: { glitch: 0.65, scanlines: 0.46, flicker: 0.65, aberration: 0, curvature: 0.08, tint: '#A7EF9E', brightness: 0.8 },
-    dotgrid: { dotSize: 4, gap: 30, baseColor: '#5227FF', activeColor: '#5227FF', proximity: 98, shockRadius: 175, bgColor: '#000000' },
-    pixelblast: { pixelSize: 10, density: 0.7, scale: 1.5, color: '#B497CF', shapeType: 'diamond' },
+    faulty: { scale: 0.8, glitch: 0.65, scanlines: 0.46, flicker: 0.65, aberration: 0, curvature: 0.16, tint: '#A7EF9E', brightness: 0.8 },
     gridmotion: { gradientColor: '#000000', speed: 0.5, maxMove: 150, customPictures: [] },
   },
   medium: {
     dither: { speed: 0.05, frequency: 2.85, amplitude: 0.29, color: '#808080', bgColor: '#000000', pixelSize: 3, colorNum: 4 },
     particles: { count: 210, speed: 0.1, spread: 10, color: '#ffffff', size: 95, alpha: false },
-    faulty: { glitch: 0.85, scanlines: 0.6, flicker: 0.85, aberration: 0, curvature: 0.09, tint: '#A7EF9E', brightness: 0.8 },
-    dotgrid: { dotSize: 2, gap: 20, baseColor: '#5227FF', activeColor: '#5227FF', proximity: 123, shockRadius: 213, bgColor: '#000000' },
-    pixelblast: { pixelSize: 6, density: 1.0, scale: 2.0, color: '#B497CF', shapeType: 'diamond' },
+    faulty: { scale: 1.2, glitch: 0.85, scanlines: 0.6, flicker: 0.85, aberration: 0, curvature: 0.18, tint: '#A7EF9E', brightness: 0.8 },
     gridmotion: { gradientColor: '#000000', speed: 1.0, maxMove: 300, customPictures: [] },
   },
   high: {
     dither: { speed: 0.05, frequency: 3, amplitude: 0.3, color: '#808080', bgColor: '#000000', pixelSize: 1, colorNum: 4 },
     particles: { count: 300, speed: 0.1, spread: 10, color: '#ffffff', size: 100, alpha: false },
-    faulty: { glitch: 1, scanlines: 0.7, flicker: 1, aberration: 0, curvature: 0.1, tint: '#A7EF9E', brightness: 0.8 },
-    dotgrid: { dotSize: 2, gap: 14, baseColor: '#5227FF', activeColor: '#5227FF', proximity: 150, shockRadius: 250, bgColor: '#000000' },
-    pixelblast: { pixelSize: 3, density: 1.3, scale: 2.5, color: '#B497CF', shapeType: 'diamond' },
+    faulty: { scale: 1.4, glitch: 1, scanlines: 0.7, flicker: 1, aberration: 0, curvature: 0.2, tint: '#A7EF9E', brightness: 0.8 },
     gridmotion: { gradientColor: '#000000', speed: 1.5, maxMove: 450, customPictures: [] },
   },
 });
@@ -59,6 +66,7 @@ const BG_CONTROLS = [
   { id: 'bgParticlesSize', bg: 'particles', opt: 'size', type: 'range', parse: parseInt },
   { id: 'bgParticlesAlpha', bg: 'particles', opt: 'alpha', type: 'checkbox' },
   // Faulty Terminal
+  { id: 'bgFaultyScale', bg: 'faulty', opt: 'scale', type: 'range', parse: parseFloat },
   { id: 'bgFaultyGlitch', bg: 'faulty', opt: 'glitch', type: 'range', parse: parseFloat },
   { id: 'bgFaultyScanlines', bg: 'faulty', opt: 'scanlines', type: 'range', parse: parseFloat },
   { id: 'bgFaultyFlicker', bg: 'faulty', opt: 'flicker', type: 'range', parse: parseFloat },
@@ -66,20 +74,6 @@ const BG_CONTROLS = [
   { id: 'bgFaultyCurvature', bg: 'faulty', opt: 'curvature', type: 'range', parse: parseFloat },
   { id: 'bgFaultyTint', bg: 'faulty', opt: 'tint', type: 'color' },
   { id: 'bgFaultyBrightness', bg: 'faulty', opt: 'brightness', type: 'range', parse: parseFloat },
-  // Dot Grid
-  { id: 'bgDotgridDotSize', bg: 'dotgrid', opt: 'dotSize', type: 'range', parse: parseInt },
-  { id: 'bgDotgridGap', bg: 'dotgrid', opt: 'gap', type: 'range', parse: parseInt },
-  { id: 'bgDotgridBaseColor', bg: 'dotgrid', opt: 'baseColor', type: 'color' },
-  { id: 'bgDotgridActiveColor', bg: 'dotgrid', opt: 'activeColor', type: 'color' },
-  { id: 'bgDotgridBgColor', bg: 'dotgrid', opt: 'bgColor', type: 'color' },
-  { id: 'bgDotgridProximity', bg: 'dotgrid', opt: 'proximity', type: 'range', parse: parseInt },
-  { id: 'bgDotgridShockRadius', bg: 'dotgrid', opt: 'shockRadius', type: 'range', parse: parseInt },
-  // Pixel Blast
-  { id: 'bgPixelblastPixelSize', bg: 'pixelblast', opt: 'pixelSize', type: 'range', parse: parseInt },
-  { id: 'bgPixelblastDensity', bg: 'pixelblast', opt: 'density', type: 'range', parse: parseFloat },
-  { id: 'bgPixelblastScale', bg: 'pixelblast', opt: 'scale', type: 'range', parse: parseFloat },
-  { id: 'bgPixelblastColor', bg: 'pixelblast', opt: 'color', type: 'color' },
-  { id: 'bgPixelblastShapeType', bg: 'pixelblast', opt: 'shapeType', type: 'select' },
   // Grid Motion
   { id: 'bgGridmotionSpeed', bg: 'gridmotion', opt: 'speed', type: 'range', parse: parseFloat },
   { id: 'bgGridmotionMaxMove', bg: 'gridmotion', opt: 'maxMove', type: 'range', parse: parseInt },
@@ -88,15 +82,13 @@ const BG_CONTROLS = [
 
 const WELCOME_QUALITY_LEVELS = Object.freeze(['low', 'medium', 'high', 'custom']);
 const WELCOME_QUALITY_DEFAULT = 'medium';
-const WELCOME_BACKGROUNDS = Object.freeze(['none', 'dither', 'particles', 'faulty', 'dotgrid', 'pixelblast', 'gridmotion']);
+const WELCOME_BACKGROUNDS = Object.freeze(['none', 'dither', 'particles', 'faulty', 'gridmotion']);
 
 // Display labels for the background meta strip. Tag = short name, desc = one-liner.
 const BG_LABELS = Object.freeze({
   dither: { tag: 'Dither', desc: 'Animated bayer dither' },
   particles: { tag: 'Particles', desc: 'Drifting particle field' },
   faulty: { tag: 'Faulty Terminal', desc: 'CRT glitch & scanlines' },
-  dotgrid: { tag: 'Dot Grid', desc: 'Reactive dot lattice' },
-  pixelblast: { tag: 'Pixel Blast', desc: 'Interactive diamond pixel blast' },
   gridmotion: { tag: 'Grid Motion', desc: 'Interactive gliding item lattice' },
   none: { tag: 'Default', desc: 'Pure black backdrop' },
 });
@@ -143,32 +135,11 @@ class HybridSettings {
       : null;
     this.activeModal = null;
     this.previousFocus = null;
-
-    // Dynamically load pixelBlast module
-    import('./pixelBlast.js').catch((err) => {
-      console.error('[Settings] Failed to import pixelBlast.js:', err);
-    });
-
-    // Dynamically load gridMotion module
-    import('./gridMotion.js').catch((err) => {
-      console.error('[Settings] Failed to import gridMotion.js:', err);
-    });
-
-    // Dynamically inject Pixel Blast option in welcome background selector
-    const bgSelect = document.getElementById('welcomeBackgroundSelect');
-    if (bgSelect && !Array.from(bgSelect.options).some(o => o.value === 'pixelblast')) {
-      const opt = document.createElement('option');
-      opt.value = 'pixelblast';
-      opt.textContent = 'Pixel Blast';
-      const noneOpt = Array.from(bgSelect.options).find(o => o.value === 'none');
-      if (noneOpt) {
-        bgSelect.insertBefore(opt, noneOpt);
-      } else {
-        bgSelect.appendChild(opt);
-      }
-    }
+    this._currentScreenshotDir = '';
+    this._defaultScreenshotDir = '';
 
     // Dynamically inject Grid Motion option in welcome background selector
+    const bgSelect = document.getElementById('welcomeBackgroundSelect');
     if (bgSelect && !Array.from(bgSelect.options).some(o => o.value === 'gridmotion')) {
       const opt = document.createElement('option');
       opt.value = 'gridmotion';
@@ -181,62 +152,7 @@ class HybridSettings {
       }
     }
 
-    // Dynamically inject Pixel Blast settings UI panel inside settings body
     const settingsBody = document.querySelector('.bg-settings-body');
-    if (settingsBody && !settingsBody.querySelector('[data-bg="pixelblast"]')) {
-      const group = document.createElement('div');
-      group.className = 'bg-settings-group';
-      group.dataset.bg = 'pixelblast';
-      group.innerHTML = `
-        <div class="bg-group-head">
-          <span class="bg-group-tag">Pixel Blast</span>
-          <button type="button" class="bg-reset" data-reset-bg="pixelblast">Reset</button>
-        </div>
-        <section class="bg-subsection">
-          <h5>Density</h5>
-          <div class="bg-setting-row">
-            <label for="bgPixelblastPixelSize">Pixel Size</label>
-            <input type="range" id="bgPixelblastPixelSize" min="1" max="16" step="1" value="6">
-            <span class="bg-setting-value">6</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgPixelblastDensity">Density</label>
-            <input type="range" id="bgPixelblastDensity" min="0.1" max="2.0" step="0.05" value="1.0">
-            <span class="bg-setting-value">1.0</span>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgPixelblastScale">Scale</label>
-            <input type="range" id="bgPixelblastScale" min="0.5" max="5.0" step="0.1" value="2.0">
-            <span class="bg-setting-value">2.0</span>
-          </div>
-        </section>
-        <section class="bg-subsection">
-          <h5>Render</h5>
-          <div class="bg-setting-row">
-            <label for="bgPixelblastShapeType" class="bg-row-label">Shape</label>
-            <select id="bgPixelblastShapeType" class="bg-setting-select" aria-label="Shape type">
-              <option value="square">Square</option>
-              <option value="circle">Circle</option>
-              <option value="triangle">Triangle</option>
-              <option value="diamond" selected>Diamond</option>
-            </select>
-          </div>
-          <div class="bg-setting-row">
-            <label for="bgPixelblastColor">Color</label>
-            <div class="bg-color-control">
-              <input type="color" id="bgPixelblastColor" value="#B497CF" class="bg-color-input">
-              <span class="bg-color-hex" data-for="bgPixelblastColor">#B497CF</span>
-            </div>
-          </div>
-        </section>
-      `;
-      const noneGroup = settingsBody.querySelector('.bg-settings-group[data-bg="none"]');
-      if (noneGroup) {
-        settingsBody.insertBefore(group, noneGroup);
-      } else {
-        settingsBody.appendChild(group);
-      }
-    }
 
     // Dynamically inject Grid Motion settings UI panel inside settings body
     if (settingsBody && !settingsBody.querySelector('[data-bg="gridmotion"]')) {
@@ -400,29 +316,12 @@ class HybridSettings {
       }
     }
 
-    // Dynamically inject Dot Grid background color setting row
-    const dotgridActiveColorInput = document.getElementById('bgDotgridActiveColor');
-    if (dotgridActiveColorInput && !document.getElementById('bgDotgridBgColor')) {
-      const dotgridActiveColorRow = dotgridActiveColorInput.closest('.bg-setting-row');
-      if (dotgridActiveColorRow) {
-        const bgRow = document.createElement('div');
-        bgRow.className = 'bg-setting-row';
-        bgRow.innerHTML = `
-          <label for="bgDotgridBgColor">Background Color</label>
-          <div class="bg-color-control">
-            <input type="color" id="bgDotgridBgColor" value="#000000" class="bg-color-input">
-            <span class="bg-color-hex" data-for="bgDotgridBgColor">#000000</span>
-          </div>
-        `;
-        dotgridActiveColorRow.parentNode.insertBefore(bgRow, dotgridActiveColorRow.nextSibling);
-      }
-    }
-
     this._bindCloseModals();
     this._bindSettings();
     this._bindBgSettings();
     this._bindQualityRadios();
     this._bindBgResets();
+    this._initAccordionGallery();
     this._initCustomBackgroundSelect();
     this.loadPreferences();
 
@@ -481,6 +380,7 @@ class HybridSettings {
 
   _activateModal(modal) {
     if (!(modal instanceof HTMLElement) || modal.hidden) return;
+    modal.classList.remove('modal-closing');
     if (!this.activeModal) {
       this.previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     }
@@ -497,7 +397,6 @@ class HybridSettings {
   }
 
   _deactivateModal(modal) {
-    if (this.activeModal !== modal) return;
     const nextActive = this._getModalOverlays().find((overlay) => !overlay.hidden && overlay !== modal);
     if (nextActive) {
       this.activeModal = null;
@@ -515,9 +414,27 @@ class HybridSettings {
   }
 
   _closeModal(modal) {
-    if (modal instanceof HTMLElement) {
+    if (!(modal instanceof HTMLElement) || modal.hidden) return;
+    if (modal.classList.contains('modal-closing')) return;
+
+    modal.classList.add('modal-closing');
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      modal.removeEventListener('animationend', handleAnimEnd);
+      modal.classList.remove('modal-closing');
       modal.hidden = true;
-    }
+    };
+
+    const handleAnimEnd = (e) => {
+      if (e.target === modal || e.target.classList?.contains('modal-panel')) {
+        finish();
+      }
+    };
+
+    modal.addEventListener('animationend', handleAnimEnd);
+    setTimeout(finish, 220);
   }
 
   _trapModalFocus(event, modal) {
@@ -610,7 +527,11 @@ class HybridSettings {
     // Theme
     document.getElementById('settTheme')?.addEventListener('change', async (e) => {
       document.body.dataset.theme = e.target.value;
-      await window.hybridAPI.db.setPreference('theme', e.target.value);
+      try {
+        await window.hybridAPI.db.setPreference('theme', e.target.value);
+      } catch (err) {
+        console.warn('Failed to save theme preference:', err);
+      }
     });
 
     // Accent Color
@@ -618,23 +539,39 @@ class HybridSettings {
       document.body.style.setProperty('--accent', e.target.value);
       document.body.style.setProperty('--accent-hover', this._lighten(e.target.value, 15));
       document.body.style.setProperty('--accent-dim', `${e.target.value}4D`);
-      await window.hybridAPI.db.setPreference('accentColor', e.target.value);
+      try {
+        await window.hybridAPI.db.setPreference('accentColor', e.target.value);
+      } catch (err) {
+        console.warn('Failed to save accentColor preference:', err);
+      }
     });
 
     // Auto Resume
     document.getElementById('settAutoResume')?.addEventListener('change', async (e) => {
-      await window.hybridAPI.db.setPreference('autoResume', e.target.checked);
+      try {
+        await window.hybridAPI.db.setPreference('autoResume', e.target.checked);
+      } catch (err) {
+        console.warn('Failed to save autoResume preference:', err);
+      }
     });
 
     // Motion profile
     document.getElementById('settMotionProfile')?.addEventListener('change', async (e) => {
       this.hasExplicitMotionProfile = true;
-      await this._applyMotionProfile(e.target.value, { persist: true });
+      try {
+        await this._applyMotionProfile(e.target.value, { persist: true });
+      } catch (err) {
+        console.warn('Failed to apply motion profile:', err);
+      }
     });
 
     // Brand fonts
     document.getElementById('settBrandFontEnabled')?.addEventListener('change', async (e) => {
-      await this._applyBrandFontEnabled(e.target.checked, { persist: true });
+      try {
+        await this._applyBrandFontEnabled(e.target.checked, { persist: true });
+      } catch (err) {
+        console.warn('Failed to apply brand fonts preference:', err);
+      }
     });
 
     // Welcome background (top-right selector on welcome screen)
@@ -643,13 +580,74 @@ class HybridSettings {
       this._showBgSettingsGroupFor(e.target.value);
     });
 
+    // Screenshot Directory - Browse
+    document.getElementById('settBrowseScreenshotDir')?.addEventListener('click', async () => {
+      try {
+        const currentPath = this._currentScreenshotDir || this._defaultScreenshotDir || '';
+        const selectedDir = await window.hybridAPI?.dialog?.selectScreenshotDir?.(currentPath);
+        if (selectedDir && typeof selectedDir === 'string') {
+          await this._applyScreenshotDir(selectedDir, { persist: true });
+          window.HybridToast?.show('Screenshot directory updated');
+        }
+      } catch (err) {
+        console.error('Failed to select screenshot directory:', err);
+        window.HybridToast?.show('Failed to select folder');
+      }
+    });
+
+    // Screenshot Directory - Open
+    document.getElementById('settOpenScreenshotDir')?.addEventListener('click', async () => {
+      try {
+        const success = await window.hybridAPI?.mpv?.screenshotOpenFolder?.();
+        if (!success) {
+          window.HybridToast?.show('Could not open folder');
+        }
+      } catch (err) {
+        console.error('Failed to open screenshot directory:', err);
+      }
+    });
+
+    // Screenshot Directory - Reset
+    document.getElementById('settResetScreenshotDir')?.addEventListener('click', async () => {
+      try {
+        await this._applyScreenshotDir('', { persist: true });
+        window.HybridToast?.show('Screenshot directory reset to default');
+      } catch (err) {
+        console.error('Failed to reset screenshot directory:', err);
+      }
+    });
+
+    // Screenshot Format
+    document.getElementById('settScreenshotFormat')?.addEventListener('change', async (e) => {
+      const format = e.target.value;
+      this._currentScreenshotFormat = format;
+      this._setValue('settScreenshotFormat', format);
+      try {
+        await window.hybridAPI?.db?.setPreference?.('screenshotFormat', format);
+        await window.hybridAPI?.mpv?.setScreenshotFormat?.(format);
+        window.HybridToast?.show(`Screenshot format set to ${format.toUpperCase()}`);
+      } catch (err) {
+        console.warn('Failed to save screenshot format preference:', err);
+      }
+    });
+
+    // Auto-Organize Screenshots toggle
+    document.getElementById('settAutoOrganizeShots')?.addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      try {
+        await window.hybridAPI?.db?.setPreference?.('autoOrganizeScreenshots', enabled);
+        await window.hybridAPI?.mpv?.setAutoOrganizeScreenshots?.(enabled);
+        window.HybridToast?.show(`Auto-organize screenshots ${enabled ? 'enabled' : 'disabled'}`);
+      } catch (err) {
+        console.warn('Failed to save autoOrganizeScreenshots preference:', err);
+      }
+    });
+
     // Welcome background quality — now a segmented radio group (see _bindQualityRadios).
     // Legacy select is removed from the DOM; this handler is a no-op safety net.
   }
 
   _bindBgSettings() {
-    this._initAccordionGallery();
-
     // Trigger button toggles the panel (popover in the controls bar)
     const gearBtn = document.getElementById('bgSettingsToggle');
     const panel = document.getElementById('bgSettingsModal');
@@ -661,6 +659,9 @@ class HybridSettings {
       gearBtn.classList.remove('active');
       gearBtn.setAttribute('aria-expanded', 'false');
       wrapper?.classList.remove('bg-panel-open');
+      const popover = document.getElementById('bgAccordionPopover');
+      if (popover) popover.hidden = true;
+      this._stopAccordionLivePreviews();
     };
 
     if (gearBtn && panel) {
@@ -684,7 +685,8 @@ class HybridSettings {
       // color inputs, and selects do not close the settings panel mid-edit.
       document.addEventListener('click', (e) => {
         const target = e.target;
-        if (!wrapper?.contains(target) && !panel.contains(target)) {
+        const popover = document.getElementById('bgAccordionPopover');
+        if (!wrapper?.contains(target) && !panel.contains(target) && !popover?.contains(target)) {
           closePanel();
         }
       });
@@ -1150,6 +1152,25 @@ class HybridSettings {
       }
     });
 
+    nativeSelect._customSelectRebuild = rebuildOptions;
+    nativeSelect.addEventListener('custom-select-refresh', rebuildOptions);
+
+    try {
+      const nativeValueDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+      if (nativeValueDesc && nativeValueDesc.set) {
+        Object.defineProperty(nativeSelect, 'value', {
+          get() {
+            return nativeValueDesc.get.call(this);
+          },
+          set(val) {
+            nativeValueDesc.set.call(this, val);
+            rebuildOptions();
+          },
+          configurable: true,
+        });
+      }
+    } catch (_) {}
+
     nativeSelect.addEventListener('change', () => {
       rebuildOptions();
     });
@@ -1161,8 +1182,11 @@ class HybridSettings {
   }
 
   _initCustomBackgroundSelect() {
-    const selects = document.querySelectorAll('.settings-modal select, #welcomeBackgroundSelect, .select-input');
-    selects.forEach(sel => this._createCustomSelect(sel));
+    const selects = document.querySelectorAll('.settings-modal select, .select-input');
+    selects.forEach(sel => {
+      if (sel.id === 'welcomeBackgroundSelect' || sel.hidden) return;
+      this._createCustomSelect(sel);
+    });
   }
 
   _syncCustomBackgroundSelect(value) {
@@ -1197,126 +1221,12 @@ class HybridSettings {
         }
       });
     }
-  _initAccordionGallery() {
-    const modal = document.getElementById('accordionGalleryModal');
-    const container = document.getElementById('accordionGalleryContainer');
-    if (!modal || !container) return;
-
-    const bgEffects = [
-      { id: 'dither', title: 'Dither Waves', tag: 'BAYER SHADER', desc: 'Procedural retro Bayer matrix dithering canvas wave.', gradient: 'linear-gradient(135deg, #1e1b4b 0%, #311042 100%)' },
-      { id: 'dotgrid', title: 'Dot Grid', tag: 'DOT MATRIX', desc: 'Interactive dot matrix wave responding to cursor velocity.', gradient: 'linear-gradient(135deg, #064e3b 0%, #022c22 100%)' },
-      { id: 'pixelblast', title: 'Pixel Blast', tag: 'PARTICLE SHADER', desc: 'Cosmic particle burst simulation with glowing shockwaves.', gradient: 'linear-gradient(135deg, #4c1d95 0%, #1e1b4b 100%)' },
-      { id: 'colorbends', title: 'Color Bends', tag: 'FLUID GRADIENT', desc: 'Smooth liquid ambient color bends with chromatic motion.', gradient: 'linear-gradient(135deg, #831843 0%, #4c0519 100%)' },
-      { id: 'faulty', title: 'Faulty Terminal', tag: 'RETRO CRT', desc: 'Cyberpunk CRT scanline grid with flicker distortion.', gradient: 'linear-gradient(135deg, #14532d 0%, #052e16 100%)' },
-      { id: 'lanyard', title: 'Lanyard 3D', tag: 'PHYSICS ENGINE', desc: 'Interactive 3D cloth lanyard badge physics simulation.', gradient: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)' },
-      { id: 'gridmotion', title: 'Grid Motion', tag: 'PERSPECTIVE 3D', desc: 'Endless 3D perspective grid tunnel with neon pulse.', gradient: 'linear-gradient(135deg, #701a75 0%, #4a044e 100%)' },
-      { id: 'none', title: 'Minimal Off', tag: 'PURE BLACK', desc: 'Pure minimal black backdrop for maximum performance.', gradient: 'linear-gradient(135deg, #09090b 0%, #18181b 100%)' }
-    ];
-
-    const currentBg = document.getElementById('welcomeBackgroundSelect')?.value || 'dither';
-
-    container.innerHTML = '';
-    bgEffects.forEach((fx, idx) => {
-      const card = document.createElement('div');
-      const isActive = (fx.id === currentBg);
-      card.className = `accordion-card ${isActive ? 'active expanded' : ''}`;
-      card.dataset.bgId = fx.id;
-
-      card.innerHTML = `
-        <div class="accordion-card-visual" style="background: ${fx.gradient};"></div>
-        <div class="accordion-card-overlay"></div>
-        <div class="accordion-card-top">
-          <span class="accordion-card-num">0${idx + 1}</span>
-          <span class="accordion-card-active-badge">ACTIVE</span>
-        </div>
-        <div class="accordion-card-bottom">
-          <span class="accordion-gallery-badge">${fx.tag}</span>
-          <h3 class="accordion-card-title">${fx.title}</h3>
-          <p class="accordion-card-desc">${fx.desc}</p>
-          <div class="accordion-card-action">
-            <span>Apply Shader</span>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
-          </div>
-        </div>
-      `;
-
-      card.addEventListener('mouseenter', () => {
-        container.querySelectorAll('.accordion-card').forEach(c => c.classList.remove('expanded'));
-        card.classList.add('expanded');
-      });
-
-      card.addEventListener('click', async () => {
-        container.querySelectorAll('.accordion-card').forEach(c => {
-          c.classList.remove('active');
-        });
-        card.classList.add('active');
-
-        const select = document.getElementById('welcomeBackgroundSelect');
-        if (select) {
-          select.value = fx.id;
-          select.dispatchEvent(new Event('change'));
-        }
-
-        setTimeout(() => {
-          modal.hidden = true;
-        }, 250);
-      });
-
-      container.appendChild(card);
-    });
-
-    // Wire trigger click handler
-    document.addEventListener('click', (e) => {
-      const trigger = e.target.closest('#welcomeBackgroundSelectContainer .custom-select-trigger, [data-open-gallery="bg"]');
-      if (trigger) {
-        e.preventDefault();
-        e.stopPropagation();
-        this._openAccordionGalleryModal();
-      }
-    });
-
-    modal.querySelectorAll('[data-close-modal="accordionGalleryModal"]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        modal.hidden = true;
-      });
-    });
-  }
-
-  _openAccordionGalleryModal() {
-    const modal = document.getElementById('accordionGalleryModal');
-    if (!modal) return;
-    modal.hidden = false;
-
-    const currentBg = document.getElementById('welcomeBackgroundSelect')?.value || 'dither';
-    const container = document.getElementById('accordionGalleryContainer');
-    if (container) {
-      container.querySelectorAll('.accordion-card').forEach(card => {
-        const isAct = (card.dataset.bgId === currentBg);
-        card.classList.toggle('active', isAct);
-        card.classList.toggle('expanded', isAct);
-      });
-    }
-  }
-
-  _updateMountBackgrounds() {
-    const activeBg = document.getElementById('welcomeBackgroundSelect')?.value || 'dither';
-
-    const dotgridMount = document.getElementById('dotGridMount');
-    if (dotgridMount) {
-      const active = (activeBg === 'dotgrid');
-      const dotgridOpts = this._getEffectiveBgOpts('dotgrid');
-      dotgridMount.style.backgroundColor = active ? (dotgridOpts.bgColor || '#000000') : '';
-    }
   }
 
   async _applyBgOpts(bg, { persist = true } = {}) {
     const rawOpts = { ...this._bgOpts[bg] };
     const opts = this._getEffectiveBgOpts(bg);
     const stateKey = `bgOpts_${bg}`;
-
-    if (bg === 'dotgrid') {
-      this._updateMountBackgrounds();
-    }
 
     window.__hybridWelcomeEffectsState = {
       ...(window.__hybridWelcomeEffectsState || {}),
@@ -1340,8 +1250,7 @@ class HybridSettings {
       // Apply theme
       if (prefs.theme) {
         document.body.dataset.theme = prefs.theme;
-        const themeSelect = document.getElementById('settTheme');
-        if (themeSelect) themeSelect.value = prefs.theme;
+        this._setValue('settTheme', prefs.theme);
       }
 
       // Apply accent color
@@ -1425,8 +1334,48 @@ class HybridSettings {
           volSlider.dispatchEvent(new Event('input'));
         }
       }
+
+      // Screenshot Directory and Format
+      const defaultDir = await window.hybridAPI?.app?.getDefaultScreenshotDir?.().catch(() => '') || '';
+      this._defaultScreenshotDir = defaultDir;
+      const savedScreenshotDir = prefs.screenshotDir || '';
+      await this._applyScreenshotDir(savedScreenshotDir, { persist: false });
+
+      const savedScreenshotFormat = prefs.screenshotFormat || 'jpg';
+      this._currentScreenshotFormat = savedScreenshotFormat;
+      this._setValue('settScreenshotFormat', savedScreenshotFormat);
+      await window.hybridAPI?.mpv?.setScreenshotFormat?.(savedScreenshotFormat).catch(() => {});
+
+      const autoOrganize = prefs.autoOrganizeScreenshots !== false;
+      const autoOrganizeCheck = document.getElementById('settAutoOrganizeShots');
+      if (autoOrganizeCheck) {
+        autoOrganizeCheck.checked = autoOrganize;
+      }
+      await window.hybridAPI?.mpv?.setAutoOrganizeScreenshots?.(autoOrganize).catch(() => {});
     } catch (e) {
       console.error('Failed to load preferences:', e);
+    }
+  }
+
+  async _applyScreenshotDir(dirPath, { persist = false } = {}) {
+    const cleanPath = typeof dirPath === 'string' ? dirPath.trim() : '';
+    this._currentScreenshotDir = cleanPath;
+
+    const displayInput = document.getElementById('settScreenshotDirDisplay');
+    if (displayInput) {
+      displayInput.value = cleanPath || (this._defaultScreenshotDir ? `${this._defaultScreenshotDir} (Default)` : 'Default');
+      displayInput.title = cleanPath || this._defaultScreenshotDir || '';
+    }
+
+    const effectiveDir = cleanPath || this._defaultScreenshotDir;
+    if (effectiveDir) {
+      await window.hybridAPI?.mpv?.setScreenshotDir?.(effectiveDir).catch(() => {});
+    }
+
+    if (persist) {
+      await window.hybridAPI?.db?.setPreference?.('screenshotDir', cleanPath).catch((err) => {
+        console.warn('Failed to save screenshotDir preference:', err);
+      });
     }
   }
 
@@ -1437,7 +1386,49 @@ class HybridSettings {
 
   _setValue(id, value) {
     const el = document.getElementById(id);
-    if (el && value !== undefined) el.value = value;
+    if (el && value !== undefined) {
+      el.value = value;
+      if (el.tagName === 'SELECT') {
+        for (let i = 0; i < el.options.length; i++) {
+          const opt = el.options[i];
+          const isMatch = (opt.value === String(value));
+          opt.selected = isMatch;
+          opt.defaultSelected = isMatch;
+          if (isMatch) {
+            opt.setAttribute('selected', 'selected');
+          } else {
+            opt.removeAttribute('selected');
+          }
+        }
+        el.selectedIndex = el.selectedIndex;
+        if (typeof el._customSelectRebuild === 'function') {
+          el._customSelectRebuild();
+        } else {
+          const container = document.getElementById(`${el.id}Container`) || el.nextElementSibling;
+          if (container && container.classList.contains('custom-select-container')) {
+            const trigVal = container.querySelector('.custom-select-value');
+            const activeOpt = el.options[el.selectedIndex];
+            if (trigVal && activeOpt) trigVal.textContent = activeOpt.textContent;
+          }
+        }
+      }
+    }
+  }
+
+  async syncFormState() {
+    try {
+      const prefs = await window.hybridAPI?.db?.getAllPreferences?.().catch(() => null) || {};
+      const format = prefs.screenshotFormat || this._currentScreenshotFormat || 'jpg';
+      this._currentScreenshotFormat = format;
+      this._setValue('settScreenshotFormat', format);
+      if (prefs.theme) this._setValue('settTheme', prefs.theme);
+      if (prefs.motionProfile) this._setValue('settMotionProfile', prefs.motionProfile);
+      document.querySelectorAll('.has-custom-select').forEach(sel => {
+        sel._customSelectRebuild?.();
+      });
+    } catch (err) {
+      console.warn('Failed to sync settings form state:', err);
+    }
   }
 
   _resolveMotionProfile(value) {
@@ -1501,8 +1492,6 @@ class HybridSettings {
       dither: 'Dither Waves · animated bayer dither',
       particles: 'Particles · drifting particle field',
       faulty: 'Faulty Terminal · CRT glitch & scanlines',
-      dotgrid: 'Dot Grid · reactive dot lattice',
-      pixelblast: 'Pixel Blast · interactive diamond pixel blast',
       gridmotion: 'Grid Motion · interactive gliding item lattice',
       none: 'Default · pure black backdrop',
     };
@@ -1512,7 +1501,8 @@ class HybridSettings {
       subtitleEl.textContent = subtitleMap[value] || subtitleMap.dither;
     }
 
-    this._updateMountBackgrounds();
+    this._syncCustomBackgroundSelect(value);
+    this._syncAccordionGallery(value);
 
     this._emitWelcomeSettings({
       welcomeBackground: value,
@@ -1521,7 +1511,6 @@ class HybridSettings {
     if (persist) {
       await window.hybridAPI.db.setPreference('welcomeBackground', value);
     }
-    this._syncCustomBackgroundSelect(value);
   }
 
   // Update the meta strip (tag + description) under the modal header.
@@ -1531,6 +1520,193 @@ class HybridSettings {
     const descEl = document.getElementById('bgMetaDesc');
     if (tagEl) tagEl.textContent = label.tag;
     if (descEl) descEl.textContent = label.desc;
+  }
+
+  _initAccordionGallery() {
+    const pickerBtn = document.getElementById('bgEffectPickerBtn');
+    const popover = document.getElementById('bgAccordionPopover');
+    const closeBtn = document.getElementById('bgAccordionPopoverClose');
+    const gallery = document.getElementById('bgAccordionGallery');
+
+    const togglePopover = (show) => {
+      if (!popover) return;
+      const isVisible = (show !== undefined) ? show : popover.hidden;
+      popover.hidden = !isVisible;
+      if (pickerBtn) {
+        pickerBtn.classList.toggle('open', isVisible);
+        pickerBtn.setAttribute('aria-expanded', String(isVisible));
+      }
+      if (isVisible) {
+        this._startAccordionLivePreviews();
+      } else {
+        this._stopAccordionLivePreviews();
+      }
+    };
+
+    if (pickerBtn) {
+      pickerBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePopover();
+      });
+    }
+
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePopover(false);
+      });
+    }
+
+    document.addEventListener('click', (e) => {
+      if (popover && !popover.hidden) {
+        if (!popover.contains(e.target) && !pickerBtn?.contains(e.target)) {
+          togglePopover(false);
+        }
+      }
+    });
+
+    if (gallery) {
+      const items = gallery.querySelectorAll('.bg-accordion-item');
+      items.forEach((item) => {
+        const handleSelect = () => {
+          const bg = item.dataset.bg;
+          if (!bg) return;
+          const nativeSelect = document.getElementById('welcomeBackgroundSelect');
+          if (nativeSelect && nativeSelect.value !== bg) {
+            nativeSelect.value = bg;
+            nativeSelect.dispatchEvent(new Event('change'));
+          } else {
+            this._syncAccordionGallery(bg);
+            this._showBgSettingsGroupFor(bg);
+          }
+        };
+
+        item.addEventListener('click', (e) => {
+          e.stopPropagation();
+          handleSelect();
+        });
+
+        item.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleSelect();
+          }
+        });
+      });
+    }
+
+    const activeBg = document.getElementById('welcomeBackgroundSelect')?.value || 'dither';
+    this._syncAccordionGallery(activeBg);
+  }
+
+  _startAccordionLivePreviews() {
+    this._stopAccordionLivePreviews();
+    this._accordionLiveInstances = [];
+
+    const mountMap = {
+      dither: {
+        el: document.getElementById('bgLiveMount_dither'),
+        init: () => window.HybridDitherWaves?.initDitherWaves?.(document.getElementById('bgLiveMount_dither'), { dpr: 1.0, renderWidth: 400, renderHeight: 240, waveSpeed: 0.1, waveFrequency: 2.2, waveAmplitude: 0.35, pixelSize: 1 }),
+      },
+      particles: {
+        el: document.getElementById('bgLiveMount_particles'),
+        init: () => window.HybridParticlesBg?.initParticles?.(document.getElementById('bgLiveMount_particles'), { pixelRatio: 1.0, renderWidth: 400, renderHeight: 240, particleBaseSize: 32, particleCount: 75, particleSpread: 7, speed: 0.4, cameraDistance: 13 }),
+      },
+      faulty: {
+        el: document.getElementById('bgLiveMount_faulty'),
+        init: () => {
+          const userOpts = this._bgOpts?.faulty || window.__hybridWelcomeEffectsState?.bgOpts_faulty || {};
+          const curVal = userOpts.curvature !== undefined ? Number(userOpts.curvature) : 0.14;
+          return window.HybridFaultyTerminal?.initFaultyTerminal?.(document.getElementById('bgLiveMount_faulty'), {
+            dpr: 1.0,
+            renderWidth: 400,
+            renderHeight: 240,
+            pageLoadAnimation: false,
+            mouseReact: false,
+            scale: 1.4,
+            digitSize: 1.25,
+            gridMul: [1, 1],
+            curvature: curVal > 0 ? curVal : 0.14,
+            glitchAmount: userOpts.glitch !== undefined ? Number(userOpts.glitch) : 0.6,
+            scanlineIntensity: userOpts.scanlines !== undefined ? Number(userOpts.scanlines) : 0.45,
+            flickerAmount: userOpts.flicker !== undefined ? Number(userOpts.flicker) : 0.6,
+            chromaticAberration: userOpts.aberration !== undefined ? Number(userOpts.aberration) : 0,
+            brightness: userOpts.brightness !== undefined ? Number(userOpts.brightness) : 0.9,
+            tint: userOpts.tint || '#A7EF9E',
+          });
+        },
+      },
+      gridmotion: {
+        el: document.getElementById('bgLiveMount_gridmotion'),
+        init: () => {
+          const userPics = this._bgOpts?.gridmotion?.customPictures || window.__hybridWelcomeEffectsState?.bgOpts_gridmotion?.customPictures || [];
+          return window.HybridGridMotion?.initGridMotion?.(document.getElementById('bgLiveMount_gridmotion'), { dpr: 1.0, maxMove: 40, speed: 1.2, customPictures: userPics });
+        },
+      },
+    };
+
+    Object.entries(mountMap).forEach(([bg, cfg]) => {
+      if (!cfg.el) return;
+      cfg.el.innerHTML = '';
+      const itemCard = cfg.el.closest('.bg-accordion-item');
+      try {
+        const instance = cfg.init();
+        if (instance) {
+          this._accordionLiveInstances.push({ bg, instance, el: cfg.el, card: itemCard });
+          if (itemCard) itemCard.classList.add('has-live-canvas');
+        }
+      } catch (err) {
+        console.warn(`[Settings] Failed to mount live preview for ${bg}:`, err);
+      }
+    });
+  }
+
+  _stopAccordionLivePreviews() {
+    if (Array.isArray(this._accordionLiveInstances)) {
+      this._accordionLiveInstances.forEach((item) => {
+        try {
+          if (typeof item.instance?.destroy === 'function') {
+            item.instance.destroy();
+          }
+        } catch (e) {
+          // ignore cleanup errors
+        }
+        if (item.card) item.card.classList.remove('has-live-canvas');
+        if (item.el) item.el.innerHTML = '';
+      });
+    }
+    this._accordionLiveInstances = [];
+  }
+
+  _syncAccordionGallery(activeBg) {
+    const gallery = document.getElementById('bgAccordionGallery');
+
+    const bgMap = {
+      dither: 'Dither Waves',
+      particles: 'Particles',
+      faulty: 'Faulty Terminal',
+      gridmotion: 'Grid Motion',
+      none: 'Default',
+    };
+
+    const pickerNameEl = document.getElementById('bgEffectPickerName');
+    if (pickerNameEl) {
+      pickerNameEl.textContent = 'Change Background';
+    }
+
+    const pickerBtn = document.getElementById('bgEffectPickerBtn');
+    if (pickerBtn) {
+      pickerBtn.title = `Active background: ${bgMap[activeBg] || 'Dither Waves'}`;
+    }
+
+    if (gallery) {
+      const items = gallery.querySelectorAll('.bg-accordion-item');
+      items.forEach((item) => {
+        const isMatched = (item.dataset.bg === activeBg);
+        item.classList.toggle('active', isMatched);
+        item.setAttribute('aria-checked', String(isMatched));
+      });
+    }
   }
 
   // Quality segmented control — reflect the resolved quality on the radio

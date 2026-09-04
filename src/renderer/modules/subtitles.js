@@ -11,7 +11,7 @@ class HybridSubtitles {
     this.overlay = document.getElementById('subtitleOverlay');
 
     // mpv handles rendering natively – overlay is kept for fallback / OSD only.
-    this.syncOffset = 0;  // ms (UI state mirrors mpv sub-delay)
+    this.syncOffset = 0;  // seconds (UI state mirrors mpv sub-delay)
 
     // Style – sent to mpv via sub-xxx options
     this.style = {
@@ -25,9 +25,15 @@ class HybridSubtitles {
     this._bindEvents();
 
     // Re-render track list whenever player reports track-list change
-    this.player.onTrackListChanged = (trackList) => {
-      this._updateTrackList(trackList);
-    };
+    if (typeof this.player.addTrackListListener === 'function') {
+      this.player.addTrackListListener((trackList) => {
+        this._updateTrackList(trackList);
+      });
+    } else {
+      this.player.onTrackListChanged = (trackList) => {
+        this._updateTrackList(trackList);
+      };
+    }
   }
 
   _bindEvents() {
@@ -41,9 +47,31 @@ class HybridSubtitles {
       }
     });
 
-    // Sync controls → mpv sub-delay
-    document.getElementById('subSyncMinus')?.addEventListener('click', () => this.adjustSync(-100));
-    document.getElementById('subSyncPlus')?.addEventListener('click',  () => this.adjustSync(100));
+    // Sync Slider
+    const syncSlider = document.getElementById('subSyncSlider');
+    syncSlider?.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      if (Number.isFinite(val)) {
+        this.setSyncOffset(val, { apply: true, persist: true, updateSlider: false });
+      }
+    });
+
+    syncSlider?.addEventListener('change', (e) => {
+      const val = parseFloat(e.target.value);
+      if (Number.isFinite(val)) {
+        window.HybridToast?.show(`Subtitle sync: ${this._formatSeconds(this.syncOffset)}`);
+      }
+    });
+
+    // Sync step buttons (seconds)
+    document.getElementById('subSyncMinusLarge')?.addEventListener('click', () => this.adjustSync(-0.5));
+    document.getElementById('subSyncMinus')?.addEventListener('click', () => this.adjustSync(-0.1));
+    document.getElementById('subSyncReset')?.addEventListener('click', () => {
+      this.setSyncOffset(0);
+      window.HybridToast?.show('Subtitle sync: 0.0s (Reset)');
+    });
+    document.getElementById('subSyncPlus')?.addEventListener('click', () => this.adjustSync(0.1));
+    document.getElementById('subSyncPlusLarge')?.addEventListener('click', () => this.adjustSync(0.5));
 
     // Appearance controls → mpv sub-font, sub-font-size etc.
     const fontSize    = document.getElementById('subFontSize');
@@ -68,8 +96,11 @@ class HybridSubtitles {
       this._applyMpvStyle();
     });
 
-    document.getElementById('subBgOpacity')?.addEventListener('input', (e) => {
+    const bgOpacityInput = document.getElementById('subBgOpacity');
+    const bgOpacityVal = document.getElementById('subBgOpacityVal');
+    bgOpacityInput?.addEventListener('input', (e) => {
       const value = parseInt(e.target.value, 10);
+      if (bgOpacityVal) bgOpacityVal.textContent = `${value}%`;
       this.style.bgOpacity = Number.isFinite(value) ? Math.max(0, Math.min(1, value / 100)) : this.style.bgOpacity;
       this._applyMpvStyle();
     });
@@ -78,25 +109,51 @@ class HybridSubtitles {
     document.querySelector('[data-track="off"]')?.addEventListener('click', () => this.disable());
   }
 
-  adjustSync(deltaMs) {
-    const nextOffset = this.setSyncOffset(this.syncOffset + deltaMs);
-    window.HybridToast?.show(`Subtitle sync: ${nextOffset > 0 ? '+' : ''}${nextOffset}ms`);
+  adjustSync(deltaSec) {
+    const nextOffset = this.setSyncOffset(this.syncOffset + deltaSec);
+    window.HybridToast?.show(`Subtitle sync: ${this._formatSeconds(nextOffset)}`);
   }
 
-  setSyncOffset(offsetMs, { apply = true, persist = true } = {}) {
-    this.syncOffset = this._clampSyncOffset(offsetMs);
-    const syncValue = document.getElementById('subSyncValue');
-    if (syncValue) {
-      syncValue.textContent = this.syncOffset + 'ms';
+  _formatSeconds(sec) {
+    const s = Number(sec);
+    if (!Number.isFinite(s) || Math.abs(s) < 0.001) return '0.0s';
+    const sign = s > 0 ? '+' : '';
+    const rounded = Math.round(s * 100) / 100;
+    const hasCentiseconds = Math.abs(Math.round(rounded * 10) - (rounded * 10)) > 0.01;
+    return `${sign}${hasCentiseconds ? rounded.toFixed(2) : rounded.toFixed(1)}s`;
+  }
+
+  setSyncOffset(offset, { apply = true, persist = true, isMs = false, updateSlider = true } = {}) {
+    let offsetSec = Number(offset);
+    if (!Number.isFinite(offsetSec)) offsetSec = 0;
+
+    // Backward compatibility: Convert from ms if explicitly marked or if > 20 (legacy ms values)
+    if (isMs || Math.abs(offsetSec) > 20) {
+      offsetSec = offsetSec / 1000;
     }
 
-    // Convert ms → seconds for mpv
+    this.syncOffset = this._clampSyncOffset(offsetSec);
+
+    const syncValue = document.getElementById('subSyncValue');
+    if (syncValue) {
+      syncValue.textContent = this._formatSeconds(this.syncOffset);
+    }
+
+    if (updateSlider) {
+      const syncSlider = document.getElementById('subSyncSlider');
+      if (syncSlider) {
+        syncSlider.value = String(Math.max(-10, Math.min(10, this.syncOffset)));
+      }
+    }
+
+    // Send seconds directly to mpv
     if (apply) {
-      window.hybridAPI?.mpv?.setSubDelay?.(this.syncOffset / 1000);
+      window.hybridAPI?.mpv?.setSubDelay?.(this.syncOffset);
     }
 
     if (persist && this.player.currentFilePath) {
-      window.hybridAPI?.subtitleDelay?.save?.(this.player.currentFilePath, this.syncOffset);
+      // Persist in ms for database clamp consistency
+      window.hybridAPI?.subtitleDelay?.save?.(this.player.currentFilePath, Math.round(this.syncOffset * 1000));
     }
 
     return this.syncOffset;
@@ -120,10 +177,11 @@ class HybridSubtitles {
     window.hybridAPI.mpv.command('set_property', 'sub-back-color', this._colorWithAlpha(this.style.bgColor, this.style.bgOpacity));
   }
 
-  _clampSyncOffset(offsetMs) {
-    const value = Math.round(Number(offsetMs));
+  _clampSyncOffset(offsetSec) {
+    const value = Number(offsetSec);
     if (!Number.isFinite(value)) return 0;
-    return Math.max(-10 * 60 * 1000, Math.min(10 * 60 * 1000, value));
+    const clamped = Math.max(-600, Math.min(600, value));
+    return Math.round(clamped * 100) / 100;
   }
 
   _sanitizeHexColor(value, fallback) {

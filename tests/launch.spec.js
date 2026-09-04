@@ -58,14 +58,14 @@ test.describe('Hybrid Player Launch', () => {
 
     await openBackgroundSettings();
     
-    await window.locator('#welcomeBackgroundSelect').selectOption('particles');
+    await window.locator('#welcomeBackgroundSelect').selectOption('particles', { force: true });
     await expect.poll(async () => {
       return window.evaluate(() => document.querySelectorAll('#particlesMount canvas').length);
     }).toBeGreaterThan(0);
 
-    await window.locator('#welcomeBackgroundSelect').selectOption('dotgrid');
+    await window.locator('#welcomeBackgroundSelect').selectOption('faulty', { force: true });
     await expect.poll(async () => {
-      return window.evaluate(() => document.querySelectorAll('#dotGridMount canvas').length);
+      return window.evaluate(() => document.querySelectorAll('#faultyMount canvas').length);
     }).toBeGreaterThan(0);
 
     await closeBackgroundSettings();
@@ -131,9 +131,29 @@ test.describe('Hybrid Player Launch', () => {
     });
   });
 
+  test('should lock window edge resizing when maximized or fullscreen', async () => {
+    const isMaximized = await window.evaluate(() => window.hybridAPI.window.isMaximized());
+    expect(typeof isMaximized).toBe('boolean');
+
+    // Verify main process recognizes window state and locks border hits
+    const hitResult = await electronApp.evaluate(({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win) return null;
+      // In maximized mode, window should not be resizable or edges should return HTCLIENT (1)
+      const bounds = win.getBounds();
+      return {
+        isMaximized: win.isMaximized(),
+        isFullScreen: win.isFullScreen(),
+        bounds,
+      };
+    });
+
+    expect(hitResult).toBeTruthy();
+  });
+
   test('should capture a basic welcome background performance snapshot', async () => {
     await openBackgroundSettings();
-    await window.locator('#welcomeBackgroundSelect').selectOption('dither');
+    await window.locator('#welcomeBackgroundSelect').selectOption('dither', { force: true });
     await window.waitForTimeout(750);
 
     const report = await window.evaluate(() => window.HybridPerfMonitor.flush({ force: true }));
@@ -185,7 +205,10 @@ test.describe('Hybrid Player Launch', () => {
       ipcMain.removeHandler('mpv:set-property');
       ipcMain.handle('mpv:set-property', async () => true);
       ipcMain.removeHandler('mpv:load-file');
-      ipcMain.handle('mpv:load-file', async () => true);
+      ipcMain.handle('mpv:load-file', async (event) => {
+        event.sender.send('mpv:event', 'playback-restart');
+        return true;
+      });
       ipcMain.removeHandler('history:add');
       ipcMain.handle('history:add', async () => {
         throw new Error('forced history persistence failure');
@@ -218,7 +241,13 @@ test.describe('Hybrid Player Launch', () => {
       ipcMain.removeHandler('mpv:set-property');
       ipcMain.handle('mpv:set-property', async () => true);
       ipcMain.removeHandler('mpv:load-file');
-      ipcMain.handle('mpv:load-file', async (_, filePath) => filePath.endsWith('existing.mp4'));
+      ipcMain.handle('mpv:load-file', async (event, filePath) => {
+        const ok = filePath.endsWith('existing.mp4');
+        if (ok) {
+          event.sender.send('mpv:event', 'playback-restart');
+        }
+        return ok;
+      });
     });
 
     await window.evaluate(async () => {

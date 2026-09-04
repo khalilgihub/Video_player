@@ -292,7 +292,9 @@ export function initDitherWaves(containerElement, customOptions = {}) {
   const updateSize = () => {
     if (destroyed) return;
 
-    const { width, height } = getContainerSize(containerElement);
+    const containerSize = getContainerSize(containerElement);
+    const width = options.renderWidth || containerSize.width;
+    const height = options.renderHeight || containerSize.height;
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
 
@@ -328,10 +330,16 @@ export function initDitherWaves(containerElement, customOptions = {}) {
 
   const onResize = () => updateSize();
 
+  let isPaused = false;
   const renderLoop = () => {
     if (destroyed) return;
+    if (options.pauseWhenUnfocused && !isAppInteractive()) {
+      isPaused = true;
+      rafId = 0;
+      return;
+    }
+    isPaused = false;
     rafId = window.requestAnimationFrame(renderLoop);
-    if (options.pauseWhenUnfocused && !isAppInteractive()) return;
 
     if (!options.disableAnimation) {
       timer.update();
@@ -354,9 +362,45 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     window.HybridPerfMonitor?.markFrame?.('effect:dither');
   };
 
+  const resumeLoop = () => {
+    if (destroyed) return;
+    if (isPaused && isAppInteractive()) {
+      isPaused = false;
+      if (!rafId) {
+        rafId = window.requestAnimationFrame(renderLoop);
+      }
+    }
+  };
+  window.addEventListener('focus', resumeLoop);
+  document.addEventListener('visibilitychange', resumeLoop);
+
+  const onContextLost = (event) => {
+    event.preventDefault();
+    if (rafId) {
+      window.cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+  };
+  renderer.domElement.addEventListener('webglcontextlost', onContextLost, false);
+
   updateSize();
   mouseEventTarget.addEventListener('mousemove', onMouseMove, { passive: true });
   window.addEventListener('resize', onResize);
+
+  let resizeObserver = null;
+  let resizeTimeout = 0;
+  if (!options.renderWidth && typeof ResizeObserver === 'function') {
+    resizeObserver = new ResizeObserver(() => {
+      if (destroyed) return;
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        if (!destroyed) {
+          onResize();
+        }
+      }, 80);
+    });
+    resizeObserver.observe(containerElement);
+  }
 
   ditherWavesdbg(`${LOG_TAG} init`, {
     container: containerElement.id || '(no-id)',
@@ -394,8 +438,16 @@ export function initDitherWaves(containerElement, customOptions = {}) {
       mouseMoveRafId = 0;
     }
 
+    renderer.domElement.removeEventListener('webglcontextlost', onContextLost);
     mouseEventTarget.removeEventListener('mousemove', onMouseMove);
     window.removeEventListener('resize', onResize);
+    window.removeEventListener('focus', resumeLoop);
+    document.removeEventListener('visibilitychange', resumeLoop);
+    clearTimeout(resizeTimeout);
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+      resizeObserver = null;
+    }
 
     scene.remove(planeMesh);
     planeGeometry.dispose();
@@ -405,21 +457,19 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     renderer.dispose();
 
     const canvas = renderer.domElement;
-    const gl = renderer.getContext();
     canvas.parentNode?.removeChild(canvas);
-    gl.getExtension('WEBGL_lose_context')?.loseContext();
 
     ditherWavesdbg(`${LOG_TAG} destroy`, {
       canvasRemoved: !canvas.parentNode,
       passesDisposed: true,
       rendererDisposed: true,
-      contextLost: true,
     });
   };
 
   return {
     destroy,
     updateOptions,
+    resize: onResize,
     renderer,
     scene,
     camera,
@@ -478,7 +528,13 @@ export async function createDitherWaves(options = {}) {
   }
 }
 
+let teardownTimer = null;
+
 export function destroyDitherWaves() {
+  if (teardownTimer) {
+    clearTimeout(teardownTimer);
+    teardownTimer = null;
+  }
   if (!activeInstance) {
     if (createPromise) destroyAfterCreate = true;
     return;
@@ -497,6 +553,10 @@ async function syncLifecycleState() {
   const shouldRunDither = visible && background === 'dither';
 
   if (shouldRunDither) {
+    if (teardownTimer) {
+      clearTimeout(teardownTimer);
+      teardownTimer = null;
+    }
     const userOpts = welcomeState.bgOpts_dither || {};
     const quality = getWelcomeQuality(welcomeState);
     const mapped = {};
@@ -532,7 +592,19 @@ async function syncLifecycleState() {
     }
     return;
   }
-  destroyDitherWaves();
+
+  // Fade-out grace period for smooth crossfading
+  if (!teardownTimer && activeInstance) {
+    teardownTimer = setTimeout(() => {
+      teardownTimer = null;
+      const currentBg = window.__hybridWelcomeEffectsState?.welcomeBackground || 'dither';
+      if (currentBg !== 'dither') {
+        destroyDitherWaves();
+      }
+    }, 360);
+  } else if (!activeInstance) {
+    destroyDitherWaves();
+  }
 }
 
 function bootLifecycle() {
@@ -585,6 +657,7 @@ if (typeof window !== 'undefined') {
   window.HybridDitherWaves = {
     createDitherWaves,
     destroyDitherWaves,
+    initDitherWaves,
   };
 
   if (document.readyState === 'loading') {

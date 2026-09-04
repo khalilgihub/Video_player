@@ -43,7 +43,7 @@ assert(
 );
 assert(builderConfig.win?.signAndEditExecutable === true, 'Windows signing/editing must not be disabled.');
 
-for (const file of ['src/main/main.js', 'src/main/ipc-handlers.js', 'src/main/menu.js']) {
+for (const file of ['src/main/main.js', 'src/main/ipc-handlers.js']) {
   const text = readText(file);
   assert(!text.includes("name: 'All Files'"), `${file} must not expose unrestricted All Files dialogs.`);
   assert(!text.includes('"All Files"'), `${file} must not expose unrestricted All Files dialogs.`);

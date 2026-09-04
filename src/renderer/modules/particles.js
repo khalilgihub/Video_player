@@ -175,13 +175,28 @@ export function initParticles(containerElement, customOptions = {}) {
 
   const resize = () => {
     if (destroyed) return;
-    const width = containerElement.clientWidth || 1;
-    const height = containerElement.clientHeight || 1;
+    const width = options.renderWidth || containerElement.clientWidth || 1;
+    const height = options.renderHeight || containerElement.clientHeight || 1;
     renderer.setSize(width, height);
     camera.perspective({ aspect: gl.canvas.width / gl.canvas.height });
   };
   window.addEventListener('resize', resize, false);
   resize();
+
+  let resizeObserver = null;
+  let resizeTimeout = 0;
+  if (!options.renderWidth && typeof ResizeObserver === 'function') {
+    resizeObserver = new ResizeObserver(() => {
+      if (destroyed) return;
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        if (!destroyed) {
+          resize();
+        }
+      }, 80);
+    });
+    resizeObserver.observe(containerElement);
+  }
 
   const flushMouse = () => {
     mouseMoveRafId = 0;
@@ -252,10 +267,16 @@ export function initParticles(containerElement, customOptions = {}) {
   let lastTime = performance.now();
   let elapsed = 0;
 
+  let isPaused = false;
   const update = t => {
     if (destroyed) return;
+    if (options.pauseWhenUnfocused && !isAppInteractive()) {
+      isPaused = true;
+      rafId = 0;
+      return;
+    }
+    isPaused = false;
     rafId = requestAnimationFrame(update);
-    if (options.pauseWhenUnfocused && !isAppInteractive()) return;
 
     const delta = t - lastTime;
     lastTime = t;
@@ -284,6 +305,28 @@ export function initParticles(containerElement, customOptions = {}) {
     renderer.render({ scene: particles, camera });
     window.HybridPerfMonitor?.markFrame?.('effect:particles');
   };
+
+  const resumeLoop = () => {
+    if (destroyed) return;
+    if (isPaused && isAppInteractive()) {
+      isPaused = false;
+      if (!rafId) {
+        rafId = requestAnimationFrame(update);
+      }
+    }
+  };
+  window.addEventListener('focus', resumeLoop);
+  document.addEventListener('visibilitychange', resumeLoop);
+
+  const onContextLost = (e) => {
+    e.preventDefault();
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+  };
+  gl.canvas.addEventListener('webglcontextlost', onContextLost, false);
+
   rafId = requestAnimationFrame(update);
 
   const applyOptions = (nextOptions = {}) => {
@@ -330,7 +373,15 @@ export function initParticles(containerElement, customOptions = {}) {
       mouseMoveRafId = 0;
     }
 
+    gl.canvas.removeEventListener('webglcontextlost', onContextLost);
     window.removeEventListener('resize', resize, false);
+    window.removeEventListener('focus', resumeLoop);
+    document.removeEventListener('visibilitychange', resumeLoop);
+    clearTimeout(resizeTimeout);
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+      resizeObserver = null;
+    }
     if (options.moveParticlesOnHover) {
       mouseEventTarget.removeEventListener('mousemove', handleMouseMove);
     }
@@ -340,19 +391,17 @@ export function initParticles(containerElement, customOptions = {}) {
     }
     containerElement.style.background = '';
 
-    gl.getExtension('WEBGL_lose_context')?.loseContext();
-
     particlesdbg(`${LOG_TAG} destroy`, {
       rafStopped: true,
       listenersRemoved: true,
       canvasRemoved: !gl.canvas.parentElement,
-      contextLost: true,
     });
   };
 
   return {
     destroy,
     applyOptions,
+    resize,
     renderer,
     camera,
     geometry,
@@ -372,12 +421,7 @@ function ensureMount() {
     mount.className = 'particles-mount';
     mount.setAttribute('aria-hidden', 'true');
 
-    const lanyardMount = document.getElementById('lanyardMount');
-    if (lanyardMount && lanyardMount.parentNode === welcomeScreen) {
-      welcomeScreen.insertBefore(mount, lanyardMount);
-    } else {
-      welcomeScreen.prepend(mount);
-    }
+    welcomeScreen.prepend(mount);
   }
 
   return mount;
@@ -417,7 +461,13 @@ export async function createParticles(options = {}) {
   }
 }
 
+let teardownTimer = null;
+
 export function destroyParticles() {
+  if (teardownTimer) {
+    clearTimeout(teardownTimer);
+    teardownTimer = null;
+  }
   if (!activeInstance) {
     if (createPromise) destroyAfterCreate = true;
     return;
@@ -436,6 +486,10 @@ async function syncLifecycleState() {
   const shouldRunParticles = visible && background === 'particles';
 
   if (shouldRunParticles) {
+    if (teardownTimer) {
+      clearTimeout(teardownTimer);
+      teardownTimer = null;
+    }
     const userOpts = welcomeState.bgOpts_particles || {};
     const quality = getWelcomeQuality(welcomeState);
     const mapped = {};
@@ -462,7 +516,18 @@ async function syncLifecycleState() {
     return;
   }
 
-  destroyParticles();
+  // Fade-out grace period for smooth crossfading
+  if (!teardownTimer && activeInstance) {
+    teardownTimer = setTimeout(() => {
+      teardownTimer = null;
+      const currentBg = window.__hybridWelcomeEffectsState?.welcomeBackground || 'dither';
+      if (currentBg !== 'particles') {
+        destroyParticles();
+      }
+    }, 360);
+  } else if (!activeInstance) {
+    destroyParticles();
+  }
 }
 
 function bootLifecycle() {
@@ -515,6 +580,7 @@ if (typeof window !== 'undefined') {
   window.HybridParticlesBg = {
     createParticles,
     destroyParticles,
+    initParticles,
   };
 
   if (document.readyState === 'loading') {

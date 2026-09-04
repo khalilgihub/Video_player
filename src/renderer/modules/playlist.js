@@ -1,6 +1,20 @@
 /**
- * Hybrid Player - Playlist Module
- * Manages playlist state, UI, and playback order
+ * Hybrid Player - Playlist State Machine Module
+ * 
+ * Features:
+ * 1. Queue Management:
+ *    - Add files (appends to queue without disrupting active playback).
+ *    - Replace files (clears queue and starts playback of first item).
+ *    - Remove item / Clear playlist.
+ * 2. Playback Sequencing:
+ *    - Sequential: Next/Previous tracks.
+ *    - Shuffle Mode: Tracks played indices via Set to prevent repetition until all items have played.
+ *    - Repeat Modes:
+ *      * 'none': Stops at end of playlist.
+ *      * 'one': Loops current track indefinitely.
+ *      * 'all': Wraps around from last track back to first.
+ * 3. Search & Filtering:
+ *    - Real-time playlist item filter by filename.
  */
 
 class HybridPlaylist {
@@ -10,6 +24,7 @@ class HybridPlaylist {
     this.currentIndex = -1;
     this._playRequestId = 0;
     this.shuffle = false;
+    this._playedShuffleIndices = new Set();
     this.repeat = 'none'; // 'none', 'one', 'all'
     
     this.listEl = document.getElementById('playlistItems');
@@ -17,6 +32,8 @@ class HybridPlaylist {
     this.searchInput = document.getElementById('playlistSearch');
     this.shuffleBtn = document.getElementById('btnShufflePlaylist');
     this.repeatBtn = document.getElementById('btnRepeatPlaylist');
+    this.mainShuffleBtn = document.getElementById('btnShuffle');
+    this.mainRepeatBtn = document.getElementById('btnRepeat') || document.getElementById('btnABLoop');
     
     this._bindEvents();
     this._syncModeButtons();
@@ -38,6 +55,8 @@ class HybridPlaylist {
 
     this.shuffleBtn?.addEventListener('click', () => this.toggleShuffle());
     this.repeatBtn?.addEventListener('click', () => this.cycleRepeat());
+    this.mainShuffleBtn?.addEventListener('click', () => this.toggleShuffle());
+    this.mainRepeatBtn?.addEventListener('click', () => this.cycleRepeat());
 
     // Close sidebar — route through controls.togglePlaylist() so the
     // `playlist-open` body class stays applied until the sidebar's close
@@ -62,6 +81,7 @@ class HybridPlaylist {
 
   addFiles(filePaths, { autoPlay = true } = {}) {
     const newItems = this._createItems(filePaths);
+    this._playedShuffleIndices.clear();
     
     this.items.push(...newItems);
     this._renderList();
@@ -77,6 +97,7 @@ class HybridPlaylist {
   replaceFiles(filePaths, { autoPlay = true } = {}) {
     this.items = this._createItems(filePaths);
     this.currentIndex = -1;
+    this._playedShuffleIndices.clear();
     this._renderList();
 
     if (autoPlay && this.items.length > 0) {
@@ -92,6 +113,7 @@ class HybridPlaylist {
 
   toggleShuffle() {
     this.shuffle = !this.shuffle;
+    this._playedShuffleIndices.clear();
     this._syncModeButtons();
     window.HybridToast?.show(this.shuffle ? 'Shuffle on' : 'Shuffle off');
     return this.shuffle;
@@ -107,27 +129,60 @@ class HybridPlaylist {
   }
 
   _syncModeButtons() {
-    if (this.shuffleBtn) {
-      this.shuffleBtn.classList.toggle('active', this.shuffle);
-      this.shuffleBtn.setAttribute('aria-pressed', String(this.shuffle));
-      this.shuffleBtn.title = this.shuffle ? 'Shuffle On' : 'Shuffle';
-    }
+    const shuffleButtons = [
+      this.shuffleBtn,
+      this.mainShuffleBtn,
+      document.getElementById('btnShuffle'),
+    ].filter(Boolean);
 
-    if (this.repeatBtn) {
-      const active = this.repeat !== 'none';
-      const label = this.repeat === 'one' ? 'Repeat One' : (this.repeat === 'all' ? 'Repeat All' : 'Repeat Off');
-      this.repeatBtn.classList.toggle('active', active);
-      this.repeatBtn.dataset.repeat = this.repeat;
-      this.repeatBtn.setAttribute('aria-pressed', String(active));
-      this.repeatBtn.setAttribute('aria-label', label);
-      this.repeatBtn.title = label;
-    }
+    shuffleButtons.forEach(btn => {
+      btn.classList.toggle('active', this.shuffle);
+      btn.setAttribute('aria-pressed', String(this.shuffle));
+      btn.title = this.shuffle ? 'Shuffle On' : 'Shuffle Off';
+    });
+
+    const active = this.repeat !== 'none';
+    const label = this.repeat === 'one' ? 'Repeat One (L)' : (this.repeat === 'all' ? 'Repeat All (L)' : 'Repeat Off (L)');
+
+    const repeatButtons = [
+      this.repeatBtn,
+      this.mainRepeatBtn,
+      document.getElementById('btnRepeat'),
+      document.getElementById('btnABLoop'),
+    ].filter(Boolean);
+
+    repeatButtons.forEach(btn => {
+      btn.classList.toggle('active', active);
+      btn.dataset.repeat = this.repeat;
+      btn.setAttribute('aria-pressed', String(active));
+      btn.setAttribute('aria-label', label);
+      btn.title = label;
+      const oneDigit = btn.querySelector('.repeat-one-digit');
+      if (oneDigit) {
+        oneDigit.style.display = this.repeat === 'one' ? 'inline' : 'none';
+      }
+    });
+
+    // Send mpv loop commands
+    try {
+      if (this.repeat === 'one') {
+        window.hybridAPI?.mpv?.command?.('set_property', 'loop-file', 'inf');
+        window.hybridAPI?.mpv?.command?.('set_property', 'loop-playlist', 'no');
+      } else if (this.repeat === 'all') {
+        window.hybridAPI?.mpv?.command?.('set_property', 'loop-file', 'no');
+        window.hybridAPI?.mpv?.command?.('set_property', 'loop-playlist', 'inf');
+      } else {
+        window.hybridAPI?.mpv?.command?.('set_property', 'loop-file', 'no');
+        window.hybridAPI?.mpv?.command?.('set_property', 'loop-playlist', 'no');
+      }
+    } catch (_) {}
   }
 
   async playIndex(index) {
     if (index < 0 || index >= this.items.length) return;
     const requestId = ++this._playRequestId;
     this.currentIndex = index;
+    this._playedShuffleIndices.add(index);
     this._renderList();
     const loaded = await this.player.loadFile(this.items[index].path);
     if (!loaded && requestId === this._playRequestId) {
@@ -139,6 +194,14 @@ class HybridPlaylist {
 
   playNext() {
     if (this.items.length === 0) return;
+
+    // If currentIndex is unset or out of sync with current playback, match from active file
+    if (this.currentIndex === -1 && this.player.currentFilePath) {
+      const matchIndex = this.items.findIndex(item => item.path === this.player.currentFilePath);
+      if (matchIndex >= 0) {
+        this.currentIndex = matchIndex;
+      }
+    }
     
     if (this.repeat === 'one') {
       this.player.seek(0);
@@ -148,22 +211,45 @@ class HybridPlaylist {
 
     let nextIndex;
     if (this.shuffle) {
+      if (this.currentIndex >= 0) {
+        this._playedShuffleIndices.add(this.currentIndex);
+      }
+
+      if (this._playedShuffleIndices.size >= this.items.length) {
+        if (this.repeat === 'all') {
+          this._playedShuffleIndices.clear();
+        } else {
+          this._playedShuffleIndices.clear();
+          return; // End of playlist
+        }
+      }
+
       if (this.items.length === 1) {
         nextIndex = 0;
       } else {
-        do {
-          nextIndex = Math.floor(Math.random() * this.items.length);
-        } while (nextIndex === this.currentIndex);
+        const unplayed = this.items
+          .map((_, i) => i)
+          .filter(i => !this._playedShuffleIndices.has(i));
+
+        if (unplayed.length === 0) {
+          if (this.repeat === 'all') {
+            this._playedShuffleIndices.clear();
+            nextIndex = Math.floor(Math.random() * this.items.length);
+          } else {
+            return; // End of playlist
+          }
+        } else {
+          nextIndex = unplayed[Math.floor(Math.random() * unplayed.length)];
+        }
       }
     } else {
       nextIndex = this.currentIndex + 1;
-    }
-
-    if (nextIndex >= this.items.length) {
-      if (this.repeat === 'all') {
-        nextIndex = 0;
-      } else {
-        return; // End of playlist
+      if (nextIndex >= this.items.length) {
+        if (this.repeat === 'all') {
+          nextIndex = 0;
+        } else {
+          return; // End of playlist
+        }
       }
     }
 
@@ -172,6 +258,14 @@ class HybridPlaylist {
 
   playPrevious() {
     if (this.items.length === 0) return;
+
+    // If currentIndex is unset or out of sync with current playback, match from active file
+    if (this.currentIndex === -1 && this.player.currentFilePath) {
+      const matchIndex = this.items.findIndex(item => item.path === this.player.currentFilePath);
+      if (matchIndex >= 0) {
+        this.currentIndex = matchIndex;
+      }
+    }
     
     // If more than 3 seconds in, restart current
     if (this.player.currentTime > 3) {
@@ -186,9 +280,18 @@ class HybridPlaylist {
     this.playIndex(prevIndex);
   }
 
+  next() {
+    return this.playNext();
+  }
+
+  prev() {
+    return this.playPrevious();
+  }
+
   remove(index) {
     if (index < 0 || index >= this.items.length) return;
     this.items.splice(index, 1);
+    this._playedShuffleIndices.clear();
 
     if (index < this.currentIndex) {
       this.currentIndex--;
@@ -211,6 +314,7 @@ class HybridPlaylist {
   clear() {
     this.items = [];
     this.currentIndex = -1;
+    this._playedShuffleIndices.clear();
     this._stopPlaylistPlayback();
     this._renderList(this.searchInput?.value || '');
   }
@@ -360,6 +464,7 @@ class HybridPlaylist {
     if (playlist) {
       this.items = playlist.items.map(i => ({ ...i, duration: null }));
       this.currentIndex = -1;
+      this._playedShuffleIndices.clear();
       this._renderList();
     }
   }

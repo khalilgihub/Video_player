@@ -1,6 +1,11 @@
 /**
- * Hybrid Player - Gesture Module
- * Handles mouse gestures and trackpad swipe for seeking/volume
+ * Hybrid Player - Mouse & Trackpad Gestures Module
+ * 
+ * Features:
+ * 1. Scroll-Wheel Volume Control:
+ *    - Scrolling vertically over the video surface adjusts volume smoothly in ±5% steps.
+ * 2. Safe Exclusion Zones:
+ *    - Progress bar, control bar buttons, and background settings panels are excluded to preserve native scrolling.
  */
 
 class HybridGestures {
@@ -24,7 +29,7 @@ class HybridGestures {
       const vol = document.getElementById('volumeSlider');
       if (vol) {
         const delta = e.deltaY > 0 ? -5 : 5;
-        vol.value = Math.max(0, Math.min(300, parseInt(vol.value) + delta));
+        vol.value = Math.max(0, Math.min(100, parseInt(vol.value) + delta));
         vol.dispatchEvent(new Event('input'));
       }
     }, { passive: false });

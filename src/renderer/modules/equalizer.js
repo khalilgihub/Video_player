@@ -1,7 +1,15 @@
 /**
- * Hybrid Player - Audio Equalizer Module (mpv backend)
- * 10-band equalizer using mpv's lavfi/superequalizer audio filter.
- * The Web Audio API pipeline is no longer used since mpv handles audio.
+ * Hybrid Player - 10-Band Audio Equalizer Module
+ * 
+ * Features:
+ * 1. 10-Band Frequency Spectrum:
+ *    - Bands: 31Hz, 62Hz, 125Hz, 250Hz, 500Hz, 1kHz, 2kHz, 4kHz, 8kHz, 16kHz.
+ *    - Gain Range: -12 dB to +12 dB per band (0.5 dB step increments).
+ * 2. Native mpv Audio Filtering:
+ *    - Uses mpv's `lavfi/superequalizer` filter graph (`af set lavfi=[superequalizer=1b=...:2b=...]`).
+ *    - Seamless real-time debounce (100ms) to ensure smooth slider adjustments without audio stutters.
+ * 3. Built-In Acoustic Presets:
+ *    - Flat, Bass Boost, Treble Boost, Vocal, Rock, Pop, Jazz, Classical, Electronic.
  */
 
 class HybridEqualizer {
@@ -148,7 +156,9 @@ class HybridEqualizer {
   }
 
   _persistBands() {
-    window.hybridAPI.db.setPreference('equalizerBands', [...this.bands]);
+    window.hybridAPI.db.setPreference('equalizerBands', [...this.bands])?.catch?.((err) => {
+      console.warn('[eq] failed to persist equalizer bands:', err?.message || err);
+    });
   }
 
   /**
@@ -166,10 +176,21 @@ class HybridEqualizer {
       return;
     }
 
-    // lavfi equalizer expects: 10 band-gains separated by colons
-    // mpv's `superequalizer` filter:  af=lavfi=[superequalizer=<gains>]
-    const gains = this.bands.map(g => g.toFixed(1)).join(':');
-    const filterStr = `lavfi=[superequalizer=${gains}]`;
+    // FFmpeg's `superequalizer` filter requires 18 band multipliers (range 0..20, 1.0 = 0dB).
+    // Interpolate the 10 UI bands (-12dB..+12dB) across the 18 filter bands.
+    const gains = [];
+    for (let i = 0; i < 18; i++) {
+      const t = (i / 17) * 9;
+      const k = Math.floor(t);
+      const f = t - k;
+      const b0 = this.bands[k] ?? 0;
+      const b1 = this.bands[Math.min(k + 1, 9)] ?? b0;
+      const db = (1 - f) * b0 + f * b1;
+      const clampedDb = Math.max(-12, Math.min(12, db));
+      const mult = Math.max(0, Math.min(20, Math.pow(10, clampedDb / 20)));
+      gains.push(mult.toFixed(2));
+    }
+    const filterStr = `lavfi=[superequalizer=${gains.join(':')}]`;
     window.hybridAPI.mpv.setProperty('af', filterStr).catch((err) => {
       console.error('[eq] failed to apply filter:', { filterStr, error: err?.message || err });
     });

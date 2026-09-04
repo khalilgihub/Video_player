@@ -107,11 +107,11 @@ export function initGridMotion(containerElement, customOptions = {}) {
       background: #000;
     }
     .grid-motion-container {
-      gap: 1.25rem;
+      gap: 0.5rem;
       flex: none;
       position: relative;
-      width: 140vw;
-      height: 140vh;
+      width: 250%;
+      height: 250%;
       display: grid;
       grid-template-rows: repeat(4, 1fr);
       grid-template-columns: 100%;
@@ -121,7 +121,7 @@ export function initGridMotion(containerElement, customOptions = {}) {
     }
     .grid-motion-row {
       display: grid;
-      gap: 1.25rem;
+      gap: 0.5rem;
       grid-template-columns: repeat(7, 1fr);
       will-change: transform;
     }
@@ -263,7 +263,7 @@ export function initGridMotion(containerElement, customOptions = {}) {
     });
   };
 
-  const removeAnimationLoop = gsap.ticker.add(updateMotion);
+  gsap.ticker.add(updateMotion);
 
   const updateOptions = (nextOptions = {}) => {
     if (!nextOptions || typeof nextOptions !== 'object' || destroyed) return;
@@ -284,7 +284,7 @@ export function initGridMotion(containerElement, customOptions = {}) {
     if (destroyed) return;
     destroyed = true;
 
-    removeAnimationLoop();
+    gsap.ticker.remove(updateMotion);
     window.removeEventListener('mousemove', handleMouseMove);
 
     rowElements.forEach(row => gsap.killTweensOf(row));
@@ -344,7 +344,13 @@ export async function createGridMotion(options = {}) {
   }
 }
 
+let teardownTimer = null;
+
 export function destroyGridMotion() {
+  if (teardownTimer) {
+    clearTimeout(teardownTimer);
+    teardownTimer = null;
+  }
   if (!activeInstance) {
     if (createPromise) destroyAfterCreate = true;
     return;
@@ -363,6 +369,10 @@ async function syncLifecycleState() {
   const shouldRunGridMotion = visible && background === 'gridmotion';
 
   if (shouldRunGridMotion) {
+    if (teardownTimer) {
+      clearTimeout(teardownTimer);
+      teardownTimer = null;
+    }
     const userOpts = welcomeState.bgOpts_gridmotion || {};
     const quality = getWelcomeQuality(welcomeState);
     const mapped = {};
@@ -385,7 +395,18 @@ async function syncLifecycleState() {
     return;
   }
 
-  destroyGridMotion();
+  // Fade-out grace period for smooth crossfading
+  if (!teardownTimer && activeInstance) {
+    teardownTimer = setTimeout(() => {
+      teardownTimer = null;
+      const currentBg = window.__hybridWelcomeEffectsState?.welcomeBackground || 'dither';
+      if (currentBg !== 'gridmotion') {
+        destroyGridMotion();
+      }
+    }, 360);
+  } else if (!activeInstance) {
+    destroyGridMotion();
+  }
 }
 
 function bootLifecycle() {
@@ -438,6 +459,7 @@ if (typeof window !== 'undefined') {
   window.HybridGridMotion = {
     createGridMotion,
     destroyGridMotion,
+    initGridMotion,
   };
 
   if (document.readyState === 'loading') {

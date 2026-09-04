@@ -231,24 +231,24 @@ function getDitherValue(v) {
 }
 
 const DEFAULT_OPTIONS = Object.freeze({
-  scale: 3,
+  scale: 1.2,
   gridMul: [2, 1],
-  digitSize: 1.2,
-  timeScale: 0.5,
+  digitSize: 1.5,
+  timeScale: 0.8,
   pause: false,
-  scanlineIntensity: 0.7,
+  scanlineIntensity: 0.3,
   glitchAmount: 1,
   flickerAmount: 1,
   noiseAmp: 1,
   chromaticAberration: 0,
   dither: 0,
-  curvature: 0.1,
+  curvature: 0.2,
   tint: '#A7EF9E',
   mouseReact: true,
-  mouseStrength: 0.5,
+  mouseStrength: 0.2,
   dpr: 1,
   pageLoadAnimation: true,
-  brightness: 0.8,
+  brightness: 1,
   pauseWhenUnfocused: true,
   mouseEventTarget: null,
 });
@@ -378,21 +378,32 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
 
   const resize = () => {
     if (destroyed) return;
-    const width = Math.max(1, containerElement.offsetWidth || containerElement.clientWidth || 1);
-    const height = Math.max(1, containerElement.offsetHeight || containerElement.clientHeight || 1);
+    const width = options.renderWidth || Math.max(1, containerElement.offsetWidth || containerElement.clientWidth || 1);
+    const height = options.renderHeight || Math.max(1, containerElement.offsetHeight || containerElement.clientHeight || 1);
 
     renderer.setSize(width, height);
+    const aspect = width / Math.max(height, 1);
     program.uniforms.iResolution.value = new Color(
       gl.canvas.width,
       gl.canvas.height,
-      gl.canvas.width / Math.max(gl.canvas.height, 1)
+      aspect
     );
+
+    // Keep terminal glyph cells proportional and square regardless of container aspect ratio
+    const baseGridY = Array.isArray(options.gridMul) ? options.gridMul[1] : 1;
+    program.uniforms.uGridMul.value = new Float32Array([baseGridY * aspect, baseGridY]);
   };
 
+  let isPaused = false;
   const update = (t) => {
     if (destroyed) return;
+    if (options.pauseWhenUnfocused && !isAppInteractive()) {
+      isPaused = true;
+      rafId = 0;
+      return;
+    }
+    isPaused = false;
     rafId = requestAnimationFrame(update);
-    if (options.pauseWhenUnfocused && !isAppInteractive()) return;
 
     if (options.pageLoadAnimation && loadAnimationStart === 0) {
       loadAnimationStart = t;
@@ -427,13 +438,47 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
     window.HybridPerfMonitor?.markFrame?.('effect:faulty');
   };
 
-  resizeObserver = new ResizeObserver(() => resize());
-  resizeObserver.observe(containerElement);
+  const resumeLoop = () => {
+    if (destroyed) return;
+    if (isPaused && isAppInteractive()) {
+      isPaused = false;
+      if (!rafId) {
+        rafId = requestAnimationFrame(update);
+      }
+    }
+  };
+  window.addEventListener('focus', resumeLoop);
+  document.addEventListener('visibilitychange', resumeLoop);
+
+  window.addEventListener('resize', resize);
   resize();
+
+  let resizeTimeout = 0;
+  if (!options.renderWidth && typeof ResizeObserver === 'function') {
+    resizeObserver = new ResizeObserver(() => {
+      if (destroyed) return;
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        if (!destroyed) {
+          resize();
+        }
+      }, 80);
+    });
+    resizeObserver.observe(containerElement);
+  }
 
   if (options.mouseReact) {
     mouseEventTarget.addEventListener('mousemove', handleMouseMove);
   }
+
+  const onContextLost = (e) => {
+    e.preventDefault();
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+  };
+  gl.canvas.addEventListener('webglcontextlost', onContextLost, false);
 
   containerElement.appendChild(gl.canvas);
   rafId = requestAnimationFrame(update);
@@ -470,6 +515,11 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
       mouseMoveRafId = 0;
     }
 
+    gl.canvas.removeEventListener('webglcontextlost', onContextLost);
+    window.removeEventListener('resize', resize);
+    window.removeEventListener('focus', resumeLoop);
+    document.removeEventListener('visibilitychange', resumeLoop);
+    clearTimeout(resizeTimeout);
     if (resizeObserver) {
       resizeObserver.disconnect();
       resizeObserver = null;
@@ -483,8 +533,6 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
       containerElement.removeChild(gl.canvas);
     }
 
-    gl.getExtension('WEBGL_lose_context')?.loseContext();
-
     loadAnimationStart = 0;
 
     faultyTerminaldbg(`${LOG_TAG} destroy`, {
@@ -492,13 +540,13 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
       resizeObserverDisconnected: true,
       mouseListenerRemoved: !!options.mouseReact,
       canvasRemoved: !gl.canvas.parentElement,
-      contextLost: true,
     });
   };
 
   return {
     destroy,
     updateOptions,
+    resize,
     renderer,
     program,
     mesh,
@@ -558,7 +606,13 @@ export async function createFaultyTerminal(options = {}) {
   }
 }
 
+let teardownTimer = null;
+
 export function destroyFaultyTerminal() {
+  if (teardownTimer) {
+    clearTimeout(teardownTimer);
+    teardownTimer = null;
+  }
   if (!activeInstance) {
     if (createPromise) destroyAfterCreate = true;
     return;
@@ -577,9 +631,14 @@ async function syncLifecycleState() {
   const shouldRunFaulty = visible && background === 'faulty';
 
   if (shouldRunFaulty) {
+    if (teardownTimer) {
+      clearTimeout(teardownTimer);
+      teardownTimer = null;
+    }
     const userOpts = welcomeState.bgOpts_faulty || {};
     const quality = getWelcomeQuality(welcomeState);
     const mapped = {};
+    if (userOpts.scale !== undefined) mapped.scale = userOpts.scale;
     if (userOpts.glitch !== undefined) mapped.glitchAmount = userOpts.glitch;
     if (userOpts.scanlines !== undefined) mapped.scanlineIntensity = userOpts.scanlines;
     if (userOpts.flicker !== undefined) mapped.flickerAmount = userOpts.flicker;
@@ -602,7 +661,19 @@ async function syncLifecycleState() {
     }
     return;
   }
-  destroyFaultyTerminal();
+
+  // Fade-out grace period for smooth crossfading
+  if (!teardownTimer && activeInstance) {
+    teardownTimer = setTimeout(() => {
+      teardownTimer = null;
+      const currentBg = window.__hybridWelcomeEffectsState?.welcomeBackground || 'dither';
+      if (currentBg !== 'faulty') {
+        destroyFaultyTerminal();
+      }
+    }, 360);
+  } else if (!activeInstance) {
+    destroyFaultyTerminal();
+  }
 }
 
 function bootLifecycle() {
@@ -655,6 +726,7 @@ if (typeof window !== 'undefined') {
   window.HybridFaultyTerminal = {
     createFaultyTerminal,
     destroyFaultyTerminal,
+    initFaultyTerminal,
   };
 
   if (document.readyState === 'loading') {

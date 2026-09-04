@@ -29,8 +29,9 @@ class CursorManager {
     this._idleTimer = null;
     this._isMouseDown = false;
 
-    // Bind mouse activity listeners to the container (NOT document.body)
-    this.container.addEventListener('mousemove', this._onActivity.bind(this), { passive: true });
+    // Bind mouse activity listeners to window so mouse activity over modals,
+    // titlebar, controls, and video all immediately reveal the cursor.
+    window.addEventListener('mousemove', this._onActivity.bind(this), { passive: true });
 
     // Track pointer/mouse down state globally to prevent hiding when dragging
     window.addEventListener('mousedown', () => {
@@ -55,6 +56,23 @@ class CursorManager {
       this._isMouseDown = false;
       this._onActivity();
     }, { passive: true });
+
+    this._setupModalObserver();
+  }
+
+  _setupModalObserver() {
+    const checkModals = () => {
+      if (this._isModalOpen()) {
+        this.show();
+      } else {
+        this.resume();
+      }
+    };
+
+    const observer = new MutationObserver(checkModals);
+    document.querySelectorAll('.modal-overlay').forEach((modal) => {
+      observer.observe(modal, { attributes: true, attributeFilter: ['hidden', 'class', 'style'] });
+    });
   }
 
   // ─── Public API ────────────────────────────────────────
@@ -62,10 +80,10 @@ class CursorManager {
   /** Call when play/pause state changes */
   setPlaying(playing) {
     this._isPlaying = playing;
-    if (!playing) {
+    if (!playing && !this._isFullscreen) {
       this._showCursor();
       this._clearTimer();
-    } else {
+    } else if (playing || this._isFullscreen) {
       this._resetTimer();
     }
   }
@@ -78,7 +96,7 @@ class CursorManager {
 
   /** Re-evaluate after a modal is closed */
   resume() {
-    if (this._isPlaying) {
+    if ((this._isPlaying || this._isFullscreen) && !this._isModalOpen()) {
       this._resetTimer();
     }
   }
@@ -87,10 +105,14 @@ class CursorManager {
     this._isFullscreen = !!isFullscreen;
     if (!this._isFullscreen) {
       document.body.classList.remove('force-hide-cursor');
+      if (!this._isPlaying) {
+        this._showCursor();
+        this._clearTimer();
+      }
       return;
     }
 
-    if (this._isPlaying && !this._isModalOpen()) {
+    if ((this._isPlaying || this._isFullscreen) && !this._isModalOpen()) {
       this._resetTimer();
     }
   }
@@ -99,7 +121,7 @@ class CursorManager {
 
   _onActivity() {
     this._showCursor();
-    if (this._isPlaying && !this._isModalOpen()) {
+    if ((this._isPlaying || this._isFullscreen) && !this._isModalOpen()) {
       this._resetTimer();
     }
   }
@@ -107,7 +129,7 @@ class CursorManager {
   _resetTimer() {
     this._clearTimer();
     this._idleTimer = setTimeout(() => {
-      if (this._isPlaying && !this._isModalOpen()) {
+      if ((this._isPlaying || this._isFullscreen) && !this._isModalOpen()) {
         this._hideCursor();
       }
     }, CursorManager.IDLE_MS);
