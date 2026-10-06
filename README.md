@@ -48,19 +48,19 @@ When no media is playing, Hybrid Player transforms into an artistic canvas with 
 - **Minimalist OLED**: Pure pitch-black OLED background.
 - **Accordion Gallery Picker**: Interactive accordion popover previewing shaders before applying.
 
-### Screenshot Suite & Interactive Carousels
+### Screenshot Suite & Image Management
 - **Instant Capture**: Tap `S` to snapshot the current frame at native resolution.
 - **Continuous Burst Mode**: Hold `S` to stream high-speed frame burst captures until released.
 - **Quick Undo / Redo (`D` / `Z`)**:
   - Tap `D` to delete the latest capture with an in-card red badge animation.
   - Tap `Z` to restore the last deleted capture from the session trash with a signature green glow.
-- **Delete Carousel (`Ctrl + D`)**:
-  - Modal overlay displaying session screenshots in compact glassmorphic cards.
-  - Navigate with `←` / `→` arrow keys; press `Enter` or `D` to delete the selected capture.
-- **Restore Carousel (`Ctrl + Z`)**:
+- **Delete Specific Image (`Ctrl + D`)**:
+  - Visual selector modal displaying session screenshots in compact glassmorphic cards.
+  - Navigate with `←` / `→` arrow keys; press `Enter` or `D` to delete the chosen image.
+- **Restore Specific Deleted Image (`Ctrl + Z`)**:
   - Visual selector to browse all deleted captures in the session's trash.
-  - Press `Enter` or `Z` to recover the selected capture back to disk.
-- **Fullscreen-Safe Escape**: Pressing `Esc` dismisses active carousels or modals cleanly without un-fullscreening the video player.
+  - Press `Enter` or `Z` to recover the chosen deleted image back to disk.
+- **Fullscreen-Safe Escape**: Pressing `Esc` dismisses active selectors or modals cleanly without un-fullscreening the video player.
 
 ### Audio & Subtitles
 - **10-Band Graphic Equalizer**: Fine-tune 31 Hz to 16 kHz with preamp control and presets (Flat, Bass Boost, Vocal, Rock, Jazz, Classical, Acoustic, Electronic, Pop).
@@ -76,7 +76,7 @@ When no media is playing, Hybrid Player transforms into an artistic canvas with 
 |---|---|---|
 | **`Space`** / **`K`** | Play / Pause | Toggle video playback |
 | **`F`** | Fullscreen | Toggle fullscreen mode |
-| **`Esc`** | Smart Dismiss | Dismisses active modal or carousel first; exits fullscreen if clean |
+| **`Esc`** | Smart Dismiss | Dismisses active modal or selector first; exits fullscreen if clean |
 | **`M`** | Mute | Toggle audio mute |
 | **`↑`** / **`↓`** | Volume Up / Down | Adjust volume (±5%) with top-right OSD pill |
 | **`←`** / **`→`** | Seek Backward / Forward | Jump configured step (1s, 5s, or 10s) with directional OSD |
@@ -96,10 +96,10 @@ When no media is playing, Hybrid Player transforms into an artistic canvas with 
 | **`S`** *(Hold)* | Burst Capture | High-speed continuous frame burst capture |
 | **`D`** | Quick Delete | Delete latest screenshot with in-card animation |
 | **`Z`** | Quick Restore | Undo latest screenshot deletion |
-| **`Ctrl + D`** | Delete Carousel | Open visual carousel to select and delete screenshots |
-| **`Ctrl + Z`** | Restore Carousel | Open visual carousel to restore deleted screenshots from trash |
-| **`Enter`** *(in Carousel)* | Confirm Selection | Delete or restore selected screenshot and close carousel |
-| **`←`** / **`→`** *(in Carousel)* | Carousel Navigate | Cycle between screenshot items |
+| **`Ctrl + D`** | Delete Specific Image | Open visual selector to choose and delete a specific screenshot |
+| **`Ctrl + Z`** | Restore Specific Deleted Image | Open visual selector to choose and restore a specific deleted screenshot from trash |
+| **`Enter`** *(in Selector)* | Confirm Selection | Delete or restore selected screenshot and close selector |
+| **`←`** / **`→`** *(in Selector)* | Navigate Images | Cycle between screenshot items |
 | **`Ctrl + S`** | Record Clip | Start / stop video clip recording |
 | **`Ctrl + O`** | Open File | Open video file dialog |
 | **`Ctrl + Shift + O`** | Open Multiple Files | Select and open multiple files |
