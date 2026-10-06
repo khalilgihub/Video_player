@@ -1,6 +1,6 @@
 {
   "name": "hybrid-player",
-  "version": "1.0.0",
+  "version": "12.5.0",
   "description": "Next-generation desktop video player built with Electron — modern UI, 10-band equalizer, subtitle support, playlist management, and power-user features.",
   "main": "src/main/main.js",
   "scripts": {
@@ -22,16 +22,19 @@
   "devDependencies": {
     "@playwright/test": "^1.60.0",
     "electron": "^40.10.2",
-    "electron-builder": "^26.15.2"
+    "electron-builder": "^26.15.3"
   },
   "build": {
     "extends": "./electron-builder.json"
   },
   "dependencies": {
+    "ajv": "^8.20.0",
+    "builder-util-runtime": "^9.7.0",
     "ffmpeg-static": "^5.3.0",
     "gsap": "^3.15.0",
     "ogl": "^1.0.11",
     "postprocessing": "^6.39.1",
+    "readable-stream": "^4.7.0",
     "three": "^0.183.2"
   }
 }
