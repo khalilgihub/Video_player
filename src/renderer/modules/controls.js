@@ -31,6 +31,12 @@ class HybridControls {
     this.unlockOverlay     = document.getElementById('unlockOverlay');
     this.recordingIndicator = document.getElementById('recordingIndicator');
     this.recordingIndicatorText = document.getElementById('recordingIndicatorText');
+    this.recordingIndicatorTitle = document.getElementById('recordingIndicatorTitle');
+    this.recordingSavedTitle = document.getElementById('recordingSavedTitle');
+    this.recordingFrameCount = document.getElementById('recordingFrameCount');
+    this.recordingUnit       = document.getElementById('recordingUnit');
+    this.recordingPts        = document.getElementById('recordingPts');
+    this.recordingSavedFrames = document.getElementById('recordingSavedFrames');
 
     // Play/Pause icons
     this.iconPlay  = document.querySelector('.icon-play');
@@ -47,6 +53,8 @@ class HybridControls {
 
     // State
     this.isDraggingProgress = false;
+    this.isDraggingVolume   = false;
+    this.showRemainingTime  = false;
     this.hideTimeout        = null;
     this.unlockTimeout      = null;
     this._mouseOverUnlock   = false;
@@ -54,9 +62,16 @@ class HybridControls {
     this.currentVolume      = 1;
     this.skipIndicatorTimer = null;
     this.recordingIndicatorTimer = null;
+    this._hasReceivedInitialVolume = false;
+    this._volumeOsdTimeout = null;
     this._titlebarDragSession = null;
     this._hitTestSyncRaf = null;
     this._titlebarResizeObserver = null;
+
+    // Ensure Play icon is shown and Pause is hidden on initial launch
+    if (this.iconPlay) this.iconPlay.style.display = 'block';
+    if (this.iconPause) this.iconPause.style.display = 'none';
+    document.getElementById('btnPlay')?.setAttribute('aria-label', 'Play');
 
     // Loading spinner
     this.spinner = document.createElement('div');
@@ -93,6 +108,7 @@ class HybridControls {
 
     const handleFullscreenDblClick = (e, source = 'unknown') => {
       if (shouldIgnoreFullscreenDblClick(e.target)) return;
+      if (window.HybridApp?.settingsModule?.isDoubleClickFullscreenEnabled?.() === false) return;
       e.preventDefault();
       controlsdbg(`[FSDBG][renderer-controls] ${source} dblclick`);
       this.toggleFullscreen();
@@ -100,6 +116,7 @@ class HybridControls {
 
     // Play/Pause button on control bar
     document.getElementById('btnPlay').addEventListener('click', () => {
+      if (!this.player.currentFilePath) return;
       this.player.togglePlay();
     });
 
@@ -139,7 +156,23 @@ class HybridControls {
         return;
       }
 
+      // Guard: do nothing if no media is loaded
+      if (!this.player.currentFilePath) {
+        return;
+      }
+
       if (shouldIgnoreFullscreenDblClick(e.target)) return;
+
+      const dblClickEnabled = window.HybridApp?.settingsModule?.isDoubleClickFullscreenEnabled?.() !== false;
+      if (!dblClickEnabled) {
+        if (clickTimeout) {
+          clearTimeout(clickTimeout);
+          clickTimeout = null;
+        }
+        this.player.togglePlay();
+        return;
+      }
+
       if (clickTimeout) {
         clearTimeout(clickTimeout);
         clickTimeout = null;
@@ -148,7 +181,7 @@ class HybridControls {
       clickTimeout = setTimeout(() => {
         this.player.togglePlay();
         clickTimeout = null;
-      }, 250);
+      }, 160);
     };
 
     if (mpvContainer) {
@@ -188,28 +221,33 @@ class HybridControls {
       window.HybridApp?.playlistModule?.playNext();
     });
 
-    // Volume icon click to mute/unmute
-    document.getElementById('btnVolume').addEventListener('click', () => {
-      this.player.toggleMute();
-    });
-
     // Volume slider input
-    this.volumeSlider.addEventListener('input', (e) => {
-      const val = parseFloat(e.target.value) / 100;
-      this.player.setVolume(val);
-      this.currentVolume = val;
-      if (this.volumeValue) {
-        this.volumeValue.textContent = Math.round(val * 100) + '%';
-      }
-      this._updateVolumeIcon(this.player.muted ? 0 : val);
-      this._updateVolumeSliderFill();
+    this.volumeSlider.addEventListener('mousedown', () => {
+      this.isDraggingVolume = true;
+    });
+    this.volumeSlider.addEventListener('touchstart', () => {
+      this.isDraggingVolume = true;
+    }, { passive: true });
+    this.volumeSlider.addEventListener('touchend', () => {
+      this.isDraggingVolume = false;
+    }, { passive: true });
+    this.volumeSlider.addEventListener('touchcancel', () => {
+      this.isDraggingVolume = false;
+    }, { passive: true });
+
+    // Time display toggle format (duration vs remaining)
+    this.totalTimeEl?.addEventListener('click', () => {
+      this.toggleTimeFormat();
     });
 
     // Fullscreen
     document.getElementById('btnFullscreen').addEventListener('click', () => this.toggleFullscreen());
 
-    // Screenshot
-    document.getElementById('btnScreenshot').addEventListener('click', () => this.player.takeScreenshot());
+    // A-B Loop
+    document.getElementById('btnABLoop')?.addEventListener('click', () => this.player.setABLoop());
+
+    // Screenshot (fallback if present)
+    document.getElementById('btnScreenshot')?.addEventListener('click', () => this.player.takeScreenshot());
 
     // Speed
     document.getElementById('btnSpeed').addEventListener('click', () => this.toggleModal('speedModal'));
@@ -307,7 +345,7 @@ class HybridControls {
     document.getElementById('btnClose').addEventListener('click', async () => {
       controlsdbg('[WINCTRL][renderer] close click');
       try {
-        this.player?.destroy?.();
+        await this.player?.destroy?.();
         await window.hybridAPI.window.close();
         controlsdbg('[WINCTRL][renderer] close invoke success');
       } catch (error) {
@@ -459,23 +497,37 @@ class HybridControls {
 
   _setupPlayerCallbacks() {
     this.player.onPlayStateChanged = (playing) => {
-      this.iconPlay.style.display  = playing ? 'none' : 'block';
-      this.iconPause.style.display = playing ? 'block' : 'none';
-      document.getElementById('btnPlay')?.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+      const isActuallyPlaying = Boolean(playing && this.player.currentFilePath);
+      this.iconPlay.style.display  = isActuallyPlaying ? 'none' : 'block';
+      this.iconPause.style.display = isActuallyPlaying ? 'block' : 'none';
+      document.getElementById('btnPlay')?.setAttribute('aria-label', isActuallyPlaying ? 'Pause' : 'Play');
       // Update cursor manager
-      window.HybridApp?.cursorManager?.setPlaying(playing);
+      window.HybridApp?.cursorManager?.setPlaying(isActuallyPlaying);
     };
 
     this.player.onTimeUpdate = (currentTime, duration) => {
-      if (!this.isDraggingProgress && duration > 0) {
-        const percent = (currentTime / duration) * 100;
-        this.progressFill.style.width = percent + '%';
+      if (!this.isDraggingProgress) {
         this.currentTimeEl.textContent = this.player.formatTime(currentTime);
+        if (duration > 0) {
+          const percent = (currentTime / duration) * 100;
+          this.progressFill.style.width = percent + '%';
+          if (this.showRemainingTime) {
+            const remaining = Math.max(0, duration - currentTime);
+            this.totalTimeEl.textContent = '-' + this.player.formatTime(remaining);
+          } else {
+            this.totalTimeEl.textContent = this.player.formatTime(duration);
+          }
+        }
       }
     };
 
     this.player.onMetadataLoaded = () => {
-      this.totalTimeEl.textContent = this.player.formatTime(this.player.duration);
+      if (this.showRemainingTime && this.player.duration > 0) {
+        const remaining = Math.max(0, this.player.duration - (this.player.currentTime || 0));
+        this.totalTimeEl.textContent = '-' + this.player.formatTime(remaining);
+      } else {
+        this.totalTimeEl.textContent = this.player.formatTime(this.player.duration);
+      }
       this._updateSpeedUI(this.player.speed);
       this._renderChapterMarkers();
     };
@@ -497,13 +549,25 @@ class HybridControls {
       const clamped = Math.max(0, Math.min(100, typeof volume === 'number' ? volume : 0));
       this.currentVolume = clamped / 100;                        // normalised 0-1
       this.volumeSlider.value = clamped;
-      this.volumeValue.textContent = Math.round(clamped) + '%';
+      if (this.volumeValue) {
+        this.volumeValue.textContent = Math.round(clamped) + '%';
+      }
       this._updateVolumeIcon(this.player.muted ? 0 : this.currentVolume);
       this._updateVolumeSliderFill();
+
+      if (this._hasReceivedInitialVolume && this.player.currentFilePath) {
+        this.showVolumeOsd(clamped);
+      }
+      this._hasReceivedInitialVolume = true;
     };
 
     this.player.onEnded = () => {
-      window.HybridApp?.playlistModule?.playNext();
+      const playlist = window.HybridApp?.playlistModule;
+      if (playlist?.handleTrackEnded) {
+        playlist.handleTrackEnded();
+      } else {
+        playlist?.playNext({ isAutoAdvance: true });
+      }
     };
 
     this.player.onChapterListChanged = () => {
@@ -537,8 +601,12 @@ class HybridControls {
     this._mouseOverControls = false;   // safe-zone flag
     this._isDragging = false;          // drag lock (progress + volume)
 
+    const isDraggingAny = () => {
+      return Boolean(this.isDraggingProgress || this.isDraggingVolume || this._isDragging);
+    };
+
     const canHideChrome = () => {
-      if (this._mouseOverControls || this.isDraggingProgress || this._isDragging) return false;
+      if (this._mouseOverControls || isDraggingAny()) return false;
       const welcomeScreen = document.getElementById('welcomeScreen');
       const hasMedia = !welcomeScreen || welcomeScreen.classList.contains('hidden');
       const isFullscreen = document.body.classList.contains('is-fullscreen');
@@ -571,6 +639,7 @@ class HybridControls {
     this._showControlsNow = showControls;
     this._hideControlsNow = hideControls;
     this._resetControlsHideTimer = resetHideTimer;
+    this._canHideChrome = canHideChrome;
 
     const videoContainer = document.getElementById('videoContainer');
 
@@ -599,7 +668,7 @@ class HybridControls {
     window.addEventListener('blur', () => {
       this._mouseOverControls = false;
       this._mouseOverUnlock = false;
-      if (canHideChrome() && !this.isDraggingProgress && !this._isDragging) {
+      if (canHideChrome() && !isDraggingAny()) {
         clearTimeout(this.hideTimeout);
         this.hideTimeout = setTimeout(hideControls, 2000);
       }
@@ -614,7 +683,7 @@ class HybridControls {
 
     this.controlsWrapper.addEventListener('mouseleave', () => {
       this._mouseOverControls = false;
-      if (canHideChrome() && !this.isDraggingProgress && !this._isDragging) {
+      if (canHideChrome() && !isDraggingAny()) {
         this.hideTimeout = setTimeout(hideControls, 2000);
       }
     });
@@ -628,14 +697,16 @@ class HybridControls {
 
     this.titlebar.addEventListener('mouseleave', () => {
       this._mouseOverControls = false;
-      if (canHideChrome() && !this.isDraggingProgress && !this._isDragging) {
+      if (canHideChrome() && !isDraggingAny()) {
         this.hideTimeout = setTimeout(hideControls, 2000);
       }
     });
 
-    // ── Global mouseup: reset timer after any drag ends ──
-    document.addEventListener('mouseup', () => {
-      if (this._isDragging || this.isDraggingProgress) {
+    // ── Global mouseup / touchend: reset timer after any drag ends ──
+    const handleDragRelease = () => {
+      const wasDragging = isDraggingAny();
+      this.isDraggingVolume = false;
+      if (wasDragging) {
         // Let the specific mouseup handlers clear their flags first
         requestAnimationFrame(() => {
           if (!this._mouseOverControls && canHideChrome()) {
@@ -644,7 +715,10 @@ class HybridControls {
           }
         });
       }
-    });
+    };
+    document.addEventListener('mouseup', handleDragRelease);
+    document.addEventListener('touchend', handleDragRelease, { passive: true });
+    document.addEventListener('touchcancel', handleDragRelease, { passive: true });
   }
 
   _setupProgressBar() {
@@ -656,8 +730,12 @@ class HybridControls {
     };
 
     container.addEventListener('mousedown', (e) => {
+      if (this.isLocked || window.HybridApp?.isLocked || document.body.classList.contains('is-locked')) {
+        return;
+      }
       this.isDraggingProgress = true;
-      if (this.player.currentPlaybackType === 'youtube' || this.player.currentPlaybackType === 'network') {
+      const playbackType = this.player.currentPlaybackType || window.HybridApp?.currentPlaybackType;
+      if (playbackType === 'youtube' || playbackType === 'network') {
         window.HybridApp?._setNetworkLoading(true);
       }
       window.HybridApp?.thumbnailModule?.cancelPending?.();
@@ -670,16 +748,31 @@ class HybridControls {
       if (this.isDraggingProgress) {
         const percent = getPercent(e);
         this.progressFill.style.width = percent + '%';
-        this.currentTimeEl.textContent = this.player.formatTime(this.player.duration * percent / 100);
+        const currentDragTime = (this.player.duration || 0) * percent / 100;
+        this.currentTimeEl.textContent = this.player.formatTime(currentDragTime);
+        if (this.showRemainingTime && this.player.duration > 0) {
+          const remaining = Math.max(0, this.player.duration - currentDragTime);
+          this.totalTimeEl.textContent = '-' + this.player.formatTime(remaining);
+        }
       }
     });
 
-    document.addEventListener('mouseup', (e) => {
+    const endProgressDrag = (e) => {
       if (this.isDraggingProgress) {
-        const percent = getPercent(e);
-        this.player.seekPercent(percent);
+        if (e && (e.type === 'mouseup' || e.type === 'touchend')) {
+          const percent = getPercent(e.type === 'touchend' && e.changedTouches ? e.changedTouches[0] : e);
+          this.player.seekPercent(percent);
+        }
         this.isDraggingProgress = false;
       }
+    };
+
+    document.addEventListener('mouseup', endProgressDrag);
+    document.addEventListener('touchend', endProgressDrag, { passive: true });
+    document.addEventListener('touchcancel', endProgressDrag, { passive: true });
+    window.addEventListener('blur', endProgressDrag);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) endProgressDrag();
     });
 
     // Hover preview
@@ -932,9 +1025,12 @@ class HybridControls {
       const value = parseInt(this.volumeSlider.value);          // 0-100
       this.currentVolume = value / 100;                         // normalised 0-1
       this.player.setVolume(this.currentVolume);
-      this.volumeValue.textContent = value + '%';
-      this._updateVolumeIcon(this.currentVolume);
+      if (this.volumeValue) {
+        this.volumeValue.textContent = value + '%';
+      }
+      this._updateVolumeIcon(this.player.muted ? 0 : this.currentVolume);
       this._updateVolumeSliderFill();
+      window.HybridApp?.settingsModule?.savePreference?.('volume', value);
     });
 
     this.volumeContainer.addEventListener('wheel', (e) => {
@@ -983,11 +1079,57 @@ class HybridControls {
     });
   }
 
+  toggleTimeFormat() {
+    this.showRemainingTime = !this.showRemainingTime;
+    const currentTime = this.player.currentTime || 0;
+    const duration = this.player.duration || 0;
+    if (duration > 0) {
+      if (this.showRemainingTime) {
+        const remaining = Math.max(0, duration - currentTime);
+        this.totalTimeEl.textContent = '-' + this.player.formatTime(remaining);
+      } else {
+        this.totalTimeEl.textContent = this.player.formatTime(duration);
+      }
+    } else {
+      this.totalTimeEl.textContent = '0:00';
+    }
+  }
+
   _updateABLoopButton() {
     const btn = document.getElementById('btnABLoop');
-    const isActive = this.player.abLoop.active || this.player.abLoop.a !== null;
+    if (!btn) return;
+    const hasA = this.player.abLoop.a !== null;
+    const isLoopActive = Boolean(this.player.abLoop.active);
+    const isActive = isLoopActive || hasA;
+
     btn.classList.toggle('active', isActive);
     btn.setAttribute('aria-pressed', String(isActive));
+
+    const badge = btn.querySelector('.ab-loop-badge');
+    if (badge) {
+      if (isLoopActive) {
+        badge.textContent = 'AB';
+        badge.setAttribute('font-size', '6.8');
+        badge.setAttribute('y', '14.5');
+        badge.style.display = 'inline';
+      } else if (hasA) {
+        badge.textContent = 'A';
+        badge.setAttribute('font-size', '8.5');
+        badge.setAttribute('y', '14.8');
+        badge.style.display = 'inline';
+      } else {
+        badge.textContent = '';
+        badge.style.display = 'none';
+      }
+    }
+
+    if (isLoopActive) {
+      btn.title = `A-B Loop Active (${this.player.formatTime(this.player.abLoop.a)} - ${this.player.formatTime(this.player.abLoop.b)}) (R)`;
+    } else if (hasA) {
+      btn.title = `Set Loop Point B (Point A: ${this.player.formatTime(this.player.abLoop.a)}) (R)`;
+    } else {
+      btn.title = 'A-B Loop (R)';
+    }
   }
 
   _renderChapterMarkers() {
@@ -998,7 +1140,7 @@ class HybridControls {
     if (duration <= 0) return;
 
     const chapters = this.player.getChapters()
-      .filter((chapter) => Number.isFinite(Number(chapter.time)) && chapter.time > 0 && chapter.time < duration);
+      .filter((chapter) => Number.isFinite(Number(chapter.time)) && chapter.time >= 0 && chapter.time < duration);
 
     const fragment = document.createDocumentFragment();
     chapters.forEach((chapter) => {
@@ -1172,6 +1314,25 @@ class HybridControls {
   }
 
   /**
+   * Displays the top-right Style 6 volume OSD (e.g. triggered on wheel scroll or hotkey).
+   * Automatically updates percent text, shows the element, and fades out after 900ms.
+   * @param {number} percent - Volume percent (0-100)
+   */
+  showVolumeOsd(percent) {
+    const osd = document.getElementById('volumeOsd');
+    const val = document.getElementById('volumeOsdVal');
+    if (!osd || !val) return;
+
+    val.textContent = Math.round(percent);
+    osd.classList.add('visible');
+
+    clearTimeout(this._volumeOsdTimeout);
+    this._volumeOsdTimeout = setTimeout(() => {
+      osd.classList.remove('visible');
+    }, 900);
+  }
+
+  /**
    * Displays the animated center Play/Pause OSD indicator (e.g. triggered on Spacebar or video canvas click).
    * Automatically displays a luxury obsidian glass badge and vanishes after 680ms without lingering.
    * Note: Manually clicking the bottom #btnPlay control bar button intentionally does not trigger this OSD.
@@ -1220,14 +1381,82 @@ class HybridControls {
     if (!this.recordingIndicator || !this.recordingIndicatorText) return;
 
     clearTimeout(this.recordingIndicatorTimer);
+    clearTimeout(this._recordingHideTimer);
+    this.recordingIndicator.classList.remove('hiding');
     this.recordingIndicator.hidden = false;
     this.recordingIndicator.classList.toggle('active', !!isRecording);
     this.recordingIndicatorText.textContent = text;
 
-    if (!isRecording) {
+    const strText = String(text || '');
+    const isBurst = strText.includes('Burst') || strText.includes('burst') || strText.includes('frames');
+    const isSaved = strText.includes('Saved') || strText.includes('saved') || strText.includes('✓');
+
+    if (isRecording) {
+      this.recordingIndicator.classList.remove('saved');
+      if (isBurst) {
+        this.recordingIndicator.classList.add('burst-active');
+        if (this.recordingIndicatorTitle) this.recordingIndicatorTitle.textContent = 'Burst Capturing';
+
+        // Match frame count and optional timestamp
+        const countMatch = strText.match(/frames[:\s]+(\d+)|(?:capturing:?\s*)(\d+)|(\d+)\s*frames?/i);
+        const count = countMatch ? (countMatch[1] || countMatch[2] || countMatch[3] || '0') : '0';
+        const numCount = parseInt(count, 10) || 0;
+
+        const ptsMatch = strText.match(/\(([^)]+)\)/);
+        const pts = ptsMatch ? `(${ptsMatch[1]})` : '';
+
+        if (this.recordingFrameCount) {
+          const prevCount = this.recordingFrameCount.textContent;
+          this.recordingFrameCount.textContent = count;
+          if (prevCount !== count) {
+            this.recordingFrameCount.classList.remove('digit-flash');
+            void this.recordingFrameCount.offsetWidth;
+            this.recordingFrameCount.classList.add('digit-flash');
+          }
+        }
+        if (this.recordingUnit) {
+          this.recordingUnit.textContent = numCount === 1 ? 'frame' : 'frames';
+        }
+        if (this.recordingPts) this.recordingPts.textContent = pts;
+      } else {
+        this.recordingIndicator.classList.remove('burst-active');
+        if (this.recordingIndicatorTitle) this.recordingIndicatorTitle.textContent = strText;
+      }
+    } else {
+      this.recordingIndicator.classList.remove('active', 'burst-active');
+      if (isSaved) {
+        const countMatch = strText.match(/Saved\s+(\d+)\s+frames?/i) || strText.match(/(\d+)/);
+        const count = countMatch ? (countMatch[1] || countMatch[0]) : '0';
+        const numCount = parseInt(count, 10) || 0;
+
+        if (numCount === 0) {
+          // Zero frames saved: cancel/hide immediately without flashing "Saved 0 Frames"
+          this.recordingIndicator.hidden = true;
+          this.recordingIndicator.classList.remove('saved', 'active', 'burst-active');
+          return;
+        }
+
+        this.recordingIndicator.classList.add('saved');
+        if (this.recordingSavedTitle) this.recordingSavedTitle.textContent = 'Saved to Screenshots';
+
+        if (this.recordingSavedFrames) {
+          const unit = numCount === 1 ? 'Frame' : 'Frames';
+          this.recordingSavedFrames.textContent = `${numCount} ${unit}`;
+        }
+      } else {
+        this.recordingIndicator.classList.remove('saved');
+        if (this.recordingIndicatorTitle) this.recordingIndicatorTitle.textContent = strText;
+      }
+
       this.recordingIndicatorTimer = setTimeout(() => {
-        this.recordingIndicator.hidden = true;
-      }, 1600);
+        this.recordingIndicator.classList.add('hiding');
+        this._recordingHideTimer = setTimeout(() => {
+          if (this.recordingIndicator.classList.contains('hiding')) {
+            this.recordingIndicator.hidden = true;
+            this.recordingIndicator.classList.remove('hiding', 'saved');
+          }
+        }, 350);
+      }, 1800);
     }
   }
 
@@ -1314,7 +1543,6 @@ class HybridControls {
     toggleButton('btnRepeat', !noMediaLoaded);
     toggleButton('btnABLoop', !noMediaLoaded);
     toggleButton('btnShuffle', !noMediaLoaded);
-    toggleButton('btnScreenshot', !noMediaLoaded);
     toggleButton('btnLock', !noMediaLoaded);
 
     if (!noMediaLoaded) {

@@ -1,11 +1,22 @@
 node_modules/
 dist/
+tests/
 test-results/
 playwright-report/
+playwright.config.js
 screenshots/
+test_screenshots/
+test-sample.mp4
 *.log
 *.tmp
 *.bak
+scratch*
+tests/scratch*
+inspect.js
+test_image.js
+AUDIT*.md
+.DS_Store
+Thumbs.db
 
 _inspect_appasar/
 _inspect_installer/

@@ -389,6 +389,9 @@ export function initParticles(containerElement, customOptions = {}) {
     if (containerElement.contains(gl.canvas)) {
       containerElement.removeChild(gl.canvas);
     }
+    try {
+      gl.getExtension('WEBGL_lose_context')?.loseContext();
+    } catch {}
     containerElement.style.background = '';
 
     particlesdbg(`${LOG_TAG} destroy`, {
@@ -520,8 +523,10 @@ async function syncLifecycleState() {
   if (!teardownTimer && activeInstance) {
     teardownTimer = setTimeout(() => {
       teardownTimer = null;
+      const ws = document.getElementById('welcomeScreen');
+      const isVisible = ws && !ws.classList.contains('hidden');
       const currentBg = window.__hybridWelcomeEffectsState?.welcomeBackground || 'dither';
-      if (currentBg !== 'particles') {
+      if (!isVisible || currentBg !== 'particles') {
         destroyParticles();
       }
     }, 360);

@@ -84,15 +84,6 @@ const WELCOME_QUALITY_LEVELS = Object.freeze(['low', 'medium', 'high', 'custom']
 const WELCOME_QUALITY_DEFAULT = 'medium';
 const WELCOME_BACKGROUNDS = Object.freeze(['none', 'dither', 'particles', 'faulty', 'gridmotion']);
 
-// Display labels for the background meta strip. Tag = short name, desc = one-liner.
-const BG_LABELS = Object.freeze({
-  dither: { tag: 'Dither', desc: 'Animated bayer dither' },
-  particles: { tag: 'Particles', desc: 'Drifting particle field' },
-  faulty: { tag: 'Faulty Terminal', desc: 'CRT glitch & scanlines' },
-  gridmotion: { tag: 'Grid Motion', desc: 'Interactive gliding item lattice' },
-  none: { tag: 'Default', desc: 'Pure black backdrop' },
-});
-
 function resizeGridmotionImage(file, maxDim = 400) {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -385,6 +376,7 @@ class HybridSettings {
       this.previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     }
     this.activeModal = modal;
+    window.hybridAPI?.window?.setPreventExitFullscreen?.(true);
     this._setPageInert(modal);
 
     requestAnimationFrame(() => {
@@ -405,6 +397,7 @@ class HybridSettings {
     }
 
     this.activeModal = null;
+    window.hybridAPI?.window?.setPreventExitFullscreen?.(false);
     this._setPageInert(null);
     const restoreTarget = this.previousFocus;
     this.previousFocus = null;
@@ -415,26 +408,13 @@ class HybridSettings {
 
   _closeModal(modal) {
     if (!(modal instanceof HTMLElement) || modal.hidden) return;
-    if (modal.classList.contains('modal-closing')) return;
-
-    modal.classList.add('modal-closing');
-    let finished = false;
-    const finish = () => {
-      if (finished) return;
-      finished = true;
-      modal.removeEventListener('animationend', handleAnimEnd);
-      modal.classList.remove('modal-closing');
-      modal.hidden = true;
-    };
-
-    const handleAnimEnd = (e) => {
-      if (e.target === modal || e.target.classList?.contains('modal-panel')) {
-        finish();
-      }
-    };
-
-    modal.addEventListener('animationend', handleAnimEnd);
-    setTimeout(finish, 220);
+    modal.classList.remove('modal-closing');
+    modal.hidden = true;
+    if (modal.id === 'bgSettingsModal') {
+      const accordionPopover = document.getElementById('bgAccordionPopover');
+      if (accordionPopover) accordionPopover.hidden = true;
+      this._stopAccordionLivePreviews?.();
+    }
   }
 
   _trapModalFocus(event, modal) {
@@ -471,6 +451,9 @@ class HybridSettings {
         if (overlay.hidden) {
           this._deactivateModal(overlay);
           if (overlay.id === 'bgSettingsModal') {
+            const accordionPopover = document.getElementById('bgAccordionPopover');
+            if (accordionPopover) accordionPopover.hidden = true;
+            this._stopAccordionLivePreviews?.();
             const gearBtn = document.getElementById('bgSettingsToggle');
             if (gearBtn) {
               gearBtn.classList.remove('active');
@@ -565,6 +548,27 @@ class HybridSettings {
       }
     });
 
+    // Seek step (1, 5, 10s)
+    document.getElementById('settSeekStep')?.addEventListener('change', async (e) => {
+      const step = parseInt(e.target.value, 10) || 5;
+      this.seekStep = step;
+      try {
+        await window.hybridAPI.db.setPreference('seekStep', step);
+      } catch (err) {
+        console.warn('Failed to save seekStep preference:', err);
+      }
+    });
+
+    // Double-click to fullscreen
+    document.getElementById('settDoubleClickFullscreen')?.addEventListener('change', async (e) => {
+      this.doubleClickFullscreen = e.target.checked;
+      try {
+        await window.hybridAPI.db.setPreference('doubleClickFullscreen', e.target.checked);
+      } catch (err) {
+        console.warn('Failed to save doubleClickFullscreen preference:', err);
+      }
+    });
+
     // Brand fonts
     document.getElementById('settBrandFontEnabled')?.addEventListener('change', async (e) => {
       try {
@@ -608,9 +612,13 @@ class HybridSettings {
     });
 
     // Screenshot Directory - Reset
-    document.getElementById('settResetScreenshotDir')?.addEventListener('click', async () => {
+    const resetBtn = document.getElementById('settResetScreenshotDir');
+    resetBtn?.addEventListener('click', async () => {
       try {
-        await this._applyScreenshotDir('', { persist: true });
+        const resetPromise = this._applyScreenshotDir('', { persist: true });
+        this._pendingScreenshotReset = resetPromise;
+        if (resetBtn) resetBtn._pendingReset = resetPromise;
+        await resetPromise;
         window.HybridToast?.show('Screenshot directory reset to default');
       } catch (err) {
         console.error('Failed to reset screenshot directory:', err);
@@ -1265,6 +1273,15 @@ class HybridSettings {
       // Apply other settings to UI
       this._setChecked('settAutoResume', prefs.autoResume);
 
+      // Seek step (1, 5, 10 seconds)
+      const seekStep = [1, 5, 10].includes(Number(prefs.seekStep)) ? Number(prefs.seekStep) : 5;
+      this.seekStep = seekStep;
+      this._setValue('settSeekStep', String(seekStep));
+
+      // Double-click to fullscreen (defaults to true)
+      this.doubleClickFullscreen = prefs.doubleClickFullscreen !== false;
+      this._setChecked('settDoubleClickFullscreen', this.doubleClickFullscreen);
+
       // Motion profile with reduced-motion fallback
       this.hasExplicitMotionProfile = prefs.motionProfile !== undefined && prefs.motionProfile !== null;
       const motionProfile = this._resolveMotionProfile(prefs.motionProfile);
@@ -1368,15 +1385,23 @@ class HybridSettings {
     }
 
     const effectiveDir = cleanPath || this._defaultScreenshotDir;
-    if (effectiveDir) {
-      await window.hybridAPI?.mpv?.setScreenshotDir?.(effectiveDir).catch(() => {});
-    }
+    const tasks = [];
 
     if (persist) {
-      await window.hybridAPI?.db?.setPreference?.('screenshotDir', cleanPath).catch((err) => {
-        console.warn('Failed to save screenshotDir preference:', err);
-      });
+      tasks.push(
+        window.hybridAPI?.db?.setPreference?.('screenshotDir', cleanPath).catch((err) => {
+          console.warn('Failed to save screenshotDir preference:', err);
+        })
+      );
     }
+
+    if (effectiveDir) {
+      tasks.push(
+        window.hybridAPI?.mpv?.setScreenshotDir?.(effectiveDir).catch(() => {})
+      );
+    }
+
+    await Promise.all(tasks);
   }
 
   _setChecked(id, value) {
@@ -1423,12 +1448,24 @@ class HybridSettings {
       this._setValue('settScreenshotFormat', format);
       if (prefs.theme) this._setValue('settTheme', prefs.theme);
       if (prefs.motionProfile) this._setValue('settMotionProfile', prefs.motionProfile);
+      if (prefs.seekStep) this._setValue('settSeekStep', String(prefs.seekStep));
+      if (prefs.doubleClickFullscreen !== undefined) {
+        this._setChecked('settDoubleClickFullscreen', prefs.doubleClickFullscreen !== false);
+      }
       document.querySelectorAll('.has-custom-select').forEach(sel => {
         sel._customSelectRebuild?.();
       });
     } catch (err) {
       console.warn('Failed to sync settings form state:', err);
     }
+  }
+
+  getSeekStep() {
+    return this.seekStep || 5;
+  }
+
+  isDoubleClickFullscreenEnabled() {
+    return this.doubleClickFullscreen !== false;
   }
 
   _resolveMotionProfile(value) {
@@ -1486,7 +1523,6 @@ class HybridSettings {
     const value = WELCOME_BACKGROUNDS.includes(background) ? background : 'dither';
     this._setValue('welcomeBackgroundSelect', value);
     document.body.dataset.welcomeBackground = value;
-    this._syncBgMeta(value);
 
     const subtitleMap = {
       dither: 'Dither Waves · animated bayer dither',
@@ -1511,15 +1547,6 @@ class HybridSettings {
     if (persist) {
       await window.hybridAPI.db.setPreference('welcomeBackground', value);
     }
-  }
-
-  // Update the meta strip (tag + description) under the modal header.
-  _syncBgMeta(bg) {
-    const label = BG_LABELS[bg] || BG_LABELS.dither;
-    const tagEl = document.getElementById('bgMetaTag');
-    const descEl = document.getElementById('bgMetaDesc');
-    if (tagEl) tagEl.textContent = label.tag;
-    if (descEl) descEl.textContent = label.desc;
   }
 
   _initAccordionGallery() {

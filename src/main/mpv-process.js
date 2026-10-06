@@ -60,6 +60,7 @@ class MpvProcess extends EventEmitter {
     this._recvBuf = '';                 // partial-line buffer
     this.pipeName = options.pipeName || makePipeName(options.pipePrefix || 'hybrid-mpv-ipc');
     this.observeDefaults = options.observeDefaults !== false;
+    this._defaultScreenshotDir = options.defaultScreenshotDir || options.screenshotDir || '';
     this._screenshotDir = '';
     this._screenshotFormat = 'png';
     this._autoOrganizeScreenshots = options.autoOrganizeScreenshots !== false;
@@ -120,13 +121,15 @@ class MpvProcess extends EventEmitter {
     const cookiesPath = opts.cookiesPath || path.join(__dirname, '../../cookies.txt');
     const defaultUserAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36';
-    const screenshotDir = opts.screenshotDir || path.join(__dirname, '../../screenshots');
+    const defaultScreenshotDir = opts.defaultScreenshotDir || opts.screenshotDir || path.join(__dirname, '../../screenshots');
+    const screenshotDir = opts.screenshotDir || defaultScreenshotDir;
     const screenshotFormat = String(opts.screenshotFormat || 'jpg').toLowerCase();
 
     // Ensure screenshot directory exists
     if (!fs.existsSync(screenshotDir)) {
       fs.mkdirSync(screenshotDir, { recursive: true });
     }
+    this._defaultScreenshotDir = defaultScreenshotDir;
     this._screenshotDir = screenshotDir;
     this._screenshotFormat = screenshotFormat === 'jpeg' ? 'jpg' : screenshotFormat;
 
@@ -196,6 +199,9 @@ class MpvProcess extends EventEmitter {
       '--input-default-bindings=no',
       `--input-conf=${inputConfPath}`,
       '--cursor-autohide=no',
+      // High-precision frame-accurate exact seeking
+      '--hr-seek=yes',
+      '--hr-seek-framedrop=no',
     ];
 
     if (ytDlpPath) {
@@ -442,18 +448,24 @@ class MpvProcess extends EventEmitter {
       }
 
       let done = false;
+      let onReady = null;
       const waitTimer = setTimeout(() => {
         if (done) return;
         done = true;
+        if (onReady) {
+          this.removeListener('ready', onReady);
+        }
         resolve(null);
       }, 3000);
 
-      this.once('ready', () => {
+      onReady = () => {
         if (done) return;
         done = true;
         clearTimeout(waitTimer);
+        this.removeListener('ready', onReady);
         send();
-      });
+      };
+      this.once('ready', onReady);
     });
   }
 
@@ -500,7 +512,7 @@ class MpvProcess extends EventEmitter {
   }
 
   seekRelative(seconds) {
-    return this.command('seek', seconds, 'relative');
+    return this.command('seek', seconds, 'relative+exact');
   }
 
   seekPercent(pct) {
@@ -692,8 +704,11 @@ class MpvProcess extends EventEmitter {
   }
 
   setScreenshotDir(dir) {
-    if (typeof dir === 'string' && dir.trim()) {
-      const cleanDir = dir.trim();
+    const isReset = dir == null || (typeof dir === 'string' && !dir.trim());
+    const cleanDir = isReset
+      ? (this._defaultScreenshotDir || path.join(__dirname, '../../screenshots'))
+      : (typeof dir === 'string' ? dir.trim() : '');
+    if (cleanDir) {
       if (!fs.existsSync(cleanDir)) {
         try {
           fs.mkdirSync(cleanDir, { recursive: true });

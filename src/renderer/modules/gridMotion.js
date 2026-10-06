@@ -399,8 +399,10 @@ async function syncLifecycleState() {
   if (!teardownTimer && activeInstance) {
     teardownTimer = setTimeout(() => {
       teardownTimer = null;
+      const ws = document.getElementById('welcomeScreen');
+      const isVisible = ws && !ws.classList.contains('hidden');
       const currentBg = window.__hybridWelcomeEffectsState?.welcomeBackground || 'dither';
-      if (currentBg !== 'gridmotion') {
+      if (!isVisible || currentBg !== 'gridmotion') {
         destroyGridMotion();
       }
     }, 360);

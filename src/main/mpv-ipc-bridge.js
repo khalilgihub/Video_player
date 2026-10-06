@@ -58,12 +58,25 @@ function setupMpvIpc(win, mpv) {
       fsdbg('setTrackedFullscreen skipped in mpv-ipc-bridge (transition lock)', { desired: state });
       return;
     }
-    win.__hybridFullscreenTransitionUntil = now + 400;
-    win.__hybridFullscreenState = !!state;
-    if (win.webContents && !win.webContents.isDestroyed()) {
-      win.webContents.send('window-fullscreen-transition-start', !!state);
+    const desired = !!state;
+    if (desired && !getTrackedFullscreen() && !win.isFullScreen()) {
+      win.__hybridPreFullscreenMaximized = win.isMaximized() || !!win.__hybridFakeMaximized;
+      const b = win.getBounds();
+      if (b && b.width > 0 && b.height > 0) {
+        win.__hybridPreFullscreenBounds = {
+          x: Math.round(b.x),
+          y: Math.round(b.y),
+          width: Math.round(b.width),
+          height: Math.round(b.height),
+        };
+      }
     }
-    win.setFullScreen(!!state);
+    win.__hybridFullscreenTransitionUntil = now + 400;
+    win.__hybridFullscreenState = desired;
+    if (win.webContents && !win.webContents.isDestroyed()) {
+      win.webContents.send('window-fullscreen-transition-start', desired);
+    }
+    win.setFullScreen(desired);
   };
   const getUiLocked = () => {
     if (!win || win.isDestroyed()) return false;
@@ -150,17 +163,28 @@ function setupMpvIpc(win, mpv) {
     await waitForMpvReady(previewMpv);
   };
 
-  const seekPreviewFrame = async (time) => {
-    const frameReady = waitForMpvEvent(previewMpv, 'playback-restart', 4000);
-    await Promise.all([
-      previewMpv.command('seek', time, 'absolute+exact'),
-      frameReady,
-    ]);
-  };
+  let inFlightPreview = null;
+  let nextPendingPreview = null;
+
+  previewMpv.on('exit', () => {
+    seekdbg('preview mpv process exited');
+    previewLoadedPath = null;
+    inFlightPreview = null;
+    nextPendingPreview = null;
+  });
 
   previewMpv.on('error', (err) => {
     console.warn('[mpv preview error]', err?.message || err);
+    previewLoadedPath = null;
   });
+
+  const seekPreviewFrame = async (time) => {
+    const frameReady = waitForMpvEvent(previewMpv, 'playback-restart', 1200).catch(() => null);
+    await Promise.all([
+      previewMpv.command('seek', time, 'absolute'),
+      frameReady,
+    ]);
+  };
 
   if (win && !win.isDestroyed()) {
     win.on('closed', () => {
@@ -177,8 +201,28 @@ function setupMpvIpc(win, mpv) {
   }
 
   const queuePreview = (task) => {
-    previewQueue = previewQueue.then(task, task);
-    return previewQueue;
+    if (!inFlightPreview) {
+      inFlightPreview = (async () => {
+        try {
+          return await task();
+        } finally {
+          inFlightPreview = null;
+          if (nextPendingPreview) {
+            const next = nextPendingPreview;
+            nextPendingPreview = null;
+            queuePreview(next.task).then(next.resolve, next.reject);
+          }
+        }
+      })();
+      return inFlightPreview;
+    }
+
+    return new Promise((resolve, reject) => {
+      if (nextPendingPreview) {
+        nextPendingPreview.resolve(null);
+      }
+      nextPendingPreview = { task, resolve, reject };
+    });
   };
 
   const cacheSet = (key, value, filePath = null) => {
@@ -250,12 +294,15 @@ function setupMpvIpc(win, mpv) {
     'sub-font',
     'sub-color',
     'sub-back-color',
+    'loop-file',
+    'loop-playlist',
   ]);
 
   const seekFlagsAllowlist = new Set([
     'absolute',
     'absolute+exact',
     'relative',
+    'relative+exact',
     'absolute-percent',
     'absolute+keyframes',
   ]);
@@ -344,6 +391,9 @@ function setupMpvIpc(win, mpv) {
       case 'sub-color':
       case 'sub-back-color':
         return /^#(?:[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value) ? value : null;
+      case 'loop-file':
+      case 'loop-playlist':
+        return (value === 'inf' || value === 'no' || value === 'force') ? value : null;
       default:
         return null;
     }
@@ -651,6 +701,8 @@ function setupMpvIpc(win, mpv) {
             fsdbg('action exit fullscreen');
             setTrackedFullscreen(false);
             fsdbg('action exit fullscreen done', { to: false });
+          } else {
+            win.webContents.send('keyboard-escape');
           }
         }
         break;
@@ -660,15 +712,22 @@ function setupMpvIpc(win, mpv) {
         if (mpv.ready) mpv.togglePause();
         break;
 
-      /* ── Mouse click (debounced to avoid double-fire on dblclick) */
-      case 'hybrid-mouse-click':
+      /* ── Mouse click (instant when dblclick disabled, debounced when enabled) */
+      case 'hybrid-mouse-click': {
         fsdbg('action mouse click');
+        const dblClickEnabled = global.__hybridDb?.preferences?.doubleClickFullscreen !== false;
+        if (!dblClickEnabled) {
+          if (_clickTimer) { clearTimeout(_clickTimer); _clickTimer = null; }
+          if (mpv.ready) mpv.togglePause();
+          break;
+        }
         if (_clickTimer) clearTimeout(_clickTimer);
         _clickTimer = setTimeout(() => {
           if (mpv.ready) mpv.togglePause();
           _clickTimer = null;
-        }, 250);
+        }, 160);
         break;
+      }
 
       /* ── Audio Track / Voice Switcher ───────────────── */
       case 'hybrid-cycle-audio':
@@ -677,8 +736,12 @@ function setupMpvIpc(win, mpv) {
         }
         break;
 
-      case 'hybrid-mouse-dblclick':
+      case 'hybrid-mouse-dblclick': {
         fsdbg('action mouse dblclick', { from: getTrackedFullscreen() });
+        const dblClickEnabled = global.__hybridDb?.preferences?.doubleClickFullscreen !== false;
+        if (!dblClickEnabled) {
+          break;
+        }
         // Cancel the pending single-click play toggle
         if (_clickTimer) { clearTimeout(_clickTimer); _clickTimer = null; }
         if (win && !win.isDestroyed()) {
@@ -687,21 +750,24 @@ function setupMpvIpc(win, mpv) {
           fsdbg('action mouse dblclick done', { to: next });
         }
         break;
+      }
 
       /* ── Seek ───────────────────────────────────────── */
       case 'hybrid-seek-back-5':
         if (mpv.ready) {
-          mpv.seekRelative(-5);
+          const step = Number(global.__hybridDb?.preferences?.seekStep) || 5;
+          mpv.seekRelative(-step);
           if (win && !win.isDestroyed()) {
-            win.webContents.send('mpv:event', 'skip-osd', { seconds: -5 });
+            win.webContents.send('mpv:event', 'skip-osd', { seconds: -step });
           }
         }
         break;
       case 'hybrid-seek-forward-5':
         if (mpv.ready) {
-          mpv.seekRelative(5);
+          const step = Number(global.__hybridDb?.preferences?.seekStep) || 5;
+          mpv.seekRelative(step);
           if (win && !win.isDestroyed()) {
-            win.webContents.send('mpv:event', 'skip-osd', { seconds: 5 });
+            win.webContents.send('mpv:event', 'skip-osd', { seconds: step });
           }
         }
         break;
@@ -740,6 +806,9 @@ function setupMpvIpc(win, mpv) {
   ipcMain.handle('mpv:command', async (_, ...args) => {
     const cleanArgs = sanitizeRendererMpvCommand(args);
     if (!cleanArgs) return null;
+    if (cleanArgs[0] === 'loadfile' && cleanArgs[2] === 'replace') {
+      mpv.filePath = cleanArgs[1];
+    }
     return withReady(() => mpv.command(...cleanArgs), null);
   });
 
@@ -883,8 +952,8 @@ function setupMpvIpc(win, mpv) {
   });
 
   ipcMain.handle('mpv:set-screenshot-dir', async (_, dir) => {
-    if (typeof dir === 'string' && dir.trim()) {
-      return mpv.setScreenshotDir(dir.trim());
+    if (dir == null || typeof dir === 'string') {
+      return mpv.setScreenshotDir(typeof dir === 'string' ? dir.trim() : '');
     }
     return false;
   });
@@ -987,8 +1056,7 @@ function setupMpvIpc(win, mpv) {
       // Create thumbnail base64 data for visual in-card deletion animation
       let previewDataUrl = '';
       try {
-        const ext = path.extname(cleanPath).toLowerCase();
-        const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg';
+        const mimeType = getImageMimeType(cleanPath);
         const buffer = fs.readFileSync(cleanPath);
         previewDataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
       } catch (_) {}
@@ -1069,8 +1137,7 @@ function setupMpvIpc(win, mpv) {
 
       let previewDataUrl = '';
       try {
-        const ext = path.extname(originalPath).toLowerCase();
-        const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg';
+        const mimeType = getImageMimeType(originalPath);
         const buffer = fs.readFileSync(originalPath);
         previewDataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
       } catch (_) {}
@@ -1097,6 +1164,12 @@ function setupMpvIpc(win, mpv) {
         return null;
       }
 
+      // Local media only for thumbnail preview
+      if (!isLikelyAbsoluteLocalPath(mediaPath) || !fs.existsSync(mediaPath)) {
+        seekdbg('skip: not a valid local media file');
+        return null;
+      }
+
       const safeTime = Math.max(0, Number(time) || 0);
       const rounded = Math.round(safeTime * 2) / 2;
       const cacheKey = `${mediaPath}|${rounded}`;
@@ -1119,16 +1192,11 @@ function setupMpvIpc(win, mpv) {
 
         if (previewLoadedPath !== mediaPath) {
           seekdbg('loading preview media');
-          const fileLoaded = waitForMpvEvent(previewMpv, 'file-loaded', 6000);
+          previewLoadedPath = null;
+          const fileLoaded = waitForMpvEvent(previewMpv, 'file-loaded', 6000).catch(() => null);
           await Promise.all([previewMpv.loadFile(mediaPath), fileLoaded]);
-          await previewMpv.pause();
+          await previewMpv.pause().catch(() => {});
           previewLoadedPath = mediaPath;
-
-          const warmupTime = rounded >= 0.5 ? rounded - 0.5 : rounded + 0.5;
-          const warmupPath = path.join(previewDir, '.warmup.jpg');
-          await seekPreviewFrame(warmupTime);
-          await previewMpv.command('screenshot-to-file', warmupPath, 'video');
-          fs.rmSync(warmupPath, { force: true });
         }
 
         await seekPreviewFrame(rounded);
@@ -1139,9 +1207,19 @@ function setupMpvIpc(win, mpv) {
 
         if (!fs.existsSync(thumbPath)) {
           seekdbg('capture file', { rounded });
-          await previewMpv.command('screenshot-to-file', thumbPath, 'video');
+          await previewMpv.command('screenshot-to-file', thumbPath, 'video').catch(() => null);
+
+          let retries = 15;
+          while (!fs.existsSync(thumbPath) && retries-- > 0) {
+            await new Promise((r) => setTimeout(r, 20));
+          }
         } else {
           seekdbg('reuse file', { rounded });
+        }
+
+        if (!fs.existsSync(thumbPath)) {
+          seekdbg('capture file missing after screenshot', { thumbPath });
+          return null;
         }
 
         const fileData = fs.readFileSync(thumbPath);
@@ -1150,6 +1228,9 @@ function setupMpvIpc(win, mpv) {
         cacheSet(cacheKey, payload, thumbPath);
         seekdbg('done', { rounded, bytes: fileData.length });
         return payload;
+      }).catch((err) => {
+        seekdbg('preview capture task failed', err?.message || err);
+        return null;
       });
     }, null);
   });

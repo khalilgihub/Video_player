@@ -564,6 +564,15 @@ class HybridApp {
         this.openFiles([filePath]);
       });
 
+      // Query initial file from cold start launch arguments if not yet opened
+      window.hybridAPI.app?.getInitialFile?.().then((initialPath) => {
+        if (initialPath && !this.player?.currentFilePath) {
+          this.openFiles([initialPath]);
+        }
+      }).catch((err) => {
+        console.warn('[App] Failed to query initial file:', err);
+      });
+
       // Native Media menu actions (main process -> renderer)
       window.hybridAPI.on('menu-action', async (action, payload) => {
         await this._handleMediaMenuAction(action, payload);
@@ -739,6 +748,7 @@ class HybridApp {
   }
 
   _handlePlaybackError(data) {
+    this._cancelVideoLoadSpinner?.();
     const payload = data && typeof data === 'object' ? data : {};
     const message = typeof payload.message === 'string' && payload.message.trim()
       ? payload.message.trim()
@@ -848,25 +858,25 @@ class HybridApp {
 
   async _loadMediaReplace(filePathOrUrl) {
     this._closeSettingsModal();
+    this._syncUiAfterDirectLoad(filePathOrUrl);
     this._beginVideoLoadSpinner();
     await window.hybridAPI.mpv.setProperty('vid', 'auto');
     await window.hybridAPI.mpv.command('loadfile', filePathOrUrl, 'replace');
-    this._syncUiAfterDirectLoad(filePathOrUrl);
   }
 
   async _loadMediaReplaceAppend(paths) {
     this._closeSettingsModal();
-    this._beginVideoLoadSpinner();
     const clean = paths.filter((p) => typeof p === 'string' && p.trim());
     if (clean.length === 0) return;
 
+    this._syncUiAfterDirectLoad(clean[0]);
+    this._beginVideoLoadSpinner();
     await window.hybridAPI.mpv.setProperty('vid', 'auto');
     await window.hybridAPI.mpv.command('loadfile', clean[0], 'replace');
     for (let i = 1; i < clean.length; i++) {
       await window.hybridAPI.mpv.command('loadfile', clean[i], 'append');
     }
 
-    this._syncUiAfterDirectLoad(clean[0]);
     window.HybridToast?.show(`Loaded ${clean.length} item(s)`);
   }
 
@@ -875,16 +885,29 @@ class HybridApp {
     this._stopPausedFrameHeartbeat();
     this._hidePausedFrameOverlay('sync-ui-after-load');
     this.controlsModule?.hidePlayPauseIndicator?.();
+    this.audioModule?.setSyncOffset?.(0, { apply: false });
     if (this.isClipRecording && this.recordSourcePath && this.recordSourcePath !== filePathOrUrl) {
       this.cancelClipRecording('Clip recording stopped because the source changed');
     }
 
-    this.player.currentFilePath = filePathOrUrl;
-    this.player.isPlaying = true;
+    if (this.player) {
+      this.player._singleScreenshotStack = [];
+      this.player._deletedScreenshotStack = [];
+      this.player._sessionScreenshots = [];
+      this.player.closeScreenshotCarousel?.();
+      this.player.clearABLoop?.({ notify: false });
+      this.player.currentTime = 0;
+      this.player.duration = 0;
+      this.player.currentFilePath = filePathOrUrl;
+      this.player.isPlaying = true;
+    }
 
     const isUrl = this._isNetworkMediaUrl(filePathOrUrl);
     this.currentStreamUrl = isUrl ? filePathOrUrl : null;
-    this.currentPlaybackType = this._isYoutubeUrl(filePathOrUrl) ? 'youtube' : 'local';
+    this.currentPlaybackType = this._isYoutubeUrl(filePathOrUrl)
+      ? 'youtube'
+      : (isUrl ? 'network' : 'local');
+    this.player.currentPlaybackType = this.currentPlaybackType;
 
     if (this.currentPlaybackType === 'youtube') {
       this._refreshYoutubeQualityUi(filePathOrUrl).catch(() => {
@@ -915,10 +938,12 @@ class HybridApp {
   _setVideoCurtain(visible) {
     const curtain = document.getElementById('video-curtain');
     if (!curtain) return;
-    curtain.classList.toggle('visible', !!visible);
     if (visible) {
+      curtain.style.opacity = '';
+      curtain.style.pointerEvents = '';
       this._hidePausedFrameOverlay('curtain-visible');
     }
+    curtain.classList.toggle('visible', !!visible);
     const cs = window.getComputedStyle(curtain);
     viddbg('curtain', {
       visible,
@@ -1559,6 +1584,11 @@ class HybridApp {
     });
 
     openStreamBtn?.addEventListener('click', () => {
+      const settingsModal = document.getElementById('settingsModal');
+      if (settingsModal) {
+        settingsModal.hidden = true;
+        settingsModal.classList.remove('modal-closing');
+      }
       this._showNetworkStreamModal();
     });
 

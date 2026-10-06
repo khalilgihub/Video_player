@@ -44,6 +44,7 @@ class HybridPlayer {
     this._playbackSessionId = 0;
     this._lastEndedSessionId = -1;
     this._resumeSeekTimer = null;
+    this._pendingResumeSeek = null;
 
     // Burst Screenshot State
     this._isBurstCapturing = false;
@@ -77,6 +78,11 @@ class HybridPlayer {
     this._setupMpvListeners();
     this._setupDragAndDrop();
     this._setupScreenshotListeners();
+
+    // Ensure playback position is saved if window unloads/exits
+    window.addEventListener('beforeunload', () => {
+      this.destroy();
+    });
   }
 
   addTrackListListener(fn) {
@@ -92,6 +98,22 @@ class HybridPlayer {
     this._trackListListeners.delete(fn);
   }
 
+  _tryExecutePendingResume() {
+    if (!this._pendingResumeSeek) return;
+    const { sessionId, filePath, resumeTime } = this._pendingResumeSeek;
+    if (this._playbackSessionId !== sessionId || this.currentFilePath !== filePath) {
+      this._pendingResumeSeek = null;
+      return;
+    }
+    this._pendingResumeSeek = null;
+    if (this._resumeSeekTimer) {
+      clearTimeout(this._resumeSeekTimer);
+      this._resumeSeekTimer = null;
+    }
+    window.hybridAPI.mpv.seek(resumeTime, 'absolute');
+    window.HybridToast?.show(`Resuming from ${this.formatTime(resumeTime)}`);
+  }
+
   // ─── mpv event listeners ───────────────────────────────
   _setupMpvListeners() {
     // Property changes pushed by mpv → main → preload → here
@@ -102,6 +124,9 @@ class HybridPlayer {
             this.currentTime = value;
             this.onTimeUpdate?.(this.currentTime, this.duration);
             this._maybeSaveResume();
+            if (this._pendingResumeSeek) {
+              this._tryExecutePendingResume();
+            }
           }
           break;
 
@@ -109,12 +134,20 @@ class HybridPlayer {
           if (value != null) {
             this.duration = value;
             this.onMetadataLoaded?.();
+            if (this._pendingResumeSeek) {
+              this._tryExecutePendingResume();
+            }
           }
           break;
 
         case 'pause':
-          this.isPlaying = !value;
-          this.onPlayStateChanged?.(this.isPlaying);
+          if (this.currentFilePath) {
+            this.isPlaying = !value;
+            this.onPlayStateChanged?.(this.isPlaying);
+          } else {
+            this.isPlaying = false;
+            this.onPlayStateChanged?.(false);
+          }
           break;
 
         case 'volume':
@@ -166,6 +199,10 @@ class HybridPlayer {
         case 'eof-reached':
           if (value) {
             this._handlePlaybackEnded('eof-reached');
+          } else {
+            this._lastEndedSessionId = -1;
+            this._lastEndedMediaKey = null;
+            this._lastEndedAt = 0;
           }
           break;
 
@@ -180,14 +217,23 @@ class HybridPlayer {
       switch (event) {
         case 'file-loaded':
           this.onMetadataLoaded?.();
+          this._tryExecutePendingResume();
+          break;
+        case 'playback-restart':
+          this._tryExecutePendingResume();
           break;
         case 'end-file':
           if (data === 'eof' || data?.reason === 'eof') {
             this._handlePlaybackEnded('end-file');
+          } else if (data?.reason === 'error') {
+            console.error('mpv playback error on end-file:', data);
+            window.HybridApp?._cancelVideoLoadSpinner?.();
+            this.onError?.(data?.error || data);
           }
           break;
         case 'error':
           console.error('mpv error:', data);
+          window.HybridApp?._cancelVideoLoadSpinner?.();
           this.onError?.(data);
           break;
       }
@@ -284,7 +330,7 @@ class HybridPlayer {
     const currentSession = this._playbackSessionId;
     const mediaKey = this.currentFilePath || this.currentFile || 'unknown';
     const now = Date.now();
-    if (this._lastEndedSessionId === currentSession || (this._lastEndedMediaKey === mediaKey && now - this._lastEndedAt < 1500)) {
+    if (this._lastEndedSessionId === currentSession && (this._lastEndedMediaKey === mediaKey && now - this._lastEndedAt < 1500)) {
       return;
     }
 
@@ -314,14 +360,24 @@ class HybridPlayer {
   // PUBLIC API  (matches old HybridPlayer interface)
   // ═══════════════════════════════════════════════════════
 
-  async loadFile(filePath) {
+  async loadFile(filePath, { allowResume = true } = {}) {
     const previousFilePath = this.currentFilePath;
+    const previousTime = this.currentTime;
     const sessionId = ++this._playbackSessionId;
     if (this._resumeSeekTimer) {
       clearTimeout(this._resumeSeekTimer);
       this._resumeSeekTimer = null;
     }
     try {
+      // Save previous file's resume position before switching away, if valid
+      if (previousFilePath && previousFilePath !== filePath && previousTime > 5 && !this._isNearEnd()) {
+        try {
+          window.hybridAPI.resume.save(previousFilePath, previousTime);
+        } catch (e) {
+          console.warn('Failed to save previous file resume position:', e);
+        }
+      }
+
       const settingsModal = document.getElementById('settingsModal');
       if (settingsModal) settingsModal.hidden = true;
       window.HybridApp?._beginVideoLoadSpinner?.();
@@ -335,6 +391,9 @@ class HybridPlayer {
       this._deletedScreenshotStack = [];
       this._sessionScreenshots = [];
       this.closeScreenshotCarousel?.();
+      this.clearABLoop?.({ notify: false });
+      this.currentTime = 0;
+      this.duration = 0;
       this.currentFilePath = filePath;
 
       // Ensure video track selection isn't left disabled by previous media state.
@@ -351,24 +410,31 @@ class HybridPlayer {
       const fileName = filePath.split(/[/\\]/).pop();
       document.getElementById('titlebarText').textContent = fileName + ' — Hybrid Player';
 
-      // Resume position
-      try {
-        const prefs = await window.hybridAPI.db.getAllPreferences();
-        if (prefs.autoResume) {
-          const resumeTime = await window.hybridAPI.resume.get(filePath);
-          if (resumeTime > 5) {
-            // Small delay so mpv loads first
-            this._resumeSeekTimer = setTimeout(() => {
-              if (this._playbackSessionId === sessionId && this.currentFilePath === filePath) {
-                window.hybridAPI.mpv.seek(resumeTime, 'absolute');
-                window.HybridToast?.show(`Resuming from ${this.formatTime(resumeTime)}`);
+      // Resume position (only if allowResume is enabled)
+      if (allowResume) {
+        try {
+          const prefs = await window.hybridAPI.db.getAllPreferences();
+          if (prefs.autoResume) {
+            const resumeTime = await window.hybridAPI.resume.get(filePath);
+            if (resumeTime > 5) {
+              this._pendingResumeSeek = {
+                sessionId,
+                filePath,
+                resumeTime,
+              };
+              if (this.duration > 0 || this.currentTime > 0) {
+                this._tryExecutePendingResume();
+              } else {
+                // Fallback timer in case file-loaded/restart events don't fire
+                this._resumeSeekTimer = setTimeout(() => {
+                  this._tryExecutePendingResume();
+                }, 1000);
               }
-              this._resumeSeekTimer = null;
-            }, 500);
+            }
           }
+        } catch (error) {
+          console.warn('Failed to restore resume position:', error);
         }
-      } catch (error) {
-        console.warn('Failed to restore resume position:', error);
       }
 
       // Saved speed
@@ -415,25 +481,45 @@ class HybridPlayer {
     }
   }
 
-  loadUrl(url) {
+  async loadUrl(url) {
+    const sessionId = ++this._playbackSessionId;
     const settingsModal = document.getElementById('settingsModal');
     if (settingsModal) settingsModal.hidden = true;
     window.HybridApp?._beginVideoLoadSpinner?.();
     window.HybridApp?.handleMediaSourceChange?.(url);
 
-    this.currentFilePath = url;
-    this._lastEndedMediaKey = null;
-    this._lastEndedAt = 0;
-    this._singleScreenshotStack = [];
-    this._deletedScreenshotStack = [];
-    this._sessionScreenshots = [];
-    this.closeScreenshotCarousel?.();
-    document.getElementById('titlebarText').textContent = 'Network Stream — Hybrid Player';
-    // Do NOT hide welcomeScreen synchronously here (prevents 0.01s transparency flash)
-    this.isPlaying = true;
-    this.onPlayStateChanged?.(true);
-    window.hybridAPI.mpv.setProperty('vid', 'auto');
-    window.hybridAPI.mpv.loadFile(url);
+    try {
+      this.currentFilePath = url;
+      this.currentTime = 0;
+      this.duration = 0;
+      this._lastEndedMediaKey = null;
+      this._lastEndedAt = 0;
+      this._singleScreenshotStack = [];
+      this._deletedScreenshotStack = [];
+      this._sessionScreenshots = [];
+      this.closeScreenshotCarousel?.();
+      this.clearABLoop?.({ notify: false });
+      document.getElementById('titlebarText').textContent = 'Network Stream — Hybrid Player';
+      // Do NOT hide welcomeScreen synchronously here (prevents 0.01s transparency flash)
+      this.isPlaying = true;
+      this.onPlayStateChanged?.(true);
+      await window.hybridAPI.mpv.setProperty('vid', 'auto');
+      const loadResult = await window.hybridAPI.mpv.loadFile(url);
+      if (loadResult === false || loadResult == null) {
+        throw new Error('Failed to open network stream');
+      }
+      return true;
+    } catch (err) {
+      if (this._playbackSessionId === sessionId) {
+        this.currentFilePath = null;
+        this.isPlaying = false;
+        this.onPlayStateChanged?.(false);
+      }
+      window.HybridApp?._cancelVideoLoadSpinner?.();
+      console.error('Failed to load url:', err);
+      window.HybridToast?.show('Failed to load network stream');
+      return false;
+    }
   }
 
   _setupScreenshotListeners() {
@@ -444,6 +530,7 @@ class HybridPlayer {
   }
 
   togglePlay() {
+    if (!this.currentFilePath) return;
     this.isPlaying = !this.isPlaying;
     this.onPlayStateChanged?.(this.isPlaying);
     window.hybridAPI.mpv.togglePause();
@@ -452,12 +539,17 @@ class HybridPlayer {
   stop() {
     window.hybridAPI.mpv.stop();
     this.isPlaying = false;
+    this.onPlayStateChanged?.(false);
   }
 
   seek(time) {
     if (!isNaN(time) && isFinite(time)) {
+      this._lastEndedSessionId = -1;
+      this._lastEndedMediaKey = null;
+      this._lastEndedAt = 0;
       window.HybridApp?._setNetworkLoading(true);
-      window.hybridAPI.mpv.seek(Math.max(0, Math.min(time, this.duration)), 'absolute');
+      const targetTime = this.duration > 0 ? Math.max(0, Math.min(time, this.duration)) : Math.max(0, time);
+      window.hybridAPI.mpv.seek(targetTime, 'absolute');
     }
   }
 
@@ -511,27 +603,54 @@ class HybridPlayer {
 
   // ── A-B Loop ───────────────────────────────────────────
   setABLoop() {
+    if (!this.currentFilePath) {
+      return this.abLoop;
+    }
+
     if (this.abLoop.a === null) {
       this.abLoop.a = this.currentTime;
       window.hybridAPI.mpv.setABLoopA(this.currentTime);
       window.HybridToast?.show(`Loop A: ${this.formatTime(this.abLoop.a)}`);
     } else if (this.abLoop.b === null) {
-      this.abLoop.b = this.currentTime;
-      this.abLoop.active = true;
-      window.hybridAPI.mpv.setABLoopB(this.currentTime);
-      window.HybridToast?.show('Loop A-B active');
-      document.getElementById('abLoopIndicator').hidden = false;
+      if (this.currentTime <= this.abLoop.a) {
+        const earlier = this.currentTime;
+        const later = this.abLoop.a;
+        if (earlier === later) {
+          window.HybridToast?.show('Point B must be different from Point A');
+          return this.abLoop;
+        }
+        this.abLoop.a = earlier;
+        this.abLoop.b = later;
+        window.hybridAPI.mpv.setABLoopA(earlier);
+        window.hybridAPI.mpv.setABLoopB(later);
+        this.abLoop.active = true;
+        window.HybridToast?.show('Loop A-B active');
+        const indicator = document.getElementById('abLoopIndicator');
+        if (indicator) indicator.hidden = false;
+      } else {
+        this.abLoop.b = this.currentTime;
+        this.abLoop.active = true;
+        window.hybridAPI.mpv.setABLoopB(this.currentTime);
+        window.HybridToast?.show('Loop A-B active');
+        const indicator = document.getElementById('abLoopIndicator');
+        if (indicator) indicator.hidden = false;
+      }
     } else {
       this.clearABLoop();
     }
+    window.HybridApp?.controlsModule?._updateABLoopButton?.();
     return this.abLoop;
   }
 
-  clearABLoop() {
+  clearABLoop({ notify = true } = {}) {
     this.abLoop = { a: null, b: null, active: false };
     window.hybridAPI.mpv.clearABLoop();
-    document.getElementById('abLoopIndicator').hidden = true;
-    window.HybridToast?.show('Loop cleared');
+    const indicator = document.getElementById('abLoopIndicator');
+    if (indicator) indicator.hidden = true;
+    window.HybridApp?.controlsModule?._updateABLoopButton?.();
+    if (notify) {
+      window.HybridToast?.show('Loop cleared');
+    }
   }
 
   _recordSingleScreenshot(payload) {
@@ -581,10 +700,6 @@ class HybridPlayer {
       const payload = await window.hybridAPI?.mpv?.screenshot('video');
       console.log('[SCREENSHOT][renderer] mpv.screenshot returned payload:', payload);
       this._recordSingleScreenshot(payload);
-      window.HybridToast?.show('📸 Screenshot saved');
-      if (payload && typeof payload === 'object') {
-        this._showScreenshotPreview(payload);
-      }
     } catch (err) {
       console.error('[SCREENSHOT][renderer] Screenshot failed:', err);
       window.HybridToast?.show('Screenshot failed');
@@ -594,16 +709,12 @@ class HybridPlayer {
   async deleteLatestScreenshot() {
     if (!this._singleScreenshotStack || this._singleScreenshotStack.length === 0) {
       this._showScreenshotNotice('No screenshots to delete', '🗑️');
-      const msg = '⚠️ No recent screenshots to delete';
-      window.HybridToast?.show(msg);
       return;
     }
 
     const targetPath = this._singleScreenshotStack.pop();
     if (!targetPath) {
       this._showScreenshotNotice('No screenshots to delete', '🗑️');
-      const msg = '⚠️ No recent screenshots to delete';
-      window.HybridToast?.show(msg);
       return;
     }
 
@@ -642,8 +753,6 @@ class HybridPlayer {
           badgeType: 'deleted',
           isDeleting: true,
         });
-
-        window.HybridToast?.show(`🗑️ Deleted screenshot: ${fileName}`);
       } else {
         const errMsg = 'Failed to delete screenshot';
         window.HybridToast?.show(errMsg);
@@ -658,22 +767,19 @@ class HybridPlayer {
   async restoreLatestScreenshot() {
     if (!this._deletedScreenshotStack || this._deletedScreenshotStack.length === 0) {
       this._showScreenshotNotice('No screenshots to restore', '↩️');
-      const msg = '⚠️ No deleted screenshots to restore';
-      window.HybridToast?.show(msg);
       return;
     }
 
-    const stagedItem = this._deletedScreenshotStack.pop();
+    const stagedItem = this._deletedScreenshotStack[this._deletedScreenshotStack.length - 1];
     if (!stagedItem) {
       this._showScreenshotNotice('No screenshots to restore', '↩️');
-      const msg = '⚠️ No deleted screenshots to restore';
-      window.HybridToast?.show(msg);
       return;
     }
 
     try {
       const result = await window.hybridAPI?.mpv?.restoreScreenshot?.(stagedItem);
       if (result?.success) {
+        this._deletedScreenshotStack.pop();
         const fileName = result.fileName || stagedItem.originalPath.split(/[/\\]/).pop();
 
         // Push restored screenshot back to singleScreenshotStack so D can delete it again
@@ -702,8 +808,6 @@ class HybridPlayer {
           badgeText: 'Restored',
           badgeType: 'restored',
         });
-
-        window.HybridToast?.show(`✓ Restored screenshot: ${fileName}`);
       } else {
         const errMsg = 'Failed to restore screenshot';
         window.HybridToast?.show(errMsg);
@@ -727,13 +831,11 @@ class HybridPlayer {
     const nonce = Math.random().toString(36).substring(2, 6);
     this._burstSessionId = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}_${nonce}`;
 
-    window.HybridApp?.controlsModule?.setRecordingState(true, '📸 Burst capturing frames: 0');
-
     // Video FPS pacing (default to ~24 fps = 41ms interval)
     const fps = Number(this.videoParams?.fps) || 24;
     const intervalMs = Math.max(16, Math.floor(1000 / fps));
 
-    this._burstCaptureTimer = setInterval(async () => {
+    const doCapture = async () => {
       if (!this._isBurstCapturing) return;
       if (this._burstInFlight) return; // Strict 1-by-1 in-flight handshake: 0 queue backlog!
 
@@ -741,18 +843,29 @@ class HybridPlayer {
       this._burstFrameCount += 1;
       const count = this._burstFrameCount;
 
-      try {
-        await window.hybridAPI?.mpv?.screenshotBurstFrame(this._burstSessionId, count, 'video');
-        if (this._isBurstCapturing) {
-          const timeStr = this.formatTime ? this.formatTime(this.currentTime) : '';
-          const ptsPart = timeStr ? ` (${timeStr})` : '';
-          window.HybridApp?.controlsModule?.setRecordingState(true, `📸 Burst capturing: ${count} frames${ptsPart}`);
+      const timeStr = this.formatTime ? this.formatTime(this.currentTime) : '';
+      const ptsPart = timeStr ? ` (${timeStr})` : '';
+      const unit = count === 1 ? 'frame' : 'frames';
+      window.HybridApp?.controlsModule?.setRecordingState(true, `📸 Burst capturing: ${count} ${unit}${ptsPart}`);
+
+      const flightPromise = (async () => {
+        try {
+          await window.hybridAPI?.mpv?.screenshotBurstFrame(this._burstSessionId, count, 'video');
+        } catch (err) {
+          console.error('Burst frame capture failed:', err);
+        } finally {
+          this._burstInFlight = false;
         }
-      } catch (err) {
-        console.error('Burst frame capture failed:', err);
-      } finally {
-        this._burstInFlight = false;
-      }
+      })();
+      this._burstInFlightPromise = flightPromise;
+      await flightPromise;
+    };
+
+    // Capture Frame 1 immediately on start — eliminates 0-frame dead lag!
+    doCapture();
+
+    this._burstCaptureTimer = setInterval(() => {
+      doCapture();
     }, intervalMs);
   }
 
@@ -765,16 +878,29 @@ class HybridPlayer {
       this._burstCaptureTimer = null;
     }
 
-    const total = this._burstFrameCount;
-    window.HybridApp?.controlsModule?.setRecordingState(false, `✓ Saved ${total} frames`);
-    if (total > 0) {
-      const result = await window.hybridAPI?.mpv?.finalizeBurstSession(this._burstSessionId, total);
-      if (result?.inSubfolder && result?.folderName) {
-        window.HybridToast?.show(`📸 Saved ${total} frames to folder: ${result.folderName}`);
-      } else {
-        window.HybridToast?.show(`📸 Saved ${total} frames to Screenshots`);
-      }
+    // Await any in-flight frame capture with a safety timeout to prevent race conditions
+    if (this._burstInFlightPromise) {
+      try {
+        await Promise.race([
+          this._burstInFlightPromise,
+          new Promise(r => setTimeout(r, 200)),
+        ]);
+      } catch (_) {}
     }
+
+    const total = this._burstFrameCount;
+    if (total === 0) {
+      // 0-frame quick tap fallback: cleanly hide indicator and take a single screenshot
+      window.HybridApp?.controlsModule?.setRecordingState(false, '');
+      const ind = document.getElementById('recordingIndicator');
+      if (ind) ind.hidden = true;
+      this.takeScreenshot();
+      return;
+    }
+
+    const unit = total === 1 ? 'frame' : 'frames';
+    window.HybridApp?.controlsModule?.setRecordingState(false, `✓ Saved ${total} ${unit}`);
+    await window.hybridAPI?.mpv?.finalizeBurstSession(this._burstSessionId, total);
   }
 
   _showScreenshotPreview(payload) {
@@ -939,6 +1065,10 @@ class HybridPlayer {
       !this._carouselEl.classList.contains('restoring');
   }
 
+  isCarouselOpen() {
+    return this.isScreenshotCarouselOpen();
+  }
+
   getCarouselMode() {
     return this._carouselMode || 'delete';
   }
@@ -946,7 +1076,6 @@ class HybridPlayer {
   openScreenshotCarousel() {
     if (!this._sessionScreenshots || this._sessionScreenshots.length === 0) {
       this._showScreenshotNotice('No screenshots to delete', '🗑️');
-      window.HybridToast?.show('⚠️ No session screenshots to delete');
       return;
     }
 
@@ -969,7 +1098,6 @@ class HybridPlayer {
   openRestoreCarousel() {
     if (!this._deletedScreenshotStack || this._deletedScreenshotStack.length === 0) {
       this._showScreenshotNotice('No screenshots to restore', '↩️');
-      window.HybridToast?.show('⚠️ No deleted screenshots to restore');
       return;
     }
 
@@ -1105,8 +1233,6 @@ class HybridPlayer {
           fileName,
           previewDataUrl: result.previewDataUrl || selected.previewDataUrl,
         });
-
-        window.HybridToast?.show(`🗑️ Deleted screenshot: ${fileName}`);
       } else {
         window.HybridToast?.show('Failed to delete screenshot');
       }
@@ -1184,8 +1310,6 @@ class HybridPlayer {
           previewUrl: `local-file:///${encodeURI(result.filePath.replace(/\\/g, '/'))}`,
           timestamp: Date.now(),
         });
-
-        window.HybridToast?.show(`✓ Restored screenshot: ${restoredFileName}`);
       } else {
         window.HybridToast?.show('Failed to restore screenshot');
       }
@@ -1336,7 +1460,6 @@ class HybridPlayer {
       const lang = this.formatLanguageName(track.lang);
       const title = track.title ? ` (${track.title})` : '';
       const label = lang ? `${lang}${title}` : (track.title || `Track ${track.id}`);
-      window.HybridToast?.show(`Voice: ${label}`);
     }
   }
 
@@ -1379,7 +1502,11 @@ class HybridPlayer {
     }
   }
 
-  toggleSubsDubs() {
+  setSubsDubsMode(mode) {
+    return this.toggleSubsDubs(mode);
+  }
+
+  toggleSubsDubs(targetMode = null) {
     const audioTracks = (this.trackList || []).filter(t => t.type === 'audio');
     const subTracks = (this.trackList || []).filter(t => t.type === 'sub');
 
@@ -1390,43 +1517,50 @@ class HybridPlayer {
       const engTrack = audioTracks.find(t => this._isEnglishTrack(t));
 
       let targetAudio = null;
-      let targetMode = ''; // 'subs' or 'dubs'
+      let mode = targetMode;
 
       if (japTrack && engTrack) {
         // Classic Anime Dual-Audio (Japanese + English)
-        if (currentAudio.id === japTrack.id) {
-          // Switch from Subs (JP) -> Dubs (EN)
+        if (!mode) {
+          if (currentAudio.id === japTrack.id) {
+            mode = 'dubs';
+          } else {
+            mode = 'subs';
+          }
+        }
+        if (mode === 'dubs') {
           targetAudio = engTrack;
-          targetMode = 'dubs';
         } else {
-          // Switch from Dubs (EN) -> Subs (JP)
           targetAudio = japTrack;
-          targetMode = 'subs';
         }
       } else {
         // Generic multi-audio fallback: cycle to next audio track
-        const currentIndex = audioTracks.findIndex(t => t.selected);
-        const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % audioTracks.length : 0;
-        targetAudio = audioTracks[nextIndex];
-        targetMode = (nextIndex === 0) ? 'subs' : 'dubs';
+        if (mode === 'subs') {
+          targetAudio = audioTracks[0];
+        } else if (mode === 'dubs') {
+          targetAudio = audioTracks[1] || audioTracks[0];
+        } else {
+          const currentIndex = audioTracks.findIndex(t => t.selected);
+          const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % audioTracks.length : 0;
+          targetAudio = audioTracks[nextIndex];
+          mode = (nextIndex === 0) ? 'subs' : 'dubs';
+        }
       }
 
       // Apply target audio track in mpv
       window.hybridAPI.mpv.setAudio(targetAudio.id);
       audioTracks.forEach(t => { t.selected = (t.id === targetAudio.id); });
 
-      if (targetMode === 'dubs' || this._isEnglishTrack(targetAudio)) {
+      if (mode === 'dubs' || (!mode && this._isEnglishTrack(targetAudio))) {
         // DUBS MODE: English voice -> Check if there's a signs/songs track, else turn off dialogue subs
         const signsSub = subTracks.find(t => this._isSignsOrSongsSub(t));
         if (signsSub) {
           window.hybridAPI.mpv.setSub(signsSub.id);
           window.hybridAPI.mpv.setSubVisibility(true);
           this.subVisible = true;
-          window.HybridToast?.show('Dubs: English Voice [Signs & Songs Subs]');
         } else {
           window.hybridAPI.mpv.setSubVisibility(false);
           this.subVisible = false;
-          window.HybridToast?.show('Dubs: English Voice [Subtitles Off]');
         }
       } else {
         // SUBS MODE: Japanese voice -> Enable full English subtitles
@@ -1437,22 +1571,19 @@ class HybridPlayer {
           window.hybridAPI.mpv.setSub(fullSub.id);
           window.hybridAPI.mpv.setSubVisibility(true);
           this.subVisible = true;
-          const subName = fullSub.title || this.formatLanguageName(fullSub.lang) || 'English';
-          window.HybridToast?.show(`Subs: Japanese Voice [${subName} Subtitles On]`);
         } else {
           window.hybridAPI.mpv.setSubVisibility(true);
           this.subVisible = true;
-          window.HybridToast?.show('Subs: Japanese Voice [Subtitles On]');
         }
       }
 
       this._updateSubsDubsButtonUI();
-      return targetMode;
+      return mode;
     }
 
     // Case 2: Only 1 audio track, but subtitles exist -> Toggle subtitles ON / OFF
     if (subTracks.length > 0) {
-      const nextSubVis = !this.subVisible;
+      const nextSubVis = targetMode === 'subs' ? true : (targetMode === 'dubs' ? false : !this.subVisible);
       window.hybridAPI.mpv.setSubVisibility(nextSubVis);
       this.subVisible = nextSubVis;
       window.HybridToast?.show(nextSubVis ? 'Subtitles On (Subs)' : 'Subtitles Off');
@@ -1465,7 +1596,36 @@ class HybridPlayer {
   }
 
   cycleAudioTrack() {
-    return this.toggleSubsDubs();
+    const audioTracks = (this.trackList || []).filter(t => t.type === 'audio');
+    if (audioTracks.length === 0) {
+      window.HybridToast?.show('No audio tracks found');
+      return null;
+    }
+
+    if (audioTracks.length === 1) {
+      const name = audioTracks[0].title || this.formatLanguageName(audioTracks[0].lang) || 'Default';
+      return audioTracks[0];
+    }
+
+    const currentIndex = audioTracks.findIndex(t => t.selected);
+    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % audioTracks.length : 0;
+    const targetAudio = audioTracks[nextIndex];
+
+    const japTrack = audioTracks.find(t => this._isJapaneseTrack(t));
+    const engTrack = audioTracks.find(t => this._isEnglishTrack(t));
+
+    // If it's a dual anime track and we are cycling between JP and EN, use toggleSubsDubs logic
+    if (japTrack && engTrack && (targetAudio.id === japTrack.id || targetAudio.id === engTrack.id)) {
+      const targetMode = (targetAudio.id === engTrack.id) ? 'dubs' : 'subs';
+      this.toggleSubsDubs(targetMode);
+      return targetAudio;
+    }
+
+    window.hybridAPI.mpv.setAudio(targetAudio.id);
+    audioTracks.forEach(t => { t.selected = (t.id === targetAudio.id); });
+
+    this._updateSubsDubsButtonUI();
+    return targetAudio;
   }
 
   // ── Subtitle helpers ───────────────────────────────────
@@ -1571,13 +1731,17 @@ class HybridPlayer {
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
 
-  destroy() {
+  async destroy() {
     if (this._resumeSeekTimer) {
       clearTimeout(this._resumeSeekTimer);
       this._resumeSeekTimer = null;
     }
     if (this.currentFilePath && this.currentTime > 5 && !this._isNearEnd()) {
-      window.hybridAPI.resume.save(this.currentFilePath, this.currentTime);
+      try {
+        return await window.hybridAPI.resume.save(this.currentFilePath, this.currentTime, { immediate: true });
+      } catch (e) {
+        console.warn('Failed to save resume on destroy:', e);
+      }
     }
   }
 }

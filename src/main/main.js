@@ -441,6 +441,11 @@ async function getYoutubeQualityHeights(url) {
 
 function registerSystemDialogHandlers(win) {
   ipcMain.handle('app:get-startup-diagnostics', async () => startupDiagnostics.slice());
+  ipcMain.handle('app:get-initial-file', async () => {
+    return process.argv
+      .map((arg) => resolveExistingLocalFile(arg, MEDIA_EXTENSIONS))
+      .find(Boolean) || null;
+  });
 
   ipcMain.handle('dialog:openFile', async () => {
     const result = await dialog.showOpenDialog(win, {
@@ -746,6 +751,8 @@ function restorePreFullscreenBounds(win, source = 'unknown') {
   return false;
 }
 
+let isClampingWindowBounds = false;
+
 function applyWindowedSize(win) {
   if (!win || win.isDestroyed()) return;
   if (win.__hybridFakeMaximized) {
@@ -910,6 +917,8 @@ function createDefaultDatabase() {
       screenshotDir: '',
       screenshotFormat: 'jpg',
       autoOrganizeScreenshots: true,
+      seekStep: 5,
+      doubleClickFullscreen: true,
     },
     history: [],
     resumePositions: {},
@@ -1009,6 +1018,10 @@ async function flushDatabaseAsync() {
 function saveDatabase(db, { immediate = false } = {}) {
   pendingDb = db;
   if (immediate) {
+    if (dbSaveTimer) {
+      clearTimeout(dbSaveTimer);
+      dbSaveTimer = null;
+    }
     try {
       const dir = path.dirname(DB_PATH);
       fs.mkdirSync(dir, { recursive: true });
@@ -1425,6 +1438,13 @@ function createMainWindow() {
     }
   });
 
+  // Suppress OS-level browser navigation on Mouse 4 (Back) / Mouse 5 (Forward)
+  mainWindow.on('app-command', (event, cmd) => {
+    if (cmd === 'browser-backward' || cmd === 'browser-forward') {
+      event.preventDefault();
+    }
+  });
+
   // Smooth show – also spawn mpv once the window is visible
   mainWindow.once('ready-to-show', () => {
     mainWindow.maximize();
@@ -1481,6 +1501,7 @@ function createMainWindow() {
         ytdlPath: resolvedYtdlpPath,
         hwdec: 'auto-safe',
         screenshotDir: effectiveScreenshotDir,
+        defaultScreenshotDir: defaultScreenshotDir,
         screenshotFormat: effectiveScreenshotFormat,
         autoOrganizeScreenshots: currentDb?.preferences?.autoOrganizeScreenshots !== false,
         enableYtdlRawOptions: true
@@ -1493,6 +1514,12 @@ function createMainWindow() {
         fatal: true,
         message: err?.message || 'Playback engine could not be started',
       });
+    }
+  });
+
+  mainWindow.on('close', () => {
+    if (pendingDb) {
+      saveDatabase(pendingDb, { immediate: true });
     }
   });
 
@@ -1706,7 +1733,9 @@ function setupGlobalShortcuts() {
     if (getTrackedFullscreen(mainWindow)) {
       fsdbg('globalShortcut exit fullscreen');
       setTrackedFullscreen(mainWindow, false, 'globalShortcut-escape');
+      return;
     }
+    mainWindow.webContents.send('keyboard-escape');
   };
 
   const sync = () => {
@@ -1835,14 +1864,34 @@ app.whenReady().then(() => {
   });
 
   const db = loadDatabase();
+  global.__hybridDb = db;
   const win = createMainWindow();
   setupGlobalShortcuts();
   Menu.setApplicationMenu(null);
   registerSystemDialogHandlers(win);
   setupIpcHandlers(ipcMain, win, db, saveDatabase);
+
+  const initialFilePath = process.argv
+    .map((arg) => resolveExistingLocalFile(arg, MEDIA_EXTENSIONS))
+    .find(Boolean);
+  if (initialFilePath) {
+    const sendInitialFile = () => {
+      if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
+        win.webContents.send('open-file-from-args', initialFilePath);
+      }
+    };
+    if (win.webContents.isLoading()) {
+      win.webContents.once('did-finish-load', () => setTimeout(sendInitialFile, 150));
+    } else {
+      setTimeout(sendInitialFile, 150);
+    }
+  }
 });
 
 app.on('will-quit', () => {
+  if (pendingDb) {
+    saveDatabase(pendingDb, { immediate: true });
+  }
   // Can fire before app is ready (e.g., second-instance lock fails).
   // globalShortcut API throws if used before readiness.
   if (app.isReady()) {
@@ -1861,7 +1910,7 @@ app.on('activate', () => {
 });
 
 // Prevent multiple instances
-const gotLock = app.requestSingleInstanceLock();
+const gotLock = process.env.NODE_ENV === 'test' || app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
@@ -1886,7 +1935,8 @@ function getMimeType(filePath) {
     '.mp4': 'video/mp4', '.mkv': 'video/x-matroska', '.avi': 'video/x-msvideo',
     '.mov': 'video/quicktime', '.webm': 'video/webm', '.flv': 'video/x-flv',
     '.m3u8': 'application/x-mpegURL', '.srt': 'text/plain', '.vtt': 'text/vtt',
-    '.ass': 'text/plain', '.jpg': 'image/jpeg', '.png': 'image/png'
+    '.ass': 'text/plain', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.png': 'image/png', '.webp': 'image/webp'
   };
   return types[ext] || 'application/octet-stream';
 }

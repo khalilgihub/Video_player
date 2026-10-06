@@ -122,6 +122,7 @@ function sanitizePreference(key, value) {
     case 'autoResume':
     case 'brandFontEnabled':
     case 'autoOrganizeScreenshots':
+    case 'doubleClickFullscreen':
       return !!value;
     case 'volume':
       return clampNumber(value, 0, 1, 1);
@@ -140,6 +141,8 @@ function sanitizePreference(key, value) {
       return normalizeString(value, { max: 4096, trim: true }) || '';
     case 'screenshotFormat':
       return ['jpg', 'jpeg', 'png', 'webp'].includes(String(value).toLowerCase()) ? (String(value).toLowerCase() === 'jpeg' ? 'jpg' : String(value).toLowerCase()) : INVALID_PREF;
+    case 'seekStep':
+      return [1, 5, 10].includes(Number(value)) ? Number(value) : INVALID_PREF;
     default:
       return INVALID_PREF;
   }
@@ -799,7 +802,12 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
   ipcMain.handle('window:minimize', () => win.minimize());
   ipcMain.handle('toggle-maximize', () => toggleWindowMaximize(win));
   ipcMain.handle('window:maximize', () => toggleWindowMaximize(win));
-  ipcMain.handle('window:close', () => win.close());
+  ipcMain.handle('window:close', () => {
+    try {
+      saveDatabase(db, { immediate: true });
+    } catch {}
+    win.close();
+  });
   ipcMain.handle('window:titlebar-drag-start', (_, payload) => beginTitlebarDragSession(win, payload));
   ipcMain.handle('window:titlebar-drag-move', (_, payload) => moveTitlebarDragSession(win, payload));
   ipcMain.handle('window:titlebar-drag-end', () => endTitlebarDragSession(win));
@@ -932,7 +940,7 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
     return db.history.slice(0, limit);
   });
 
-  ipcMain.handle('resume:save', async (_, filePath, time) => {
+  ipcMain.handle('resume:save', async (_, filePath, time, options = {}) => {
     const mediaPath = sanitizeMediaKey(filePath);
     if (!mediaPath) return false;
     setBoundedMemoryValue(
@@ -940,7 +948,7 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
       mediaPath,
       clampNumber(time, 0, 30 * 24 * 60 * 60, 0)
     );
-    saveDatabase(db);
+    saveDatabase(db, options?.immediate ? { immediate: true } : undefined);
     return true;
   });
 

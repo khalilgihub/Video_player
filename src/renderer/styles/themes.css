@@ -194,9 +194,9 @@
   --brand-card-top: #dde7f7;
 }
 
-/* Light theme titlebar text fix */
-[data-theme="light"] .titlebar { color: var(--text-primary); }
-[data-theme="light"] .titlebar-btn { color: var(--text-secondary); }
+/* Light theme titlebar text fix — keep light over dark welcome screen & video canvas */
+[data-theme="light"] .titlebar { color: #ffffff; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75); }
+[data-theme="light"] .titlebar-btn { color: rgba(255, 255, 255, 0.9); }
 [data-theme="light"] .sidebar-playlist { background: var(--bg-secondary); }
 
 body.brand-font-disabled {

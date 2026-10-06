@@ -9,7 +9,8 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 contextBridge.exposeInMainWorld('hybridAPI', {
   app: {
     getStartupDiagnostics: () => ipcRenderer.invoke('app:get-startup-diagnostics'),
-    getDefaultScreenshotDir: () => ipcRenderer.invoke('app:get-default-screenshot-dir')
+    getDefaultScreenshotDir: () => ipcRenderer.invoke('app:get-default-screenshot-dir'),
+    getInitialFile: () => ipcRenderer.invoke('app:get-initial-file')
   },
 
   // ─── Window Controls ───────────────────────────────────
@@ -148,7 +149,7 @@ contextBridge.exposeInMainWorld('hybridAPI', {
   },
 
   resume: {
-    save: (filePath, time) => ipcRenderer.invoke('resume:save', filePath, time),
+    save: (filePath, time, options) => ipcRenderer.invoke('resume:save', filePath, time, options),
     get: (filePath) => ipcRenderer.invoke('resume:get', filePath),
     clear: (filePath) => ipcRenderer.invoke('resume:clear', filePath)
   },

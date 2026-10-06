@@ -56,19 +56,11 @@ class HybridSubtitles {
       }
     });
 
-    syncSlider?.addEventListener('change', (e) => {
-      const val = parseFloat(e.target.value);
-      if (Number.isFinite(val)) {
-        window.HybridToast?.show(`Subtitle sync: ${this._formatSeconds(this.syncOffset)}`);
-      }
-    });
-
     // Sync step buttons (seconds)
     document.getElementById('subSyncMinusLarge')?.addEventListener('click', () => this.adjustSync(-0.5));
     document.getElementById('subSyncMinus')?.addEventListener('click', () => this.adjustSync(-0.1));
     document.getElementById('subSyncReset')?.addEventListener('click', () => {
       this.setSyncOffset(0);
-      window.HybridToast?.show('Subtitle sync: 0.0s (Reset)');
     });
     document.getElementById('subSyncPlus')?.addEventListener('click', () => this.adjustSync(0.1));
     document.getElementById('subSyncPlusLarge')?.addEventListener('click', () => this.adjustSync(0.5));
@@ -110,8 +102,9 @@ class HybridSubtitles {
   }
 
   adjustSync(deltaSec) {
-    const nextOffset = this.setSyncOffset(this.syncOffset + deltaSec);
-    window.HybridToast?.show(`Subtitle sync: ${this._formatSeconds(nextOffset)}`);
+    const res = this.setSyncOffset(this.syncOffset + deltaSec);
+    window.HybridToast?.show(`Subtitle delay: ${this._formatSeconds(this.syncOffset)}`);
+    return res;
   }
 
   _formatSeconds(sec) {
@@ -127,8 +120,8 @@ class HybridSubtitles {
     let offsetSec = Number(offset);
     if (!Number.isFinite(offsetSec)) offsetSec = 0;
 
-    // Backward compatibility: Convert from ms if explicitly marked or if > 20 (legacy ms values)
-    if (isMs || Math.abs(offsetSec) > 20) {
+    // Backward compatibility: Convert from ms if explicitly marked or if >= 1000 (legacy ms values outside max second limit of 600)
+    if (isMs || Math.abs(offsetSec) >= 1000) {
       offsetSec = offsetSec / 1000;
     }
 
@@ -161,12 +154,14 @@ class HybridSubtitles {
 
   disable() {
     window.hybridAPI.mpv.setSubVisibility(false);
+    this.player.subVisible = false;
     this.overlay.replaceChildren();
     this._updateTrackList(this.player.trackList);
   }
 
   enable() {
     window.hybridAPI.mpv.setSubVisibility(true);
+    this.player.subVisible = true;
   }
 
   /** Send subtitle appearance props to mpv */
@@ -231,6 +226,7 @@ class HybridSubtitles {
     container.querySelectorAll('[data-track]:not([data-track="off"])').forEach(btn => {
       btn.addEventListener('click', () => {
         const id = parseInt(btn.dataset.track);
+        subTracks.forEach(t => { t.selected = (t.id === id); });
         window.hybridAPI.mpv.setSub(id);
         this.enable();
         this._updateTrackList(this.player.trackList);

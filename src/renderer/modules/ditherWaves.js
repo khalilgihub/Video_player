@@ -487,12 +487,7 @@ function ensureMount() {
     mount.id = 'ditherMount';
     mount.className = 'dither-mount';
     mount.setAttribute('aria-hidden', 'true');
-    const lanyardMount = document.getElementById('lanyardMount');
-    if (lanyardMount && lanyardMount.parentNode === welcomeScreen) {
-      welcomeScreen.insertBefore(mount, lanyardMount);
-    } else {
-      welcomeScreen.prepend(mount);
-    }
+    welcomeScreen.prepend(mount);
   }
   return mount;
 }
@@ -597,8 +592,10 @@ async function syncLifecycleState() {
   if (!teardownTimer && activeInstance) {
     teardownTimer = setTimeout(() => {
       teardownTimer = null;
+      const ws = document.getElementById('welcomeScreen');
+      const isVisible = ws && !ws.classList.contains('hidden');
       const currentBg = window.__hybridWelcomeEffectsState?.welcomeBackground || 'dither';
-      if (currentBg !== 'dither') {
+      if (!isVisible || currentBg !== 'dither') {
         destroyDitherWaves();
       }
     }, 360);

@@ -20,6 +20,16 @@ class HybridGestures {
   _setupScrollGestures() {
     // Scroll wheel on video: volume
     this.container.addEventListener('wheel', (e) => {
+      // If UI is locked, ignore wheel gestures
+      if (window.HybridApp?.isLocked || document.body.classList.contains('is-locked')) return;
+      // If no media is loaded, ignore
+      if (!this.player?.currentFilePath) return;
+      // If modals or carousels are open, ignore
+      if (this.player?.isScreenshotCarouselOpen?.() || this.player?.isCarouselOpen?.()) return;
+      const hasOpenModal = Array.from(document.querySelectorAll('.modal-overlay:not([hidden])')).some(m => !m.classList.contains('modal-closing'));
+      if (hasOpenModal) return;
+      // If unlock overlay
+      if (e.target.closest('#unlockOverlay') || e.target.closest('.unlock-overlay')) return;
       // If over progress bar, seek instead
       if (e.target.closest('.progress-bar-container') || e.target.closest('.controls-bar')) return;
       // Allow native scrolling in welcome background settings panel.

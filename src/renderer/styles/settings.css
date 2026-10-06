@@ -11,11 +11,11 @@
   scrollbar-width: none;
   -ms-overflow-style: none;
   border-radius: 20px;
-  background: rgba(16, 18, 24, 0.96);
+  background: var(--bg-glass-heavy);
   backdrop-filter: blur(28px);
   -webkit-backdrop-filter: blur(28px);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7), 0 0 1px rgba(255, 255, 255, 0.15) inset;
+  border: var(--glass-border);
+  box-shadow: var(--shadow-lg);
 }
 
 .settings-modal::-webkit-scrollbar {
@@ -1506,11 +1506,135 @@ body[data-welcome-background='gridmotion'] .bg-settings-panel {
 
 @media (max-width: 950px) {
   .bg-accordion-popover {
+    left: 20px !important;
     right: 20px !important;
-    bottom: calc(80px + min(82vh, 640px) + 14px) !important;
-    width: min(92vw, 540px) !important;
-    max-width: 92vw !important;
+    bottom: 80px !important;
+    width: auto !important;
+    max-width: calc(100vw - 40px) !important;
+    max-height: calc(100vh - 124px) !important;
   }
 }
 
+/* ─── Light Theme Overrides for Settings & Modals ─── */
+[data-theme="light"] .settings-modal {
+  background: var(--bg-glass-heavy);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0, 0, 0, 0.08) inset;
+}
 
+[data-theme="light"] .settings-modal .modal-header h3 {
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .settings-modal .modal-close {
+  color: var(--text-secondary);
+}
+
+[data-theme="light"] .settings-modal .modal-close:hover {
+  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .setting-group {
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid var(--border-color);
+}
+
+[data-theme="light"] .setting-group:hover {
+  border-color: rgba(0, 0, 0, 0.14);
+}
+
+[data-theme="light"] .setting-group h4 {
+  color: var(--text-secondary);
+}
+
+[data-theme="light"] .setting-row label:first-child {
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .setting-path-input {
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .setting-path-actions .btn-secondary,
+[data-theme="light"] .btn-compact {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .setting-path-actions .btn-secondary:hover,
+[data-theme="light"] .btn-compact:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .settings-action-btn {
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .settings-action-btn:hover {
+  background: rgba(0, 0, 0, 0.07);
+  border-color: rgba(0, 0, 0, 0.16);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .select-input {
+  background: #ffffff;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .select-input:hover {
+  background: #f8f8fc;
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] .select-input option {
+  background: #ffffff;
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .custom-select-trigger {
+  background: #ffffff;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .custom-select-trigger:hover {
+  background: #f8f8fc;
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] .custom-select-dropdown {
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+[data-theme="light"] .custom-select-option {
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .custom-select-option:hover,
+[data-theme="light"] .custom-select-option:focus {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .custom-select-option.active {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+[data-theme="light"] .toggle-slider {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] .toggle input:checked + .toggle-slider {
+  background: var(--accent);
+}

@@ -532,6 +532,9 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
     if (gl.canvas.parentElement === containerElement) {
       containerElement.removeChild(gl.canvas);
     }
+    try {
+      gl.getExtension('WEBGL_lose_context')?.loseContext();
+    } catch {}
 
     loadAnimationStart = 0;
 
@@ -666,8 +669,10 @@ async function syncLifecycleState() {
   if (!teardownTimer && activeInstance) {
     teardownTimer = setTimeout(() => {
       teardownTimer = null;
+      const ws = document.getElementById('welcomeScreen');
+      const isVisible = ws && !ws.classList.contains('hidden');
       const currentBg = window.__hybridWelcomeEffectsState?.welcomeBackground || 'dither';
-      if (currentBg !== 'faulty') {
+      if (!isVisible || currentBg !== 'faulty') {
         destroyFaultyTerminal();
       }
     }, 360);

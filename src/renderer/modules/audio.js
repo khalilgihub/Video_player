@@ -25,12 +25,12 @@ class HybridAudio {
   _bindEvents() {
     // Quick Anime Preset buttons
     document.getElementById('btnQuickSubs')?.addEventListener('click', () => {
-      this.player.toggleSubsDubs();
+      this.player.setSubsDubsMode?.('subs') || this.player.toggleSubsDubs?.('subs');
       this._updateTrackList(this.player.trackList);
     });
 
     document.getElementById('btnQuickDubs')?.addEventListener('click', () => {
-      this.player.toggleSubsDubs();
+      this.player.setSubsDubsMode?.('dubs') || this.player.toggleSubsDubs?.('dubs');
       this._updateTrackList(this.player.trackList);
     });
 

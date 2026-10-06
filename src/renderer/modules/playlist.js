@@ -33,7 +33,7 @@ class HybridPlaylist {
     this.shuffleBtn = document.getElementById('btnShufflePlaylist');
     this.repeatBtn = document.getElementById('btnRepeatPlaylist');
     this.mainShuffleBtn = document.getElementById('btnShuffle');
-    this.mainRepeatBtn = document.getElementById('btnRepeat') || document.getElementById('btnABLoop');
+    this.mainRepeatBtn = document.getElementById('btnRepeat');
     
     this._bindEvents();
     this._syncModeButtons();
@@ -88,7 +88,7 @@ class HybridPlaylist {
     
     // Auto-play first if requested and nothing currently selected.
     if (autoPlay && this.currentIndex === -1 && this.items.length > 0) {
-      this.playIndex(0);
+      this.playIndex(0, { allowResume: this.items.length === 1 });
     }
     
     window.HybridToast?.show(`Added ${newItems.length} file(s)`);
@@ -101,7 +101,7 @@ class HybridPlaylist {
     this._renderList();
 
     if (autoPlay && this.items.length > 0) {
-      this.playIndex(0);
+      this.playIndex(0, { allowResume: this.items.length === 1 });
     }
 
     window.HybridToast?.show(`Loaded ${this.items.length} file(s)`);
@@ -148,7 +148,6 @@ class HybridPlaylist {
       this.repeatBtn,
       this.mainRepeatBtn,
       document.getElementById('btnRepeat'),
-      document.getElementById('btnABLoop'),
     ].filter(Boolean);
 
     repeatButtons.forEach(btn => {
@@ -157,9 +156,16 @@ class HybridPlaylist {
       btn.setAttribute('aria-pressed', String(active));
       btn.setAttribute('aria-label', label);
       btn.title = label;
-      const oneDigit = btn.querySelector('.repeat-one-digit');
-      if (oneDigit) {
-        oneDigit.style.display = this.repeat === 'one' ? 'inline' : 'none';
+      const onePath = btn.querySelector('.repeat-one-path');
+      const infPath = btn.querySelector('.repeat-infinity-path');
+      if (onePath && infPath) {
+        if (this.repeat === 'one') {
+          onePath.style.display = 'inline';
+          infPath.style.display = 'none';
+        } else {
+          onePath.style.display = 'none';
+          infPath.style.display = 'inline';
+        }
       }
     });
 
@@ -178,21 +184,32 @@ class HybridPlaylist {
     } catch (_) {}
   }
 
-  async playIndex(index) {
+  async playIndex(index, { allowResume = (this.items.length === 1) } = {}) {
     if (index < 0 || index >= this.items.length) return;
+    const filter = this.searchInput?.value || '';
     const requestId = ++this._playRequestId;
     this.currentIndex = index;
     this._playedShuffleIndices.add(index);
-    this._renderList();
-    const loaded = await this.player.loadFile(this.items[index].path);
+    this._renderList(filter);
+    const loaded = await this.player.loadFile(this.items[index].path, { allowResume });
     if (!loaded && requestId === this._playRequestId) {
       this.currentIndex = -1;
-      this._renderList();
+      this._renderList(filter);
     }
     return loaded;
   }
 
-  playNext() {
+  handleTrackEnded() {
+    if (this.items.length === 0) return;
+    if (this.repeat === 'one') {
+      this.player.seek(0);
+      window.hybridAPI.mpv.play();
+      return;
+    }
+    this.playNext({ isAutoAdvance: true });
+  }
+
+  playNext({ isAutoAdvance = false } = {}) {
     if (this.items.length === 0) return;
 
     // If currentIndex is unset or out of sync with current playback, match from active file
@@ -203,7 +220,7 @@ class HybridPlaylist {
       }
     }
     
-    if (this.repeat === 'one') {
+    if (isAutoAdvance && this.repeat === 'one') {
       this.player.seek(0);
       window.hybridAPI.mpv.play();
       return;
@@ -253,7 +270,7 @@ class HybridPlaylist {
       }
     }
 
-    this.playIndex(nextIndex);
+    this.playIndex(nextIndex, { allowResume: false });
   }
 
   playPrevious() {
@@ -275,9 +292,14 @@ class HybridPlaylist {
 
     let prevIndex = this.currentIndex - 1;
     if (prevIndex < 0) {
-      prevIndex = this.repeat === 'all' ? this.items.length - 1 : 0;
+      if (this.repeat === 'all') {
+        prevIndex = this.items.length - 1;
+      } else {
+        this.player.seek(0);
+        return;
+      }
     }
-    this.playIndex(prevIndex);
+    this.playIndex(prevIndex, { allowResume: false });
   }
 
   next() {
@@ -327,24 +349,33 @@ class HybridPlaylist {
     }
 
     if (this.player) {
+      this.player.clearABLoop?.({ notify: false });
       this.player.currentFilePath = null;
       this.player.currentTime = 0;
       this.player.duration = 0;
       this.player.isPlaying = false;
+      this.player.onPlayStateChanged?.(false);
     }
 
     const welcomeScreen = document.getElementById('welcomeScreen');
-    const videoTitle = document.getElementById('videoTitle');
+    const titlebarText = document.getElementById('titlebarText');
     const currentTime = document.getElementById('currentTime');
     const totalTime = document.getElementById('totalTime');
+    const progressFill = document.getElementById('progressFill');
+    const progressBuffer = document.getElementById('progressBuffer');
 
     welcomeScreen?.classList.remove('hidden');
-    if (videoTitle) videoTitle.textContent = 'No media loaded';
+    if (titlebarText) titlebarText.textContent = 'No media loaded';
+    document.title = 'Hybrid Player';
     if (currentTime) currentTime.textContent = '0:00';
     if (totalTime) totalTime.textContent = '0:00';
+    if (progressFill) progressFill.style.width = '0%';
+    if (progressBuffer) progressBuffer.style.width = '0%';
+
+    window.HybridApp?.controlsModule?.updateToolbarVisibility?.();
   }
 
-  _renderList(filter = '') {
+  _renderList(filter = (this.searchInput?.value || '')) {
     const lowerFilter = filter.trim().toLowerCase();
     
     if (this.items.length === 0) {
@@ -374,7 +405,7 @@ class HybridPlaylist {
     this.listEl.querySelectorAll('.playlist-item').forEach(el => {
       el.addEventListener('click', (e) => {
         if (e.target.closest('.playlist-item-remove')) return;
-        this.playIndex(parseInt(el.dataset.index));
+        this.playIndex(parseInt(el.dataset.index), { allowResume: false });
       });
     });
 

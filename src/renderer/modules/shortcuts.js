@@ -20,8 +20,6 @@ class HybridShortcuts {
       'KeyK': 'toggle-play',
       'ArrowLeft': 'seek-back-5',
       'ArrowRight': 'seek-forward-5',
-      'KeyJ': 'seek-back-10',
-      'KeyL': 'seek-forward-10',
       'ArrowUp': 'volume-up',
       'ArrowDown': 'volume-down',
       'KeyM': 'toggle-mute',
@@ -41,6 +39,7 @@ class HybridShortcuts {
       'KeyP': 'previous-track',
       'KeyE': 'toggle-equalizer',
       'KeyL': 'toggle-repeat',
+      'KeyR': 'toggle-ab-loop',
       'KeyT': 'toggle-time-format',
       'KeyS': 'screenshot',
       'KeyD': 'delete-latest-screenshot',
@@ -61,7 +60,10 @@ class HybridShortcuts {
     this.shortcuts = { ...this.defaults };
     this._keySHoldTimer = null;
     this._keySPressed = false;
+    this._mouse4HoldTimer = null;
+    this._mouse4Pressed = false;
     this._bindKeyboard();
+    this._bindMouse();
     this._bindMenuActions();
   }
 
@@ -219,6 +221,99 @@ class HybridShortcuts {
     }
   }
 
+  _hasActiveMedia() {
+    const welcome = document.getElementById('welcomeScreen');
+    return !welcome || welcome.classList.contains('hidden') || !!this.player?.currentFilePath || (this.player?.trackList && this.player.trackList.length > 0) || !!window.HybridApp?._loadSpinnerPending;
+  }
+
+  _bindMouse() {
+    const handleDown = (e) => {
+      // Mouse 4 corresponds to button === 3 (Back button)
+      if (e.button !== 3) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Don't intercept when typing in inputs or contenteditable
+      if (
+        e.target?.tagName === 'INPUT' ||
+        e.target?.tagName === 'SELECT' ||
+        e.target?.tagName === 'TEXTAREA' ||
+        e.target?.isContentEditable ||
+        e.target?.closest?.('input, select, textarea, [contenteditable="true"]')
+      ) {
+        return;
+      }
+
+      const isLocked = !!window.HybridApp?.isLocked || document.body.classList.contains('is-locked');
+      if (isLocked) return;
+
+      const anyModalOpen = document.querySelector('.modal-overlay:not([hidden])');
+      if (anyModalOpen) return;
+
+      if (this.player?.isScreenshotCarouselOpen?.()) return;
+
+      if (this._mouse4Pressed) return;
+      this._mouse4Pressed = true;
+
+      if (this._mouse4HoldTimer) clearTimeout(this._mouse4HoldTimer);
+      this._mouse4HoldTimer = setTimeout(() => {
+        if (this._mouse4Pressed && !this.player._isBurstCapturing) {
+          this.player.startBurstCapture();
+        }
+      }, 200);
+    };
+
+    const handleUp = (e) => {
+      if (e.button !== 3) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (this._mouse4HoldTimer) {
+        clearTimeout(this._mouse4HoldTimer);
+        this._mouse4HoldTimer = null;
+      }
+
+      if (this.player._isBurstCapturing && this._mouse4Pressed) {
+        this.player.stopBurstCapture();
+      } else if (this._mouse4Pressed) {
+        // Short tap (< 200ms) -> single screenshot
+        this.player.takeScreenshot();
+      }
+      this._mouse4Pressed = false;
+    };
+
+    window.addEventListener('mousedown', handleDown, { capture: true });
+    window.addEventListener('mouseup', handleUp, { capture: true });
+    window.addEventListener('auxclick', (e) => {
+      if (e.button === 3) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }, { capture: true });
+
+    window.addEventListener('blur', () => {
+      if (this._keySHoldTimer) {
+        clearTimeout(this._keySHoldTimer);
+        this._keySHoldTimer = null;
+      }
+      if (this.player?._isBurstCapturing && this._keySPressed) {
+        this.player.stopBurstCapture();
+      }
+      this._keySPressed = false;
+
+      if (this._mouse4HoldTimer) {
+        clearTimeout(this._mouse4HoldTimer);
+        this._mouse4HoldTimer = null;
+      }
+      if (this.player?._isBurstCapturing && this._mouse4Pressed) {
+        this.player.stopBurstCapture();
+      }
+      this._mouse4Pressed = false;
+    });
+  }
+
   _bindMenuActions() {
     window.hybridAPI.on('menu-action', (action) => {
       this._executeAction(action);
@@ -230,8 +325,7 @@ class HybridShortcuts {
   }
 
   _executeAction(action, event) {
-    const welcome = document.getElementById('welcomeScreen');
-    const hasMedia = !welcome || welcome.classList.contains('hidden') || !!this.player?.currentFilePath || !!window.HybridApp?._loadSpinnerPending;
+    const hasMedia = this._hasActiveMedia();
 
     const mediaRequiredActions = [
       'toggle-play',
@@ -239,8 +333,6 @@ class HybridShortcuts {
       'stop',
       'seek-back-5',
       'seek-forward-5',
-      'seek-back-10',
-      'seek-forward-10',
       'seek-0', 'seek-10', 'seek-20', 'seek-30', 'seek-40', 'seek-50', 'seek-60', 'seek-70', 'seek-80', 'seek-90',
       'speed-up',
       'speed-down',
@@ -254,7 +346,6 @@ class HybridShortcuts {
       'delete-latest-screenshot',
       'restore-latest-screenshot',
       'toggle-time-format',
-      'toggle-repeat',
       'toggle-ab-loop',
     ];
 
@@ -275,25 +366,19 @@ class HybridShortcuts {
         this.player.stop();
         break;
       
-      case 'seek-back-5':
-        this.player.seekRelative(-5);
-        this.controls.showSkipIndicator(-5);
+      case 'seek-back-5': {
+        const step = window.HybridApp?.settingsModule?.getSeekStep?.() || 5;
+        this.player.seekRelative(-step);
+        this.controls.showSkipIndicator(-step);
         break;
+      }
       
-      case 'seek-forward-5':
-        this.player.seekRelative(5);
-        this.controls.showSkipIndicator(5);
+      case 'seek-forward-5': {
+        const step = window.HybridApp?.settingsModule?.getSeekStep?.() || 5;
+        this.player.seekRelative(step);
+        this.controls.showSkipIndicator(step);
         break;
-      
-      case 'seek-back-10':
-        this.player.seekRelative(-10);
-        this.controls.showSkipIndicator(-10);
-        break;
-      
-      case 'seek-forward-10':
-        this.player.seekRelative(10);
-        this.controls.showSkipIndicator(10);
-        break;
+      }
       
       case 'volume-up':
         window.hybridAPI.mpv.command('add', 'volume', 5);
@@ -403,8 +488,15 @@ class HybridShortcuts {
         break;
       
       case 'toggle-repeat':
-      case 'toggle-ab-loop':
         window.HybridApp?.playlistModule?.cycleRepeat() || this.player?.playlist?.cycleRepeat();
+        break;
+
+      case 'toggle-ab-loop':
+        this.player.setABLoop();
+        break;
+
+      case 'toggle-time-format':
+        this.controls.toggleTimeFormat?.();
         break;
 
       case 'toggle-playlist':

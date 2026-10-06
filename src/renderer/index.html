@@ -342,16 +342,45 @@
       </div>
 
       <!-- A-B Loop Indicator -->
-      <div class="ab-loop-indicator" id="abLoopIndicator" hidden>
+      <div class="ab-loop-indicator" id="abLoopIndicator" style="display: none !important;" hidden aria-hidden="true">
         <span>A-B Loop Active</span>
       </div>
 
       <div id="skip-indicator" class="osd-hidden" aria-hidden="true"></div>
       <div id="screenshotDeleteIndicator" class="osd-hidden screenshot-delete-indicator" aria-hidden="true"></div>
 
+      <!-- Top-Right Text Volume Indicator (Style 6: Bold Giant Headline Fade) -->
+      <div id="volumeOsd" class="top-right-volume-osd" aria-hidden="true">
+        <span id="volumeOsdVal" class="volume-osd-val">100</span>
+        <span class="volume-osd-pct">%</span>
+      </div>
+
       <div class="recording-indicator" id="recordingIndicator" hidden>
-        <span class="recording-dot" aria-hidden="true"></span>
-        <span id="recordingIndicatorText">Recording started</span>
+        <!-- Active Capturing View -->
+        <div class="recording-view recording-view-active" id="recordingViewActive">
+          <svg class="recording-icon-cam" id="recordingIconCam" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+            <circle cx="12" cy="13" r="4"></circle>
+          </svg>
+          <span class="recording-title" id="recordingIndicatorTitle">Burst Capturing</span>
+          <div class="recording-chip" id="recordingChip">
+            <span class="recording-count" id="recordingFrameCount">1</span>
+            <span class="recording-unit" id="recordingUnit">frame</span>
+            <span class="recording-pts" id="recordingPts"></span>
+          </div>
+        </div>
+
+        <!-- Saved to Screenshots View -->
+        <div class="recording-view recording-view-saved" id="recordingViewSaved">
+          <svg class="recording-icon-folder" id="recordingIconFolder" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span class="recording-title" id="recordingSavedTitle">Saved to Screenshots</span>
+          <div class="recording-divider" id="recordingDivider"></div>
+          <span class="recording-saved-frames" id="recordingSavedFrames">1 Frame</span>
+        </div>
+
+        <span id="recordingIndicatorText" class="recording-indicator-sr-text">Recording started</span>
       </div>
 
       <button class="unlock-overlay" id="unlockOverlay" type="button" aria-hidden="true" title="Unlock (U)"
@@ -484,9 +513,9 @@
             </button>
 
             <button class="ctrl-btn" id="btnRepeat" type="button" title="Repeat Off (L)" aria-label="Repeat mode" data-repeat="none">
-              <svg class="icon-repeat" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
-                <text class="repeat-one-digit" x="12" y="14.8" text-anchor="middle" font-size="8.5" font-weight="900" font-family="system-ui, -apple-system, sans-serif" fill="currentColor" style="display:none;">1</text>
+              <svg class="icon-repeat" viewBox="0 0 438 194" width="24" height="12" fill="currentColor">
+                <path class="repeat-infinity-path" d="M 408.0 39.0 L 416.0 50.0 L 425.0 70.0 L 427.0 79.0 L 427.0 112.0 L 420.0 133.0 L 411.0 148.0 L 398.0 162.0 L 387.0 170.0 L 372.0 178.0 L 355.0 183.0 L 316.0 182.0 L 298.0 176.0 L 281.0 167.0 L 246.0 138.0 L 238.0 130.0 L 238.0 110.0 L 248.0 101.0 L 250.0 101.0 L 285.0 133.0 L 302.0 145.0 L 317.0 152.0 L 330.0 155.0 L 349.0 154.0 L 369.0 145.0 L 384.0 130.0 L 393.0 111.0 L 393.0 83.0 L 383.0 63.0 L 366.0 48.0 L 346.0 41.0 L 323.0 42.0 L 297.0 52.0 L 279.0 65.0 L 238.0 101.0 L 238.0 60.0 L 276.0 33.0 L 303.0 18.0 L 317.0 13.0 L 332.0 10.0 L 354.0 10.0 L 371.0 14.0 L 385.0 20.0 L 398.0 29.0 L 407.0 38.0 Z M 92.0 41.0 L 79.0 44.0 L 63.0 53.0 L 51.0 67.0 L 46.0 77.0 L 43.0 89.0 L 44.0 109.0 L 51.0 126.0 L 60.0 137.0 L 74.0 147.0 L 92.0 153.0 L 107.0 153.0 L 118.0 151.0 L 134.0 145.0 L 155.0 131.0 L 199.0 92.0 L 199.0 134.0 L 176.0 155.0 L 157.0 168.0 L 138.0 177.0 L 116.0 183.0 L 79.0 183.0 L 64.0 179.0 L 41.0 166.0 L 25.0 149.0 L 15.0 131.0 L 10.0 112.0 L 11.0 79.0 L 16.0 63.0 L 25.0 47.0 L 41.0 30.0 L 61.0 18.0 L 78.0 13.0 L 101.0 12.0 L 121.0 16.0 L 144.0 27.0 L 199.0 70.0 L 199.0 83.0 L 188.0 92.0 L 160.0 67.0 L 143.0 55.0 L 115.0 43.0 L 93.0 41.0 Z M 199 70 Q 219 78 238 60 L 238 138 Q 219 130 199 134 Z" />
+                <path class="repeat-one-path" d="M 231.0 15.0 L 231.0 154.0 L 234.0 165.0 L 239.0 169.0 L 248.0 170.0 L 249.0 176.0 L 188.0 176.0 L 188.0 171.0 L 200.0 168.0 L 204.0 164.0 L 206.0 157.0 L 206.0 46.0 L 205.0 42.0 L 201.0 38.0 L 186.0 39.0 L 186.0 33.0 L 205.0 27.0 L 225.0 15.0 L 230.0 15.0 Z M 408.0 39.0 L 416.0 50.0 L 425.0 70.0 L 427.0 79.0 L 427.0 112.0 L 420.0 133.0 L 411.0 148.0 L 398.0 162.0 L 387.0 170.0 L 372.0 178.0 L 355.0 183.0 L 316.0 182.0 L 298.0 176.0 L 281.0 167.0 L 246.0 138.0 L 238.0 130.0 L 238.0 110.0 L 248.0 101.0 L 250.0 101.0 L 285.0 133.0 L 302.0 145.0 L 317.0 152.0 L 330.0 155.0 L 349.0 154.0 L 369.0 145.0 L 384.0 130.0 L 393.0 111.0 L 393.0 83.0 L 383.0 63.0 L 366.0 48.0 L 346.0 41.0 L 323.0 42.0 L 297.0 52.0 L 279.0 65.0 L 238.0 101.0 L 238.0 60.0 L 276.0 33.0 L 303.0 18.0 L 317.0 13.0 L 332.0 10.0 L 354.0 10.0 L 371.0 14.0 L 385.0 20.0 L 398.0 29.0 L 407.0 38.0 Z M 92.0 41.0 L 79.0 44.0 L 63.0 53.0 L 51.0 67.0 L 46.0 77.0 L 43.0 89.0 L 44.0 109.0 L 51.0 126.0 L 60.0 137.0 L 74.0 147.0 L 92.0 153.0 L 107.0 153.0 L 118.0 151.0 L 134.0 145.0 L 155.0 131.0 L 199.0 92.0 L 199.0 134.0 L 176.0 155.0 L 157.0 168.0 L 138.0 177.0 L 116.0 183.0 L 79.0 183.0 L 64.0 179.0 L 41.0 166.0 L 25.0 149.0 L 15.0 131.0 L 10.0 112.0 L 11.0 79.0 L 16.0 63.0 L 25.0 47.0 L 41.0 30.0 L 61.0 18.0 L 78.0 13.0 L 101.0 12.0 L 121.0 16.0 L 144.0 27.0 L 199.0 70.0 L 199.0 83.0 L 188.0 92.0 L 160.0 67.0 L 143.0 55.0 L 115.0 43.0 L 93.0 41.0 Z" style="display:none;" />
               </svg>
             </button>
 
@@ -497,13 +526,14 @@
               </svg>
             </button>
 
-            <!-- Screenshot -->
-            <button class="ctrl-btn" id="btnScreenshot" type="button" title="Screenshot (S)" aria-label="Screenshot">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
-                <path
-                  d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" />
+            <!-- A-B Loop -->
+            <button class="ctrl-btn" id="btnABLoop" type="button" title="A-B Loop (R)" aria-label="A-B Loop" aria-pressed="false">
+              <svg class="icon-ab-loop" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
+                <text class="ab-loop-badge" x="12" y="14.8" text-anchor="middle" font-size="8.5" font-weight="900" font-family="system-ui, -apple-system, sans-serif" fill="currentColor" style="display:none;"></text>
               </svg>
             </button>
+            <button id="btnScreenshot" type="button" style="display:none !important; position:absolute; width:0; height:0; margin:0; padding:0; border:0; pointer-events:none; opacity:0; overflow:hidden;" aria-hidden="true" tabindex="-1"></button>
 
             <button class="ctrl-btn" id="btnLock" type="button" title="Lock Controls" aria-label="Lock controls"
               aria-pressed="false">
@@ -574,9 +604,9 @@
         </button>
         <button class="sidebar-btn" id="btnRepeatPlaylist" type="button" title="Repeat Off"
           aria-label="Repeat playlist" aria-pressed="false">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <path d="M7 7h11v3l4-4-4-4v3H5v6h2V7zm10 10H6v-3l-4 4 4 4v-3h13v-6h-2v4z" />
-            <text class="repeat-one-digit" x="12" y="14.8" text-anchor="middle" font-size="8.5" font-weight="900" font-family="system-ui, -apple-system, sans-serif" fill="currentColor" style="display:none;">1</text>
+          <svg class="icon-repeat" viewBox="0 0 438 194" width="22" height="11" fill="currentColor">
+            <path class="repeat-infinity-path" d="M 408.0 39.0 L 416.0 50.0 L 425.0 70.0 L 427.0 79.0 L 427.0 112.0 L 420.0 133.0 L 411.0 148.0 L 398.0 162.0 L 387.0 170.0 L 372.0 178.0 L 355.0 183.0 L 316.0 182.0 L 298.0 176.0 L 281.0 167.0 L 246.0 138.0 L 238.0 130.0 L 238.0 110.0 L 248.0 101.0 L 250.0 101.0 L 285.0 133.0 L 302.0 145.0 L 317.0 152.0 L 330.0 155.0 L 349.0 154.0 L 369.0 145.0 L 384.0 130.0 L 393.0 111.0 L 393.0 83.0 L 383.0 63.0 L 366.0 48.0 L 346.0 41.0 L 323.0 42.0 L 297.0 52.0 L 279.0 65.0 L 238.0 101.0 L 238.0 60.0 L 276.0 33.0 L 303.0 18.0 L 317.0 13.0 L 332.0 10.0 L 354.0 10.0 L 371.0 14.0 L 385.0 20.0 L 398.0 29.0 L 407.0 38.0 Z M 92.0 41.0 L 79.0 44.0 L 63.0 53.0 L 51.0 67.0 L 46.0 77.0 L 43.0 89.0 L 44.0 109.0 L 51.0 126.0 L 60.0 137.0 L 74.0 147.0 L 92.0 153.0 L 107.0 153.0 L 118.0 151.0 L 134.0 145.0 L 155.0 131.0 L 199.0 92.0 L 199.0 134.0 L 176.0 155.0 L 157.0 168.0 L 138.0 177.0 L 116.0 183.0 L 79.0 183.0 L 64.0 179.0 L 41.0 166.0 L 25.0 149.0 L 15.0 131.0 L 10.0 112.0 L 11.0 79.0 L 16.0 63.0 L 25.0 47.0 L 41.0 30.0 L 61.0 18.0 L 78.0 13.0 L 101.0 12.0 L 121.0 16.0 L 144.0 27.0 L 199.0 70.0 L 199.0 83.0 L 188.0 92.0 L 160.0 67.0 L 143.0 55.0 L 115.0 43.0 L 93.0 41.0 Z M 199 70 Q 219 78 238 60 L 238 138 Q 219 130 199 134 Z" />
+            <path class="repeat-one-path" d="M 231.0 15.0 L 231.0 154.0 L 234.0 165.0 L 239.0 169.0 L 248.0 170.0 L 249.0 176.0 L 188.0 176.0 L 188.0 171.0 L 200.0 168.0 L 204.0 164.0 L 206.0 157.0 L 206.0 46.0 L 205.0 42.0 L 201.0 38.0 L 186.0 39.0 L 186.0 33.0 L 205.0 27.0 L 225.0 15.0 L 230.0 15.0 Z M 408.0 39.0 L 416.0 50.0 L 425.0 70.0 L 427.0 79.0 L 427.0 112.0 L 420.0 133.0 L 411.0 148.0 L 398.0 162.0 L 387.0 170.0 L 372.0 178.0 L 355.0 183.0 L 316.0 182.0 L 298.0 176.0 L 281.0 167.0 L 246.0 138.0 L 238.0 130.0 L 238.0 110.0 L 248.0 101.0 L 250.0 101.0 L 285.0 133.0 L 302.0 145.0 L 317.0 152.0 L 330.0 155.0 L 349.0 154.0 L 369.0 145.0 L 384.0 130.0 L 393.0 111.0 L 393.0 83.0 L 383.0 63.0 L 366.0 48.0 L 346.0 41.0 L 323.0 42.0 L 297.0 52.0 L 279.0 65.0 L 238.0 101.0 L 238.0 60.0 L 276.0 33.0 L 303.0 18.0 L 317.0 13.0 L 332.0 10.0 L 354.0 10.0 L 371.0 14.0 L 385.0 20.0 L 398.0 29.0 L 407.0 38.0 Z M 92.0 41.0 L 79.0 44.0 L 63.0 53.0 L 51.0 67.0 L 46.0 77.0 L 43.0 89.0 L 44.0 109.0 L 51.0 126.0 L 60.0 137.0 L 74.0 147.0 L 92.0 153.0 L 107.0 153.0 L 118.0 151.0 L 134.0 145.0 L 155.0 131.0 L 199.0 92.0 L 199.0 134.0 L 176.0 155.0 L 157.0 168.0 L 138.0 177.0 L 116.0 183.0 L 79.0 183.0 L 64.0 179.0 L 41.0 166.0 L 25.0 149.0 L 15.0 131.0 L 10.0 112.0 L 11.0 79.0 L 16.0 63.0 L 25.0 47.0 L 41.0 30.0 L 61.0 18.0 L 78.0 13.0 L 101.0 12.0 L 121.0 16.0 L 144.0 27.0 L 199.0 70.0 L 199.0 83.0 L 188.0 92.0 L 160.0 67.0 L 143.0 55.0 L 115.0 43.0 L 93.0 41.0 Z" style="display:none;" />
           </svg>
         </button>
         <button class="sidebar-btn" id="btnClearPlaylist" type="button" title="Clear Playlist"
@@ -854,6 +884,21 @@
                   <option value="balanced">Balanced</option>
                   <option value="showcase">Showcase</option>
                 </select>
+              </div>
+              <div class="setting-row">
+                <label for="settSeekStep">Seek Step (Arrow Keys)</label>
+                <select id="settSeekStep" class="select-input">
+                  <option value="1">1 second</option>
+                  <option value="5" selected>5 seconds (Default)</option>
+                  <option value="10">10 seconds</option>
+                </select>
+              </div>
+              <div class="setting-row">
+                <label for="settDoubleClickFullscreen">Double-Click to Fullscreen</label>
+                <label class="toggle">
+                  <input type="checkbox" id="settDoubleClickFullscreen" checked aria-label="Toggle double click to fullscreen on video">
+                  <span class="toggle-slider"></span>
+                </label>
               </div>
             </div>
 

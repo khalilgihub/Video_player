@@ -160,11 +160,12 @@ body.app-unfocused::after {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 1200;
+  z-index: 1400;
   color: #fff;
   transition:
     opacity 0.42s cubic-bezier(0.2, 0.72, 0.22, 1),
-    transform 0.42s cubic-bezier(0.2, 0.72, 0.22, 1);
+    transform 0.42s cubic-bezier(0.2, 0.72, 0.22, 1),
+    right 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .titlebar.hidden {
@@ -174,6 +175,7 @@ body.app-unfocused::after {
 
 .titlebar-drag {
   flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -205,6 +207,9 @@ body.app-unfocused::after {
   opacity: 0.9;
   letter-spacing: 0.3px;
   font-family: var(--font-display);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .titlebar-controls {
@@ -225,8 +230,11 @@ body.has-native-window-controls .titlebar-drag {
   padding-right: 140px;
 }
 
-body.playlist-open .titlebar-drag {
-  margin-right: 320px;
+body.playlist-open .titlebar {
+  right: 320px;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transform: translateY(0) !important;
 }
 
 .titlebar-btn {
@@ -534,41 +542,238 @@ body.force-hide-cursor * {
   margin-left: 1px;
 }
 
+/* ─── Apple Dynamic Island Burst & Recording Indicator ─── */
 .recording-indicator {
   position: absolute;
   top: 52px;
   left: 50%;
   transform: translateX(-50%);
-  display: inline-flex;
+  display: inline-grid;
+  grid-template-areas: "slot";
   align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
+  height: 36px;
   border-radius: 999px;
-  background: rgba(128, 8, 20, 0.94);
-  border: 1px solid rgba(255, 120, 120, 0.28);
-  color: #fff4f4;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  box-shadow: 0 14px 34px rgba(102, 10, 22, 0.32);
+  background: rgba(14, 16, 22, 0.82);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  font-family: var(--font-ui, 'Plus Jakarta Sans', system-ui, sans-serif);
+  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(0, 0, 0, 0.35);
   z-index: 54;
+  user-select: none;
+  overflow: hidden;
+  perspective: 350px;
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: recordingPillIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.recording-indicator.hiding {
+  transform: translate(-50%, -6px) scale(0.96);
+  opacity: 0;
+  filter: blur(4px);
+  pointer-events: none;
+}
+
+@keyframes recordingPillIn {
+  from {
+    transform: translate(-50%, -10px) scale(0.94);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0) scale(1);
+    opacity: 1;
+  }
 }
 
 .recording-indicator[hidden] {
-  display: none;
+  display: none !important;
 }
 
-.recording-indicator.active .recording-dot {
-  animation: pulse 1.2s ease-in-out infinite;
+/* ─── Dynamic Island State Views (3D Split-Flap Depth Flip) ─── */
+.recording-view {
+  grid-area: slot;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 6px 14px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Active Capturing View */
+.recording-view-active {
+  opacity: 1;
+  transform: rotateX(0deg);
+  backface-visibility: hidden;
+  pointer-events: auto;
+  transition: opacity 0.14s ease-out 0.09s, transform 0.18s cubic-bezier(0, 0, 0.2, 1) 0.09s;
+}
+
+.recording-indicator.saved .recording-view-active {
+  opacity: 0;
+  transform: rotateX(80deg);
+  pointer-events: none;
+  transition: opacity 0.10s ease-in 0s, transform 0.12s cubic-bezier(0.4, 0, 1, 1) 0s;
+}
+
+/* Saved to Screenshots View */
+.recording-view-saved {
+  opacity: 0;
+  transform: rotateX(-80deg);
+  backface-visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.10s ease-in 0s, transform 0.12s cubic-bezier(0.4, 0, 1, 1) 0s;
+}
+
+.recording-indicator.saved .recording-view-saved {
+  opacity: 1;
+  transform: rotateX(0deg);
+  pointer-events: auto;
+  transition: opacity 0.14s ease-out 0.09s, transform 0.18s cubic-bezier(0, 0, 0.2, 1) 0.09s;
+}
+
+/* Ruby Camera Glyph */
+.recording-icon-cam {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: #ff3b30;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 6px rgba(255, 59, 48, 0.7));
+  flex-shrink: 0;
+}
+
+.recording-indicator.active .recording-icon-cam {
+  animation: recordingRubyBreath 1.8s ease-in-out infinite;
+}
+
+@keyframes recordingRubyBreath {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: drop-shadow(0 0 6px rgba(255, 59, 48, 0.75));
+  }
+  50% {
+    opacity: 0.68;
+    transform: scale(0.94);
+    filter: drop-shadow(0 0 2px rgba(255, 59, 48, 0.35));
+  }
+}
+
+/* Folder Glyph for Saved State */
+.recording-icon-folder {
+  width: 16px;
+  height: 16px;
+  stroke: #38bdf8;
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+.recording-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+/* Active Count Chip */
+.recording-chip {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 3px 10px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  box-sizing: border-box;
+}
+
+.recording-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #ffffff;
+  display: inline-block;
+  min-width: 18px;
+  text-align: right;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.recording-unit {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.65);
+  font-weight: 500;
+}
+
+.recording-pts {
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: rgba(255, 255, 255, 0.45);
+  margin-left: 2px;
+}
+
+/* Micro-Glow ONLY on Digits */
+.recording-count.digit-flash {
+  animation: recordingDigitFlash 0.18s ease-out;
+}
+
+@keyframes recordingDigitFlash {
+  0% {
+    color: #ff453a;
+    transform: scale(1.15);
+    text-shadow: 0 0 8px rgba(255, 69, 58, 0.85);
+  }
+  100% {
+    color: #ffffff;
+    transform: scale(1);
+    text-shadow: none;
+  }
+}
+
+/* Hairline Divider & Saved Frames */
+.recording-divider {
+  width: 1px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.18);
+  flex-shrink: 0;
+}
+
+.recording-saved-frames {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #38bdf8;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+/* Screen reader text */
+.recording-indicator-sr-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }
 
 .recording-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #ff5b67;
-  box-shadow: 0 0 0 6px rgba(255, 91, 103, 0.16);
+  display: none;
 }
 
 .unlock-overlay {
@@ -909,6 +1114,21 @@ body.is-locked .sidebar-playlist {
   right: 8px;
 }
 
+.carousel-filename {
+  display: block;
+  padding: 4px 6px 2px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.72);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body:has(#statsOverlay:not([hidden])) .screenshot-preview,
+body:has(#statsOverlay:not([hidden])) .screenshot-notice {
+  top: 296px;
+}
+
 /* ─── Screenshot Notice Pill (Top-Left, matches Preview footprint) ─── */
 .screenshot-notice {
   position: fixed;
@@ -1032,6 +1252,10 @@ body[data-welcome-background='gridmotion'] .gridmotion-mount {
   gap: 12px;
   padding: 0 18px 96px;
   pointer-events: none;
+}
+
+body.playlist-open .welcome-content {
+  width: calc(100% - 320px);
 }
 
 .welcome-actions {
@@ -2118,6 +2342,7 @@ body.welcome-active .welcome-recent {
 
 /* ─── A-B Loop Indicator ─── */
 .ab-loop-indicator {
+  display: none !important;
   position: absolute;
   top: 50px;
   right: 15px;
