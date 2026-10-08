@@ -125,6 +125,21 @@
   border-color: rgba(0, 242, 254, 0.4);
 }
 
+.setting-version-badge {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+  user-select: text;
+  box-sizing: border-box;
+}
+
 .setting-path-actions {
   display: flex;
   gap: 7px;

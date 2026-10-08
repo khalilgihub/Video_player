@@ -500,7 +500,11 @@ class HybridControls {
       const isActuallyPlaying = Boolean(playing && this.player.currentFilePath);
       this.iconPlay.style.display  = isActuallyPlaying ? 'none' : 'block';
       this.iconPause.style.display = isActuallyPlaying ? 'block' : 'none';
-      document.getElementById('btnPlay')?.setAttribute('aria-label', isActuallyPlaying ? 'Pause' : 'Play');
+      const btnPlay = document.getElementById('btnPlay');
+      if (btnPlay) {
+        btnPlay.setAttribute('aria-label', isActuallyPlaying ? 'Pause' : 'Play');
+        btnPlay.setAttribute('title', isActuallyPlaying ? 'Pause (Space)' : 'Play (Space)');
+      }
       // Update cursor manager
       window.HybridApp?.cursorManager?.setPlaying(isActuallyPlaying);
     };

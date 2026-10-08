@@ -462,6 +462,9 @@ class HybridSettings {
           }
         } else {
           this._activateModal(overlay);
+          if (overlay.id === 'settingsModal') {
+            this._refreshYtdlpStatus?.({ checkRemote: false });
+          }
           if (overlay.id === 'bgSettingsModal') {
             const gearBtn = document.getElementById('bgSettingsToggle');
             if (gearBtn) {
@@ -651,8 +654,205 @@ class HybridSettings {
       }
     });
 
+    // Streaming Engine (yt-dlp) controls
+    const btnCheckYtdlp = document.getElementById('btnCheckYtdlpUpdate');
+    const btnUpdateYtdlp = document.getElementById('btnUpdateYtdlp');
+
+    btnCheckYtdlp?.addEventListener('click', async () => {
+      await this._refreshYtdlpStatus({ checkRemote: true, userTriggered: true });
+    });
+
+    btnUpdateYtdlp?.addEventListener('click', async () => {
+      await this._performYtdlpUpdate();
+    });
+
+    window.hybridAPI?.on?.('ytdlp:update-available', (info) => {
+      this._handleYtdlpUpdateAvailable(info);
+    });
+
     // Welcome background quality — now a segmented radio group (see _bindQualityRadios).
     // Legacy select is removed from the DOM; this handler is a no-op safety net.
+  }
+
+  async _refreshYtdlpStatus({ checkRemote = false, userTriggered = false } = {}) {
+    const versionEl = document.getElementById('settYtdlpVersion');
+    const statusEl = document.getElementById('settYtdlpStatus');
+    const btnUpdate = document.getElementById('btnUpdateYtdlp');
+    const btnCheck = document.getElementById('btnCheckYtdlpUpdate');
+
+    try {
+      if (userTriggered && btnCheck) {
+        btnCheck.disabled = true;
+        btnCheck.textContent = 'Checking...';
+      }
+
+      const status = await window.hybridAPI?.ytdlp?.getStatus?.();
+      if (!status || !status.installed) {
+        if (versionEl) versionEl.textContent = 'Not found';
+        if (statusEl) {
+          statusEl.textContent = 'Executable missing';
+          statusEl.style.color = '#ef4444';
+        }
+        if (btnUpdate) {
+          btnUpdate.style.display = 'none';
+          btnUpdate.disabled = true;
+        }
+        return;
+      }
+
+      const currentVer = status.currentVersion || 'Unknown';
+      if (versionEl) versionEl.textContent = currentVer;
+
+      if (!checkRemote) {
+        if (this._ytdlpUpdateInfo?.available) {
+          if (statusEl) {
+            statusEl.textContent = `Update available: v${this._ytdlpUpdateInfo.latestVersion}`;
+            statusEl.style.color = '#00f2fe';
+          }
+          if (btnUpdate) {
+            btnUpdate.style.display = '';
+            btnUpdate.disabled = false;
+            btnUpdate.textContent = `Update to v${this._ytdlpUpdateInfo.latestVersion}`;
+          }
+        } else {
+          if (statusEl) {
+            statusEl.textContent = 'Installed';
+            statusEl.style.color = 'rgba(255, 255, 255, 0.7)';
+          }
+          if (btnUpdate) {
+            btnUpdate.style.display = 'none';
+            btnUpdate.disabled = true;
+          }
+        }
+        return;
+      }
+
+      if (statusEl) {
+        statusEl.textContent = 'Checking latest release...';
+        statusEl.style.color = '#facc15';
+      }
+      const checkResult = await window.hybridAPI?.ytdlp?.checkForUpdate?.();
+
+      if (checkResult?.available) {
+        this._ytdlpUpdateInfo = checkResult;
+        if (statusEl) {
+          statusEl.textContent = `Update available: v${checkResult.latestVersion}`;
+          statusEl.style.color = '#00f2fe';
+        }
+        if (btnUpdate) {
+          btnUpdate.style.display = '';
+          btnUpdate.disabled = false;
+          btnUpdate.textContent = `Update to v${checkResult.latestVersion}`;
+        }
+        if (userTriggered) {
+          window.HybridToast?.show(`yt-dlp update available: v${checkResult.latestVersion}`);
+        }
+      } else {
+        this._ytdlpUpdateInfo = null;
+        if (statusEl) {
+          statusEl.textContent = 'Up to date';
+          statusEl.style.color = '#4ade80';
+        }
+        if (btnUpdate) {
+          btnUpdate.style.display = 'none';
+          btnUpdate.disabled = true;
+          btnUpdate.textContent = 'Update Engine';
+        }
+        if (userTriggered) {
+          window.HybridToast?.show('yt-dlp is already up to date');
+        }
+      }
+    } catch (err) {
+      if (statusEl) {
+        statusEl.textContent = 'Check failed';
+        statusEl.style.color = '#ef4444';
+      }
+      if (userTriggered) {
+        window.HybridToast?.show('Failed to check for yt-dlp updates');
+      }
+    } finally {
+      if (btnCheck) {
+        btnCheck.disabled = false;
+        btnCheck.textContent = 'Check for Updates';
+      }
+    }
+  }
+
+  async _performYtdlpUpdate() {
+    const statusEl = document.getElementById('settYtdlpStatus');
+    const btnUpdate = document.getElementById('btnUpdateYtdlp');
+    const versionEl = document.getElementById('settYtdlpVersion');
+
+    if (btnUpdate) {
+      btnUpdate.disabled = true;
+      btnUpdate.textContent = 'Updating...';
+    }
+    if (statusEl) {
+      statusEl.textContent = 'Downloading and applying update...';
+      statusEl.style.color = '#facc15';
+    }
+    window.HybridToast?.show('Updating yt-dlp in background...');
+
+    try {
+      const result = await window.hybridAPI?.ytdlp?.update?.();
+      if (result?.success) {
+        const newVer = result.newVersion || 'latest';
+        this._ytdlpUpdateInfo = null;
+        if (versionEl) versionEl.textContent = newVer;
+        if (statusEl) {
+          statusEl.textContent = 'Up to date';
+          statusEl.style.color = '#4ade80';
+        }
+        if (btnUpdate) {
+          btnUpdate.style.display = 'none';
+          btnUpdate.disabled = true;
+          btnUpdate.textContent = 'Update Engine';
+        }
+        window.HybridToast?.show(`yt-dlp successfully updated to v${newVer}!`);
+      } else {
+        if (statusEl) {
+          statusEl.textContent = 'Update failed';
+          statusEl.style.color = '#ef4444';
+        }
+        if (btnUpdate) {
+          btnUpdate.style.display = '';
+          btnUpdate.disabled = false;
+          btnUpdate.textContent = 'Retry Update';
+        }
+        window.HybridToast?.show(`Update failed: ${result?.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      if (statusEl) {
+        statusEl.textContent = 'Update failed';
+        statusEl.style.color = '#ef4444';
+      }
+      if (btnUpdate) {
+        btnUpdate.style.display = '';
+        btnUpdate.disabled = false;
+        btnUpdate.textContent = 'Retry Update';
+      }
+      window.HybridToast?.show('Failed to run yt-dlp update');
+    }
+  }
+
+  _handleYtdlpUpdateAvailable(info, { suppressToast = false } = {}) {
+    this._ytdlpUpdateInfo = info;
+    const statusEl = document.getElementById('settYtdlpStatus');
+    const btnUpdate = document.getElementById('btnUpdateYtdlp');
+
+    if (statusEl) {
+      statusEl.textContent = `Update available: v${info.latestVersion}`;
+      statusEl.style.color = '#00f2fe';
+    }
+    if (btnUpdate) {
+      btnUpdate.style.display = '';
+      btnUpdate.disabled = false;
+      btnUpdate.textContent = `Update to v${info.latestVersion}`;
+    }
+
+    if (!suppressToast) {
+      window.HybridToast?.show(`yt-dlp update available (v${info.latestVersion}). Open Settings to update.`);
+    }
   }
 
   _bindBgSettings() {

@@ -22,6 +22,7 @@ const {
   scheduleNativeDwmWindowStyles,
 } = require('./native-dwm');
 const { setupWindowsShellIntegration } = require('./windows-shell-integration');
+const { setupYtDlpUpdaterIpc, startYtDlpBackgroundCheck } = require('./ytdlp-updater');
 
 const YT_DEBUG = false;
 function ytdbg(...args) {
@@ -1870,6 +1871,8 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   registerSystemDialogHandlers(win);
   setupIpcHandlers(ipcMain, win, db, saveDatabase);
+  setupYtDlpUpdaterIpc(win);
+  startYtDlpBackgroundCheck(win);
 
   const initialFilePath = process.argv
     .map((arg) => resolveExistingLocalFile(arg, MEDIA_EXTENSIONS))

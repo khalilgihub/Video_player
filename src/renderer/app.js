@@ -750,11 +750,25 @@ class HybridApp {
   _handlePlaybackError(data) {
     this._cancelVideoLoadSpinner?.();
     const payload = data && typeof data === 'object' ? data : {};
-    const message = typeof payload.message === 'string' && payload.message.trim()
-      ? payload.message.trim()
-      : String(data || 'Playback error');
+    const candidateMsg = payload.message || payload.error || payload.file_error || (payload.reason === 'error' ? 'Stream or file failed to load' : payload.reason);
+    const message = typeof candidateMsg === 'string' && candidateMsg.trim()
+      ? candidateMsg.trim()
+      : (typeof data === 'string' && data.trim() ? data.trim() : 'Stream or file failed to load');
     const prefix = payload.fatal ? 'Playback engine unavailable' : 'Playback error';
     window.HybridToast?.show(`${prefix}: ${message}`);
+
+    if (this.currentPlaybackType === 'youtube') {
+      window.hybridAPI?.ytdlp?.checkForUpdate?.().then((info) => {
+        if (info?.available) {
+          if (this.settings?._handleYtdlpUpdateAvailable) {
+            this.settings._handleYtdlpUpdateAvailable(info, { suppressToast: true });
+          }
+          setTimeout(() => {
+            window.HybridToast?.show(`yt-dlp update available (v${info.latestVersion}). Update in Settings (Ctrl+,).`);
+          }, 1500);
+        }
+      }).catch(() => {});
+    }
   }
 
   async openFiles(filePaths, { replacePlaylist = false, playFirst = false } = {}) {
@@ -900,6 +914,7 @@ class HybridApp {
       this.player.duration = 0;
       this.player.currentFilePath = filePathOrUrl;
       this.player.isPlaying = true;
+      this.player.onPlayStateChanged?.(true);
     }
 
     const isUrl = this._isNetworkMediaUrl(filePathOrUrl);

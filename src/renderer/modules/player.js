@@ -221,6 +221,15 @@ class HybridPlayer {
           break;
         case 'playback-restart':
           this._tryExecutePendingResume();
+          if (this.currentFilePath) {
+            window.hybridAPI.mpv.getProperty('pause').then((isPaused) => {
+              const activePlaying = !isPaused && !!this.currentFilePath;
+              if (this.isPlaying !== activePlaying) {
+                this.isPlaying = activePlaying;
+                this.onPlayStateChanged?.(activePlaying);
+              }
+            }).catch(() => {});
+          }
           break;
         case 'end-file':
           if (data === 'eof' || data?.reason === 'eof') {
@@ -262,14 +271,58 @@ class HybridPlayer {
 
     let dragCounter = 0;
 
-    document.addEventListener('dragenter', (e) => { e.preventDefault(); dragCounter++; dropOverlay.classList.add('active'); });
-    document.addEventListener('dragleave', (e) => { e.preventDefault(); dragCounter--; if (dragCounter === 0) dropOverlay.classList.remove('active'); });
-    document.addEventListener('dragover',  (e) => { e.preventDefault(); });
+    const hasFiles = (e) => {
+      const types = e.dataTransfer?.types;
+      if (!types) return false;
+      return Array.from(types).includes('Files');
+    };
+
+    // Prevent dragging selected UI text/images across the window
+    document.addEventListener('dragstart', (e) => {
+      const target = e.target;
+      const isEditable = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      if (!isEditable) {
+        e.preventDefault();
+      }
+    });
+
+    document.addEventListener('dragenter', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragCounter++;
+      dropOverlay.classList.add('active');
+    });
+
+    document.addEventListener('dragleave', (e) => {
+      if (!dropOverlay.classList.contains('active')) return;
+      e.preventDefault();
+      dragCounter = Math.max(0, dragCounter - 1);
+      if (dragCounter === 0) {
+        dropOverlay.classList.remove('active');
+      }
+    });
+
+    document.addEventListener('dragover', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    });
 
     document.addEventListener('drop', (e) => {
-      e.preventDefault();
       dragCounter = 0;
       dropOverlay.classList.remove('active');
+
+      if (!hasFiles(e)) {
+        const isEditable = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable);
+        if (!isEditable) {
+          e.preventDefault();
+        }
+        return;
+      }
+
+      e.preventDefault();
       const files = Array.from(e.dataTransfer?.files || []);
 
       if (files.length === 0 && e.dataTransfer?.items) {
@@ -529,11 +582,17 @@ class HybridPlayer {
     });
   }
 
-  togglePlay() {
+  async togglePlay() {
     if (!this.currentFilePath) return;
-    this.isPlaying = !this.isPlaying;
-    this.onPlayStateChanged?.(this.isPlaying);
-    window.hybridAPI.mpv.togglePause();
+    try {
+      const nextPaused = await window.hybridAPI.mpv.togglePause();
+      this.isPlaying = !nextPaused;
+      this.onPlayStateChanged?.(this.isPlaying);
+    } catch {
+      this.isPlaying = !this.isPlaying;
+      this.onPlayStateChanged?.(this.isPlaying);
+      window.hybridAPI.mpv.togglePause();
+    }
   }
 
   stop() {
