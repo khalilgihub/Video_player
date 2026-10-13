@@ -205,6 +205,133 @@
   animation: toastOut 0.25s ease forwards;
 }
 
+/* ─── Interactive Update Toast Pill (Obsidian Capsule) ─── */
+.toast-update-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 6px 10px 6px 14px !important;
+  background: rgba(12, 16, 24, 0.94) !important;
+  backdrop-filter: blur(24px) !important;
+  -webkit-backdrop-filter: blur(24px) !important;
+  border: 1px solid rgba(0, 242, 254, 0.35) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65), 0 0 20px rgba(0, 242, 254, 0.15) !important;
+  border-radius: 9999px !important;
+  pointer-events: auto !important;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease !important;
+}
+
+.toast-update-pill.toast-success {
+  border-color: rgba(74, 222, 128, 0.45) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65), 0 0 20px rgba(74, 222, 128, 0.2) !important;
+}
+
+.toast-update-pill.toast-error {
+  border-color: rgba(239, 68, 68, 0.45) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65), 0 0 20px rgba(239, 68, 68, 0.2) !important;
+}
+
+.toast-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #00f2fe;
+  box-shadow: 0 0 10px #00f2fe;
+  animation: pulseToastDot 1.8s infinite ease-in-out;
+  flex-shrink: 0;
+}
+
+@keyframes pulseToastDot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.35); opacity: 0.6; }
+}
+
+.toast-update-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #ffffff;
+  white-space: nowrap;
+}
+
+.toast-version-tag {
+  font-family: var(--font-mono, monospace);
+  color: #00f2fe;
+  font-size: 11px;
+  background: rgba(0, 242, 254, 0.12);
+  border: 1px solid rgba(0, 242, 254, 0.25);
+  padding: 2px 7px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+
+.btn-toast-update {
+  background: linear-gradient(135deg, #00f2fe 0%, #0284c7 100%);
+  color: #040914;
+  font-weight: 700;
+  font-size: 11.5px;
+  padding: 5px 13px;
+  border-radius: 9999px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 242, 254, 0.35);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+
+.btn-toast-update:hover {
+  transform: scale(1.04);
+  box-shadow: 0 4px 16px rgba(0, 242, 254, 0.55);
+}
+
+.btn-toast-update:active {
+  transform: scale(0.98);
+}
+
+.btn-toast-update.loading {
+  background: rgba(0, 242, 254, 0.2);
+  color: #00f2fe;
+  border: 1px solid rgba(0, 242, 254, 0.4);
+  box-shadow: none;
+  cursor: default;
+}
+
+.toast-spinner {
+  width: 11px;
+  height: 11px;
+  border: 2px solid rgba(0, 242, 254, 0.3);
+  border-top-color: #00f2fe;
+  border-radius: 50%;
+  animation: toastSpin 0.7s linear infinite;
+  display: inline-block;
+}
+
+@keyframes toastSpin {
+  to { transform: rotate(360deg); }
+}
+
+.btn-toast-close {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 50%;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.btn-toast-close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
 /* ─── Top-Right Volume Indicator (Style 6: Bold Giant Headline Fade) ─── */
 .top-right-volume-osd {
   position: absolute;

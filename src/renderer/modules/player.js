@@ -753,10 +753,12 @@ class HybridPlayer {
   }
 
   // ── Screenshot ─────────────────────────────────────────
-  async takeScreenshot(format = 'png') {
-    console.log('[SCREENSHOT][renderer] takeScreenshot invoked');
+  async takeScreenshot(format = null) {
+    console.log('[SCREENSHOT][renderer] takeScreenshot invoked', { format });
     try {
-      const payload = await window.hybridAPI?.mpv?.screenshot('video');
+      const payload = typeof format === 'string' && format
+        ? await window.hybridAPI?.mpv?.screenshot('video', { format })
+        : await window.hybridAPI?.mpv?.screenshot('video');
       console.log('[SCREENSHOT][renderer] mpv.screenshot returned payload:', payload);
       this._recordSingleScreenshot(payload);
     } catch (err) {

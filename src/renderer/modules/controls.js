@@ -276,9 +276,11 @@ class HybridControls {
     this.unlockOverlay?.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
+      if (!this.isUnlockOverlayAllowed()) return;
       window.HybridApp?.setLocked(false);
     });
     this.unlockOverlay?.addEventListener('mouseenter', () => {
+      if (!this.isUnlockOverlayAllowed()) return;
       this._mouseOverUnlock = true;
       clearTimeout(this.unlockTimeout);
       this.showUnlockOverlay();
@@ -1345,24 +1347,58 @@ class HybridControls {
   showPlayPauseIndicator() {}
   hidePlayPauseIndicator() {}
 
+  isUnlockOverlayAllowed() {
+    return window.HybridApp?.settingsModule?.isShowUnlockButtonEnabled?.() !== false;
+  }
+
   showUnlockOverlay() {
     if (!window.HybridApp?.isLocked) return;
+    if (!this.isUnlockOverlayAllowed()) {
+      this.unlockOverlay?.classList.remove('visible');
+      this.unlockOverlay?.setAttribute('aria-hidden', 'true');
+      return;
+    }
     this.unlockOverlay?.classList.add('visible');
     this.unlockOverlay?.setAttribute('aria-hidden', 'false');
   }
 
   hideUnlockOverlay() {
-    if (this._mouseOverUnlock) return;
+    if (this._mouseOverUnlock && this.isUnlockOverlayAllowed()) return;
     this.unlockOverlay?.classList.remove('visible');
     this.unlockOverlay?.setAttribute('aria-hidden', 'true');
   }
 
   resetUnlockHideTimer() {
     if (!window.HybridApp?.isLocked) return;
+    if (!this.isUnlockOverlayAllowed()) {
+      clearTimeout(this.unlockTimeout);
+      this._mouseOverUnlock = false;
+      this.unlockOverlay?.classList.remove('visible');
+      this.unlockOverlay?.setAttribute('aria-hidden', 'true');
+      return;
+    }
     this.showUnlockOverlay();
     clearTimeout(this.unlockTimeout);
     if (!this._mouseOverUnlock) {
       this.unlockTimeout = setTimeout(() => this.hideUnlockOverlay(), 2000);
+    }
+  }
+
+  syncUnlockOverlayVisibility() {
+    if (!window.HybridApp?.isLocked) {
+      clearTimeout(this.unlockTimeout);
+      this._mouseOverUnlock = false;
+      this.unlockOverlay?.classList.remove('visible');
+      this.unlockOverlay?.setAttribute('aria-hidden', 'true');
+      return;
+    }
+    if (!this.isUnlockOverlayAllowed()) {
+      clearTimeout(this.unlockTimeout);
+      this._mouseOverUnlock = false;
+      this.unlockOverlay?.classList.remove('visible');
+      this.unlockOverlay?.setAttribute('aria-hidden', 'true');
+    } else {
+      this.resetUnlockHideTimer();
     }
   }
 
@@ -1373,12 +1409,9 @@ class HybridControls {
     this.lockButton?.setAttribute('aria-pressed', String(isLocked));
     this.lockButton?.setAttribute('aria-label', isLocked ? 'Controls locked' : 'Lock controls');
     clearTimeout(this.unlockTimeout);
-    if (isLocked) {
-      this.resetUnlockHideTimer();
-    } else {
-      this.unlockOverlay?.classList.remove('visible');
-      this.unlockOverlay?.setAttribute('aria-hidden', 'true');
-    }
+    this._mouseOverUnlock = false;
+    this.unlockOverlay?.classList.remove('visible');
+    this.unlockOverlay?.setAttribute('aria-hidden', 'true');
   }
 
   setRecordingState(isRecording, text) {

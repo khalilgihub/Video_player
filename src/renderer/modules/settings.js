@@ -128,6 +128,7 @@ class HybridSettings {
     this.previousFocus = null;
     this._currentScreenshotDir = '';
     this._defaultScreenshotDir = '';
+    this.showUnlockButton = true;
 
     // Dynamically inject Grid Motion option in welcome background selector
     const bgSelect = document.getElementById('welcomeBackgroundSelect');
@@ -307,8 +308,12 @@ class HybridSettings {
       }
     }
 
+    this._recordingShortcutActionId = null;
+    this._shortcutFilterQuery = '';
+
     this._bindCloseModals();
     this._bindSettings();
+    this._bindShortcutSettings();
     this._bindBgSettings();
     this._bindQualityRadios();
     this._bindBgResets();
@@ -389,6 +394,9 @@ class HybridSettings {
   }
 
   _deactivateModal(modal) {
+    if (modal?.id === 'settingsModal') {
+      this._cancelShortcutRecording?.();
+    }
     const nextActive = this._getModalOverlays().find((overlay) => !overlay.hidden && overlay !== modal);
     if (nextActive) {
       this.activeModal = null;
@@ -408,6 +416,9 @@ class HybridSettings {
 
   _closeModal(modal) {
     if (!(modal instanceof HTMLElement) || modal.hidden) return;
+    if (modal.id === 'settingsModal') {
+      this._cancelShortcutRecording?.();
+    }
     modal.classList.remove('modal-closing');
     modal.hidden = true;
     if (modal.id === 'bgSettingsModal') {
@@ -464,6 +475,7 @@ class HybridSettings {
           this._activateModal(overlay);
           if (overlay.id === 'settingsModal') {
             this._refreshYtdlpStatus?.({ checkRemote: false });
+            this._renderShortcutList?.();
           }
           if (overlay.id === 'bgSettingsModal') {
             const gearBtn = document.getElementById('bgSettingsToggle');
@@ -493,6 +505,7 @@ class HybridSettings {
     });
 
     document.addEventListener('keydown', (e) => {
+      if (window.__hybridRecordingShortcut || this._recordingShortcutActionId) return;
       const activeModal = this.activeModal || this._getModalOverlays().find((m) => !m.hidden);
       if (!activeModal) return;
 
@@ -569,6 +582,17 @@ class HybridSettings {
         await window.hybridAPI.db.setPreference('doubleClickFullscreen', e.target.checked);
       } catch (err) {
         console.warn('Failed to save doubleClickFullscreen preference:', err);
+      }
+    });
+
+    // Show unlock button when locked
+    document.getElementById('settShowUnlockButton')?.addEventListener('change', async (e) => {
+      this.showUnlockButton = e.target.checked;
+      window.HybridApp?.controlsModule?.syncUnlockOverlayVisibility?.();
+      try {
+        await window.hybridAPI.db.setPreference('showUnlockButton', e.target.checked);
+      } catch (err) {
+        console.warn('Failed to save showUnlockButton preference:', err);
       }
     });
 
@@ -778,7 +802,7 @@ class HybridSettings {
     }
   }
 
-  async _performYtdlpUpdate() {
+  async _performYtdlpUpdate({ fromNotification = false } = {}) {
     const statusEl = document.getElementById('settYtdlpStatus');
     const btnUpdate = document.getElementById('btnUpdateYtdlp');
     const versionEl = document.getElementById('settYtdlpVersion');
@@ -791,7 +815,9 @@ class HybridSettings {
       statusEl.textContent = 'Downloading and applying update...';
       statusEl.style.color = '#facc15';
     }
-    window.HybridToast?.show('Updating yt-dlp in background...');
+    if (!fromNotification) {
+      window.HybridToast?.show('Updating yt-dlp in background...');
+    }
 
     try {
       const result = await window.hybridAPI?.ytdlp?.update?.();
@@ -808,7 +834,9 @@ class HybridSettings {
           btnUpdate.disabled = true;
           btnUpdate.textContent = 'Update Engine';
         }
-        window.HybridToast?.show(`yt-dlp successfully updated to v${newVer}!`);
+        if (!fromNotification) {
+          window.HybridToast?.show(`yt-dlp successfully updated to v${newVer}!`);
+        }
       } else {
         if (statusEl) {
           statusEl.textContent = 'Update failed';
@@ -819,8 +847,11 @@ class HybridSettings {
           btnUpdate.disabled = false;
           btnUpdate.textContent = 'Retry Update';
         }
-        window.HybridToast?.show(`Update failed: ${result?.error || 'Unknown error'}`);
+        if (!fromNotification) {
+          window.HybridToast?.show(`Update failed: ${result?.error || 'Unknown error'}`);
+        }
       }
+      return result;
     } catch (err) {
       if (statusEl) {
         statusEl.textContent = 'Update failed';
@@ -831,7 +862,10 @@ class HybridSettings {
         btnUpdate.disabled = false;
         btnUpdate.textContent = 'Retry Update';
       }
-      window.HybridToast?.show('Failed to run yt-dlp update');
+      if (!fromNotification) {
+        window.HybridToast?.show('Failed to run yt-dlp update');
+      }
+      return { success: false, error: err.message };
     }
   }
 
@@ -851,7 +885,9 @@ class HybridSettings {
     }
 
     if (!suppressToast) {
-      window.HybridToast?.show(`yt-dlp update available (v${info.latestVersion}). Open Settings to update.`);
+      window.HybridToast?.showUpdatePrompt(info, async () => {
+        return await this._performYtdlpUpdate({ fromNotification: true });
+      });
     }
   }
 
@@ -1473,14 +1509,19 @@ class HybridSettings {
       // Apply other settings to UI
       this._setChecked('settAutoResume', prefs.autoResume);
 
-      // Seek step (1, 5, 10 seconds)
-      const seekStep = [1, 5, 10].includes(Number(prefs.seekStep)) ? Number(prefs.seekStep) : 5;
+      // Seek step (3, 5, 10 seconds)
+      const seekStep = [3, 5, 10].includes(Number(prefs.seekStep)) ? Number(prefs.seekStep) : 5;
       this.seekStep = seekStep;
       this._setValue('settSeekStep', String(seekStep));
 
       // Double-click to fullscreen (defaults to true)
       this.doubleClickFullscreen = prefs.doubleClickFullscreen !== false;
       this._setChecked('settDoubleClickFullscreen', this.doubleClickFullscreen);
+
+      // Show unlock button when locked (defaults to true)
+      this.showUnlockButton = prefs.showUnlockButton !== false;
+      this._setChecked('settShowUnlockButton', this.showUnlockButton);
+      window.HybridApp?.controlsModule?.syncUnlockOverlayVisibility?.();
 
       // Motion profile with reduced-motion fallback
       this.hasExplicitMotionProfile = prefs.motionProfile !== undefined && prefs.motionProfile !== null;
@@ -1569,8 +1610,326 @@ class HybridSettings {
         autoOrganizeCheck.checked = autoOrganize;
       }
       await window.hybridAPI?.mpv?.setAutoOrganizeScreenshots?.(autoOrganize).catch(() => {});
+
+      // Custom Keyboard Shortcuts & Screenshot Mouse Button
+      if (prefs.customShortcuts && typeof prefs.customShortcuts === 'object') {
+        window.HybridApp?.shortcutModule?.applyCustomShortcuts?.(prefs.customShortcuts, { persist: false });
+      }
+      const mouseBtn = [-1, 1, 3, 4].includes(Number(prefs.screenshotMouseButton)) ? Number(prefs.screenshotMouseButton) : 3;
+      await window.HybridApp?.shortcutModule?.setScreenshotMouseButton?.(mouseBtn, { persist: false });
+      this._setValue('settScreenshotMouseBtn', String(mouseBtn));
+      this._renderShortcutList();
     } catch (e) {
       console.error('Failed to load preferences:', e);
+    }
+  }
+
+  _bindShortcutSettings() {
+    const searchInput = document.getElementById('shortcutSearchInput');
+    const resetAllBtn = document.getElementById('btnResetAllShortcuts');
+    const settingsModal = document.getElementById('settingsModal');
+    const mouseBtnSelect = document.getElementById('settScreenshotMouseBtn');
+
+    mouseBtnSelect?.addEventListener('change', async (e) => {
+      const val = Number(e.target.value);
+      const shortcutMod = window.HybridApp?.shortcutModule;
+      if (shortcutMod?.setScreenshotMouseButton) {
+        await shortcutMod.setScreenshotMouseButton(val, { persist: true });
+      } else {
+        await window.hybridAPI?.db?.setPreference?.('screenshotMouseButton', val).catch(() => {});
+      }
+    });
+
+    searchInput?.addEventListener('input', (e) => {
+      this._shortcutFilterQuery = (e.target.value || '').trim().toLowerCase();
+      this._renderShortcutList();
+    });
+
+    resetAllBtn?.addEventListener('click', async () => {
+      this._cancelShortcutRecording();
+      const shortcutMod = window.HybridApp?.shortcutModule;
+      if (!shortcutMod) return;
+      await shortcutMod.resetAllShortcuts({ persist: true });
+      this._renderShortcutList();
+      window.HybridToast?.show('All keyboard shortcuts reset to defaults');
+    });
+
+    settingsModal?.addEventListener('click', async (e) => {
+      const keyBtn = e.target.closest?.('.shortcut-key-btn');
+      if (keyBtn) {
+        const actionId = keyBtn.dataset.actionId;
+        if (!actionId) return;
+        if (this._recordingShortcutActionId === actionId) {
+          this._cancelShortcutRecording();
+        } else {
+          this._startShortcutRecording(actionId, keyBtn);
+        }
+        return;
+      }
+
+      const resetBtn = e.target.closest?.('.shortcut-reset-btn');
+      if (resetBtn && !resetBtn.disabled) {
+        const actionId = resetBtn.dataset.resetAction;
+        if (!actionId) return;
+        this._cancelShortcutRecording();
+        const shortcutMod = window.HybridApp?.shortcutModule;
+        if (!shortcutMod) return;
+        const res = await shortcutMod.resetShortcut(actionId, { persist: true });
+        this._renderShortcutList();
+        if (res?.ok) {
+          window.HybridToast?.show(`Reset "${res.label}" to ${res.displayCombo}`);
+        }
+      }
+    });
+
+    window.addEventListener('hybrid:shortcuts-changed', () => {
+      if (!this._recordingShortcutActionId) {
+        this._renderShortcutList();
+      }
+    });
+
+    window.addEventListener('keydown', async (e) => {
+      const actionId = this._recordingShortcutActionId;
+      if (!actionId) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+
+      // Escape cancels recording unless the user is explicitly rebinding exit-fullscreen
+      if (e.code === 'Escape' && actionId !== 'exit-fullscreen') {
+        this._cancelShortcutRecording();
+        return;
+      }
+
+      const shortcutMod = window.HybridApp?.shortcutModule;
+      if (!shortcutMod) {
+        this._cancelShortcutRecording();
+        return;
+      }
+
+      const combo = shortcutMod.eventToCombo(e);
+      if (!combo) {
+        // Pure modifier pressed — show live preview in active key buttons
+        const mods = [];
+        if (e.ctrlKey || e.metaKey) mods.push('Ctrl');
+        if (e.altKey) mods.push('Alt');
+        if (e.shiftKey) mods.push('Shift');
+        const previewText = mods.length ? `${mods.join(' + ')} + ...` : 'Press key...';
+        document.querySelectorAll(`.shortcut-key-btn[data-action-id="${actionId}"]`).forEach((btn) => {
+          btn.textContent = previewText;
+        });
+        return;
+      }
+
+      this._recordingShortcutActionId = null;
+      window.__hybridRecordingShortcut = false;
+
+      const res = await shortcutMod.setShortcut(actionId, combo, { persist: true });
+      this._renderShortcutList();
+
+      if (res?.ok) {
+        if (res.displacedActionLabel) {
+          window.HybridToast?.show(
+            `${res.label}: ${res.displayCombo} (unbound from "${res.displacedActionLabel}")`
+          );
+        } else {
+          window.HybridToast?.show(`${res.label}: ${res.displayCombo}`);
+        }
+      }
+    }, true);
+  }
+
+  _startShortcutRecording(actionId, clickedBtn = null) {
+    this._recordingShortcutActionId = actionId;
+    window.__hybridRecordingShortcut = true;
+    this._renderShortcutList();
+    const btn = clickedBtn || document.querySelector(`.shortcut-key-btn[data-action-id="${actionId}"]`);
+    btn?.focus({ preventScroll: true });
+  }
+
+  _cancelShortcutRecording() {
+    if (!this._recordingShortcutActionId && !window.__hybridRecordingShortcut) return;
+    this._recordingShortcutActionId = null;
+    window.__hybridRecordingShortcut = false;
+    this._renderShortcutList();
+  }
+
+  _syncShortcutRowElement(row, item, shortcutMod) {
+    const isRecording = this._recordingShortcutActionId === item.id;
+    row.className = `shortcut-item${item.isModified ? ' is-customized' : ''}`;
+
+    const labelWrap = row.querySelector('.shortcut-label-wrap');
+    if (labelWrap) {
+      let dot = labelWrap.querySelector('.shortcut-modified-dot');
+      if (item.isModified) {
+        if (!dot) {
+          dot = document.createElement('span');
+          dot.className = 'shortcut-modified-dot';
+          labelWrap.appendChild(dot);
+        }
+        dot.title = `Modified (Default: ${shortcutMod.formatComboForDisplay(item.defaultCombo)})`;
+      } else if (dot) {
+        dot.remove();
+      }
+    }
+
+    const keyBtn = row.querySelector('.shortcut-key-btn');
+    if (keyBtn) {
+      keyBtn.className = `shortcut-key-btn${isRecording ? ' is-recording' : ''}${!item.currentCombo && !isRecording ? ' is-unbound' : ''}`;
+      keyBtn.textContent = isRecording ? 'Press key...' : item.displayCombo;
+      keyBtn.title = isRecording
+        ? 'Press any key or combination (Esc to cancel)'
+        : `Click to rebind "${item.label}"`;
+      keyBtn.setAttribute('aria-label', `${item.label} shortcut: ${isRecording ? 'Recording new key' : item.displayCombo}`);
+    }
+
+    const resetBtn = row.querySelector('.shortcut-reset-btn');
+    if (resetBtn) {
+      resetBtn.disabled = !item.isModified;
+      resetBtn.title = item.isModified
+        ? `Reset to default (${shortcutMod.formatComboForDisplay(item.defaultCombo)})`
+        : 'Default shortcut active';
+    }
+  }
+
+  _syncStandaloneShortcutButtons(shortcutMod, catalog) {
+    for (const item of catalog) {
+      const currentCombo = shortcutMod.getBinding(item.id);
+      const displayCombo = shortcutMod.formatComboForDisplay(currentCombo);
+      const isModified = currentCombo !== (item.defaultCombo || '');
+      const isRecording = this._recordingShortcutActionId === item.id;
+
+      document.querySelectorAll(`.shortcut-key-btn[data-action-id="${item.id}"]`).forEach((keyBtn) => {
+        if (keyBtn.closest('#shortcutCategoriesContainer')) return;
+        keyBtn.className = `shortcut-key-btn${isRecording ? ' is-recording' : ''}${!currentCombo && !isRecording ? ' is-unbound' : ''}`;
+        keyBtn.textContent = isRecording ? 'Press key...' : displayCombo;
+        keyBtn.title = isRecording
+          ? 'Press any key or combination (Esc to cancel)'
+          : `Click to rebind "${item.label}"`;
+        keyBtn.setAttribute('aria-label', `${item.label} shortcut: ${isRecording ? 'Recording new key' : displayCombo}`);
+      });
+
+      document.querySelectorAll(`.shortcut-reset-btn[data-reset-action="${item.id}"]`).forEach((resetBtn) => {
+        if (resetBtn.closest('#shortcutCategoriesContainer')) return;
+        resetBtn.disabled = !isModified;
+        resetBtn.title = isModified
+          ? `Reset to default (${shortcutMod.formatComboForDisplay(item.defaultCombo)})`
+          : 'Default shortcut active';
+      });
+    }
+  }
+
+  _renderShortcutList() {
+    const container = document.getElementById('shortcutCategoriesContainer');
+    if (!container) return;
+
+    const shortcutMod = window.HybridApp?.shortcutModule;
+    if (!shortcutMod || typeof shortcutMod.getCatalog !== 'function') {
+      return;
+    }
+
+    const catalog = shortcutMod.getCatalog();
+    this._syncStandaloneShortcutButtons(shortcutMod, catalog);
+
+    const query = (this._shortcutFilterQuery || '').toLowerCase();
+
+    const grouped = new Map();
+    const visibleIds = [];
+    const itemsById = new Map();
+
+    for (const item of catalog) {
+      const currentCombo = shortcutMod.getBinding(item.id);
+      const displayCombo = shortcutMod.formatComboForDisplay(currentCombo);
+      if (query) {
+        const haystack = `${item.label} ${item.category} ${item.id} ${displayCombo} ${currentCombo}`.toLowerCase();
+        if (!haystack.includes(query)) continue;
+      }
+      const enriched = {
+        ...item,
+        currentCombo,
+        displayCombo,
+        isModified: currentCombo !== (item.defaultCombo || ''),
+      };
+      visibleIds.push(item.id);
+      itemsById.set(item.id, enriched);
+      if (!grouped.has(item.category)) {
+        grouped.set(item.category, []);
+      }
+      grouped.get(item.category).push(enriched);
+    }
+
+    const signature = visibleIds.join('|');
+    if (this._renderedShortcutSignature === signature && visibleIds.length > 0 && container.children.length > 0) {
+      for (const [id, item] of itemsById.entries()) {
+        const existingRow = container.querySelector(`.shortcut-item[data-action-id="${id}"]`);
+        if (existingRow) {
+          this._syncShortcutRowElement(existingRow, item, shortcutMod);
+        }
+      }
+      return;
+    }
+
+    this._renderedShortcutSignature = signature;
+    container.replaceChildren();
+
+    if (grouped.size === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'shortcut-empty-state';
+      empty.textContent = 'No matching shortcuts found.';
+      container.appendChild(empty);
+      return;
+    }
+
+    for (const [category, items] of grouped.entries()) {
+      const block = document.createElement('div');
+      block.className = 'shortcut-category-block';
+
+      const title = document.createElement('div');
+      title.className = 'shortcut-category-title';
+      title.textContent = category;
+      block.appendChild(title);
+
+      for (const item of items) {
+        const row = document.createElement('div');
+        row.className = 'shortcut-item';
+        row.dataset.actionId = item.id;
+
+        const labelWrap = document.createElement('div');
+        labelWrap.className = 'shortcut-label-wrap';
+
+        const labelEl = document.createElement('span');
+        labelEl.className = 'shortcut-label';
+        labelEl.textContent = item.label;
+        labelEl.title = item.label;
+        labelWrap.appendChild(labelEl);
+
+        const controlsWrap = document.createElement('div');
+        controlsWrap.className = 'shortcut-controls';
+
+        const keyBtn = document.createElement('button');
+        keyBtn.type = 'button';
+        keyBtn.className = 'shortcut-key-btn';
+        keyBtn.dataset.actionId = item.id;
+
+        const resetBtn = document.createElement('button');
+        resetBtn.type = 'button';
+        resetBtn.className = 'shortcut-reset-btn';
+        resetBtn.dataset.resetAction = item.id;
+        resetBtn.setAttribute('aria-label', `Reset ${item.label} shortcut`);
+        resetBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>`;
+
+        controlsWrap.appendChild(keyBtn);
+        controlsWrap.appendChild(resetBtn);
+
+        row.appendChild(labelWrap);
+        row.appendChild(controlsWrap);
+
+        this._syncShortcutRowElement(row, item, shortcutMod);
+        block.appendChild(row);
+      }
+
+      container.appendChild(block);
     }
   }
 
@@ -1642,16 +2001,27 @@ class HybridSettings {
 
   async syncFormState() {
     try {
+      this._renderShortcutList();
       const prefs = await window.hybridAPI?.db?.getAllPreferences?.().catch(() => null) || {};
       const format = prefs.screenshotFormat || this._currentScreenshotFormat || 'jpg';
       this._currentScreenshotFormat = format;
       this._setValue('settScreenshotFormat', format);
       if (prefs.theme) this._setValue('settTheme', prefs.theme);
       if (prefs.motionProfile) this._setValue('settMotionProfile', prefs.motionProfile);
-      if (prefs.seekStep) this._setValue('settSeekStep', String(prefs.seekStep));
+      if ([3, 5, 10].includes(Number(prefs.seekStep))) this._setValue('settSeekStep', String(prefs.seekStep));
       if (prefs.doubleClickFullscreen !== undefined) {
         this._setChecked('settDoubleClickFullscreen', prefs.doubleClickFullscreen !== false);
       }
+      if (prefs.showUnlockButton !== undefined) {
+        this.showUnlockButton = prefs.showUnlockButton !== false;
+        this._setChecked('settShowUnlockButton', this.showUnlockButton);
+      } else {
+        this._setChecked('settShowUnlockButton', this.showUnlockButton !== false);
+      }
+      const mouseBtn = window.HybridApp?.shortcutModule?.getScreenshotMouseButton?.()
+        ?? ([-1, 1, 3, 4].includes(Number(prefs.screenshotMouseButton)) ? Number(prefs.screenshotMouseButton) : 3);
+      this._setValue('settScreenshotMouseBtn', String(mouseBtn));
+      this._renderShortcutList();
       document.querySelectorAll('.has-custom-select').forEach(sel => {
         sel._customSelectRebuild?.();
       });
@@ -1666,6 +2036,10 @@ class HybridSettings {
 
   isDoubleClickFullscreenEnabled() {
     return this.doubleClickFullscreen !== false;
+  }
+
+  isShowUnlockButtonEnabled() {
+    return this.showUnlockButton !== false;
   }
 
   _resolveMotionProfile(value) {

@@ -920,6 +920,8 @@ function createDefaultDatabase() {
       autoOrganizeScreenshots: true,
       seekStep: 5,
       doubleClickFullscreen: true,
+      customShortcuts: {},
+      screenshotMouseButton: 3,
     },
     history: [],
     resumePositions: {},
@@ -1401,6 +1403,13 @@ function createMainWindow() {
     if (!['error', 'fatal', 'warn'].includes(level)) return;
     const prefix = payload.prefix || '';
     const text = String(payload.text || '').trim();
+    if (
+      prefix === 'ffmpeg/video' &&
+      level !== 'fatal' &&
+      /no frame!|hwaccel initialisation returned error|Hardware is lacking required capabilities/i.test(text)
+    ) {
+      return;
+    }
     if (text) {
       console.error(`[MPV ${level.toUpperCase()}]`, prefix, text);
     }
@@ -1500,7 +1509,7 @@ function createMainWindow() {
       mpvProcess.spawn(nativeHandle, {
         mpvPath: resolvedMpvPath,
         ytdlPath: resolvedYtdlpPath,
-        hwdec: 'auto-safe',
+        hwdec: process.platform === 'win32' ? 'd3d11va' : 'auto-safe',
         screenshotDir: effectiveScreenshotDir,
         defaultScreenshotDir: defaultScreenshotDir,
         screenshotFormat: effectiveScreenshotFormat,

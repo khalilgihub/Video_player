@@ -156,7 +156,7 @@ function setupMpvIpc(win, mpv) {
     if (!previewMpv.process) {
       previewMpv.spawn(null, {
         attachWindow: false,
-        hwdec: 'auto-safe',
+        hwdec: 'no',
         screenshotDir: previewDir,
       });
     }
@@ -443,7 +443,7 @@ function setupMpvIpc(win, mpv) {
     return 'image/png';
   };
 
-  const buildInlinePreviewDataUrl = async (filePath, mimeType, maxWaitMs = 500) => {
+  const buildInlinePreviewDataUrl = async (filePath, mimeType, maxWaitMs = 500, { silent = false } = {}) => {
     const startTime = Date.now();
     let attempts = 0;
     while (Date.now() - startTime < maxWaitMs) {
@@ -454,7 +454,9 @@ function setupMpvIpc(win, mpv) {
           if (stat.isFile() && stat.size > 0 && stat.size <= MAX_INLINE_PREVIEW_BYTES) {
             const raw = fs.readFileSync(filePath);
             if (raw && raw.length > 0) {
-              console.log(`[SCREENSHOT][main] Generated inline preview base64 (${raw.length} bytes, took ${Date.now() - startTime}ms after ${attempts} checks)`);
+              if (!silent) {
+                console.log(`[SCREENSHOT][main] Generated inline preview base64 (${raw.length} bytes, took ${Date.now() - startTime}ms after ${attempts} checks)`);
+              }
               return `data:${mimeType};base64,${raw.toString('base64')}`;
             }
           }
@@ -464,15 +466,17 @@ function setupMpvIpc(win, mpv) {
       }
       await new Promise((r) => setTimeout(r, 20));
     }
-    console.warn(`[SCREENSHOT][main] Timed out waiting for screenshot file at ${filePath} (${attempts} attempts)`);
+    if (!silent) {
+      console.warn(`[SCREENSHOT][main] Timed out waiting for screenshot file at ${filePath} (${attempts} attempts)`);
+    }
     return null;
   };
 
-  const buildScreenshotPayload = async (filePath) => {
+  const buildScreenshotPayload = async (filePath, { silent = false } = {}) => {
     const mimeType = getImageMimeType(filePath);
     const normalizedPath = path.resolve(filePath).replace(/\\/g, '/');
     const fileUrl = `local-file:///${encodeURI(normalizedPath)}`;
-    const previewDataUrl = await buildInlinePreviewDataUrl(filePath, mimeType);
+    const previewDataUrl = await buildInlinePreviewDataUrl(filePath, mimeType, 500, { silent });
     return {
       filePath,
       mimeType,
@@ -493,14 +497,23 @@ function setupMpvIpc(win, mpv) {
   };
 
   const captureScreenshotWithAck = async (mode, debugMeta = null) => {
-    console.log('[SCREENSHOT][main] Capture requested, mode:', mode);
-    const filePath = await mpv.screenshot(mode || 'video');
+    const rawFormat = typeof debugMeta === 'string'
+      ? debugMeta
+      : (typeof debugMeta?.format === 'string' ? debugMeta.format : null);
+    const formatOverride = rawFormat && ['png', 'jpg', 'jpeg', 'webp'].includes(rawFormat.trim().toLowerCase())
+      ? rawFormat.trim().toLowerCase()
+      : null;
+    console.log('[SCREENSHOT][main] Capture requested, mode:', mode, 'formatOverride:', formatOverride);
+    const filePath = await mpv.screenshot(mode || 'video', formatOverride);
     if (typeof filePath !== 'string' || !filePath) {
       throw new Error('Screenshot path is invalid');
     }
     console.log('[SCREENSHOT][main] mpv screenshot written to:', filePath);
 
     const payload = await buildScreenshotPayload(filePath);
+    if (formatOverride === 'png') {
+      payload.badgeText = 'PNG';
+    }
     emitScreenshotReady(payload);
     return payload;
   };
@@ -521,7 +534,7 @@ function setupMpvIpc(win, mpv) {
       fs.unlink(stale, () => {});
     }
 
-    const payload = await buildScreenshotPayload(framePath);
+    const payload = await buildScreenshotPayload(framePath, { silent: true });
     return payload;
   };
 
@@ -666,7 +679,15 @@ function setupMpvIpc(win, mpv) {
     if (!cmd) return;
     fsdbg('client-message received', { cmd, args, fullscreen: getTrackedFullscreen() });
 
-    if (getUiLocked() && cmd !== 'hybrid-unlock-ui') {
+    const isAllowedWhileLocked =
+      cmd === 'hybrid-unlock-ui' ||
+      cmd === 'hybrid-screenshot' ||
+      cmd === 'hybrid-screenshot-png' ||
+      cmd === 'hybrid-mouse-mid' ||
+      cmd === 'hybrid-mouse-back' ||
+      cmd === 'hybrid-mouse-forward';
+
+    if (getUiLocked() && !isAllowedWhileLocked) {
       if (win && !win.isDestroyed()) {
         win.focus();
         win.webContents.focus();
@@ -680,6 +701,39 @@ function setupMpvIpc(win, mpv) {
           win.webContents.send('mpv:event', 'unlock-request');
         }
         break;
+
+      case 'hybrid-screenshot':
+        if (win && !win.isDestroyed() && (mpv.getCached('path') || mpv.getCached('filename'))) {
+          win.webContents.send('menu-action', 'screenshot');
+        }
+        break;
+
+      case 'hybrid-screenshot-png':
+        if (win && !win.isDestroyed() && (mpv.getCached('path') || mpv.getCached('filename'))) {
+          win.webContents.send('menu-action', 'screenshot-png');
+        }
+        break;
+
+      case 'hybrid-mouse-mid':
+      case 'hybrid-mouse-back':
+      case 'hybrid-mouse-forward': {
+        const btnMap = {
+          'hybrid-mouse-mid': 1,
+          'hybrid-mouse-back': 3,
+          'hybrid-mouse-forward': 4,
+        };
+        const rawPref = global.__hybridDb?.preferences?.screenshotMouseButton;
+        const targetBtn = rawPref !== undefined ? Number(rawPref) : 3;
+        if (
+          btnMap[cmd] === targetBtn &&
+          win &&
+          !win.isDestroyed() &&
+          (mpv.getCached('path') || mpv.getCached('filename'))
+        ) {
+          win.webContents.send('menu-action', 'screenshot');
+        }
+        break;
+      }
 
       /* ── Fullscreen ─────────────────────────────────── */
       case 'hybrid-toggle-fullscreen':
@@ -715,6 +769,9 @@ function setupMpvIpc(win, mpv) {
       /* ── Mouse click (instant when dblclick disabled, debounced when enabled) */
       case 'hybrid-mouse-click': {
         fsdbg('action mouse click');
+        if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
+          win.webContents.focus();
+        }
         const dblClickEnabled = global.__hybridDb?.preferences?.doubleClickFullscreen !== false;
         if (!dblClickEnabled) {
           if (_clickTimer) { clearTimeout(_clickTimer); _clickTimer = null; }
@@ -738,6 +795,9 @@ function setupMpvIpc(win, mpv) {
 
       case 'hybrid-mouse-dblclick': {
         fsdbg('action mouse dblclick', { from: getTrackedFullscreen() });
+        if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
+          win.webContents.focus();
+        }
         const dblClickEnabled = global.__hybridDb?.preferences?.doubleClickFullscreen !== false;
         if (!dblClickEnabled) {
           break;

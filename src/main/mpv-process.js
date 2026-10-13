@@ -155,16 +155,21 @@ class MpvProcess extends EventEmitter {
       'm    script-message hybrid-toggle-mute',
       'a    script-message hybrid-cycle-audio',
       'A    script-message hybrid-cycle-audio',
-      'u    script-message hybrid-unlock-ui',
-      'U    script-message hybrid-unlock-ui',
+      's    script-message hybrid-screenshot',
+      'S    script-message hybrid-screenshot-png',
+      'Ctrl+u script-message hybrid-unlock-ui',
+      'Ctrl+U script-message hybrid-unlock-ui',
       '',
       '# Mouse',
       'MBTN_LEFT     script-message hybrid-mouse-click',
       'MBTN_LEFT_DBL script-message hybrid-mouse-dblclick',
       'MOUSE_BTN0    script-message hybrid-mouse-click',
       'MOUSE_BTN0_DBL script-message hybrid-mouse-dblclick',
+      'MBTN_MID      script-message hybrid-mouse-mid',
+      'MBTN_BACK     script-message hybrid-mouse-back',
+      'MBTN_FORWARD  script-message hybrid-mouse-forward',
     ].join('\n');
-    try { fs.writeFileSync(inputConfPath, inputConfContent, { encoding: 'utf-8', flag: 'wx' }); } catch {}
+    try { fs.writeFileSync(inputConfPath, inputConfContent, { encoding: 'utf-8' }); } catch {}
     fsdbg('input.conf written', { inputConfPath });
 
     const args = [
@@ -176,7 +181,7 @@ class MpvProcess extends EventEmitter {
       '--no-osd-bar',
       '--osd-level=0',
       `--input-ipc-server=${this.pipeName}`,
-      `--hwdec=${opts.hwdec || 'auto-safe'}`,
+      `--hwdec=${opts.hwdec || (process.platform === 'win32' ? 'd3d11va' : 'auto-safe')}`,
       '--vo=gpu',
       '--ytdl=yes',
       // Subtitle defaults & rock-solid multi-speaker synchronization
@@ -194,6 +199,10 @@ class MpvProcess extends EventEmitter {
       '--screenshot-webp-quality=92',
       '--screenshot-webp-compression=0',
       '--screenshot-webp-lossless=no',
+      // Cache settings
+      '--cache=yes',
+      '--demuxer-max-bytes=150MiB',
+      '--demuxer-max-back-bytes=50MiB',
       // Input: disable defaults, use our input.conf that relays via script-message
       '--no-config',
       '--input-default-bindings=no',
@@ -201,7 +210,7 @@ class MpvProcess extends EventEmitter {
       '--cursor-autohide=no',
       // High-precision frame-accurate exact seeking
       '--hr-seek=yes',
-      '--hr-seek-framedrop=no',
+      '--hr-seek-framedrop=yes',
     ];
 
     if (ytDlpPath) {
@@ -355,7 +364,7 @@ class MpvProcess extends EventEmitter {
       switch (msg.event) {
         case 'log-message':
           this.emit('log-message', msg);
-          if (msg.level === 'error' || msg.level === 'fatal' || msg.level === 'warn') {
+          if (this.listenerCount('log-message') === 0 && (msg.level === 'error' || msg.level === 'fatal' || msg.level === 'warn')) {
             mpverr(`[ipc:${msg.level}]`, msg.prefix || '', msg.text || '');
           } else {
             mpvlog(`[ipc:${msg.level || 'info'}]`, msg.prefix || '', msg.text || '');
@@ -512,7 +521,7 @@ class MpvProcess extends EventEmitter {
   }
 
   seekRelative(seconds) {
-    return this.command('seek', seconds, 'relative+exact');
+    return this.command('seek', seconds, 'relative');
   }
 
   seekPercent(pct) {
@@ -590,9 +599,12 @@ class MpvProcess extends EventEmitter {
    * @param {'video'|'subtitles'|'window'} mode
    * @returns {Promise<string>} the path mpv wrote to
    */
-  async screenshot(mode = 'video') {
+  async screenshot(mode = 'video', formatOverride = null) {
     const dir = await this.getEffectiveScreenshotDir();
-    const fmt = this._screenshotFormat || await this.getProperty('screenshot-format').catch(() => 'jpg');
+    const validOverride = typeof formatOverride === 'string' && ['png', 'jpg', 'jpeg', 'webp'].includes(formatOverride.trim().toLowerCase())
+      ? formatOverride.trim().toLowerCase()
+      : null;
+    const fmt = validOverride || this._screenshotFormat || await this.getProperty('screenshot-format').catch(() => 'jpg');
 
     // Zero-collision single screenshot filename (timestamp + ms + random nonce)
     const now = new Date();

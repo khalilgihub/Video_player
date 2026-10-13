@@ -596,7 +596,11 @@ class HybridApp {
         }
 
         if (event === 'unlock-request') {
-          this.setLocked(false);
+          const unlockBinding = this.shortcutModule?.getBinding?.('unlock-ui') ?? 'Ctrl+KeyU';
+          const toggleLockBinding = this.shortcutModule?.getBinding?.('toggle-lock') ?? '';
+          if (unlockBinding === 'Ctrl+KeyU' || toggleLockBinding === 'Ctrl+KeyU') {
+            this.setLocked(false);
+          }
         }
       });
 
@@ -760,12 +764,14 @@ class HybridApp {
     if (this.currentPlaybackType === 'youtube') {
       window.hybridAPI?.ytdlp?.checkForUpdate?.().then((info) => {
         if (info?.available) {
-          if (this.settings?._handleYtdlpUpdateAvailable) {
-            this.settings._handleYtdlpUpdateAvailable(info, { suppressToast: true });
+          if (this.settingsModule?._handleYtdlpUpdateAvailable) {
+            this.settingsModule._handleYtdlpUpdateAvailable(info, { suppressToast: true });
           }
           setTimeout(() => {
-            window.HybridToast?.show(`yt-dlp update available (v${info.latestVersion}). Update in Settings (Ctrl+,).`);
-          }, 1500);
+            window.HybridToast?.showUpdatePrompt(info, async () => {
+              return await this.settingsModule?._performYtdlpUpdate?.({ fromNotification: true }) || await window.hybridAPI?.ytdlp?.update?.();
+            });
+          }, 1200);
         }
       }).catch(() => {});
     }
@@ -1614,6 +1620,7 @@ class HybridApp {
 
   async setLocked(locked) {
     const nextState = !!locked;
+    const wasLocked = !!this.isLocked;
     this.isLocked = nextState;
     document.body.classList.toggle('is-locked', nextState);
     this.controlsModule?.setLockState(nextState);
@@ -1628,8 +1635,23 @@ class HybridApp {
       }
       document.body.classList.remove('playlist-open');
       this.cursorManager?.resume();
+      if (!wasLocked) {
+        const rawCombo =
+          this.shortcutModule?.getBinding?.('unlock-ui') ||
+          this.shortcutModule?.getBinding?.('toggle-lock') ||
+          '';
+        const displayCombo = rawCombo
+          ? this.shortcutModule?.formatComboCompact?.(rawCombo) || rawCombo
+          : '';
+        window.HybridToast?.show(
+          displayCombo ? `Controls locked (${displayCombo} to unlock)` : 'Controls locked'
+        );
+      }
     } else {
       this.cursorManager?.resume();
+      if (wasLocked) {
+        window.HybridToast?.show('Controls unlocked');
+      }
     }
 
     try {

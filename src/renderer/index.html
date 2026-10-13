@@ -383,7 +383,7 @@
         <span id="recordingIndicatorText" class="recording-indicator-sr-text">Recording started</span>
       </div>
 
-      <button class="unlock-overlay" id="unlockOverlay" type="button" aria-hidden="true" title="Unlock (U)"
+      <button class="unlock-overlay" id="unlockOverlay" type="button" aria-hidden="true" title="Unlock (Ctrl+U)"
         aria-label="Unlock controls">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
           <path
@@ -888,7 +888,7 @@
               <div class="setting-row">
                 <label for="settSeekStep">Seek Step (Arrow Keys)</label>
                 <select id="settSeekStep" class="select-input">
-                  <option value="1">1 second</option>
+                  <option value="3">3 seconds</option>
                   <option value="5" selected>5 seconds (Default)</option>
                   <option value="10">10 seconds</option>
                 </select>
@@ -897,6 +897,13 @@
                 <label for="settDoubleClickFullscreen">Double-Click to Fullscreen</label>
                 <label class="toggle">
                   <input type="checkbox" id="settDoubleClickFullscreen" checked aria-label="Toggle double click to fullscreen on video">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="setting-row">
+                <label for="settShowUnlockButton">Show Unlock Button When Locked</label>
+                <label class="toggle">
+                  <input type="checkbox" id="settShowUnlockButton" checked aria-label="Show floating unlock button when controls are locked">
                   <span class="toggle-slider"></span>
                 </label>
               </div>
@@ -930,6 +937,26 @@
                   <span class="toggle-slider"></span>
                 </label>
               </div>
+              <div class="setting-row">
+                <label for="settScreenshotMouseBtn">Mouse Screenshot Button</label>
+                <select id="settScreenshotMouseBtn" class="select-input">
+                  <option value="3" selected>Mouse 4 (Back Button)</option>
+                  <option value="4">Mouse 5 (Forward Button)</option>
+                  <option value="1">Middle Click</option>
+                  <option value="-1">Off</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="setting-group" id="settGroupShortcuts">
+              <div class="shortcut-group-header">
+                <h4>Keyboard Shortcuts</h4>
+                <button type="button" class="btn-secondary btn-compact shortcut-reset-all-btn" id="btnResetAllShortcuts" title="Reset all shortcuts to defaults">Reset All</button>
+              </div>
+              <div class="shortcut-search-wrap">
+                <input type="text" id="shortcutSearchInput" class="setting-path-input shortcut-search-input" placeholder="Search shortcuts or keys (e.g. Screenshot, S, Play)..." autocomplete="off" aria-label="Search keyboard shortcuts">
+              </div>
+              <div id="shortcutCategoriesContainer" class="shortcut-categories-container" role="region" aria-label="Keyboard shortcuts list"></div>
             </div>
 
             <div class="setting-group" id="settGroupYtdlp">

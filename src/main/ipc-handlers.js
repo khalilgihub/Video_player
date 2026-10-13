@@ -123,6 +123,7 @@ function sanitizePreference(key, value) {
     case 'brandFontEnabled':
     case 'autoOrganizeScreenshots':
     case 'doubleClickFullscreen':
+    case 'showUnlockButton':
       return !!value;
     case 'volume':
       return clampNumber(value, 0, 1, 1);
@@ -142,7 +143,29 @@ function sanitizePreference(key, value) {
     case 'screenshotFormat':
       return ['jpg', 'jpeg', 'png', 'webp'].includes(String(value).toLowerCase()) ? (String(value).toLowerCase() === 'jpeg' ? 'jpg' : String(value).toLowerCase()) : INVALID_PREF;
     case 'seekStep':
-      return [1, 5, 10].includes(Number(value)) ? Number(value) : INVALID_PREF;
+      return [3, 5, 10].includes(Number(value)) ? Number(value) : INVALID_PREF;
+    case 'customShortcuts': {
+      let obj = value;
+      if (typeof value === 'string') {
+        if (value.length > 16384) return INVALID_PREF;
+        try {
+          obj = JSON.parse(value);
+        } catch {
+          return INVALID_PREF;
+        }
+      }
+      if (!isPlainObject(obj)) return INVALID_PREF;
+      const cleanShortcuts = {};
+      const entries = Object.entries(obj).slice(0, 120);
+      for (const [actKey, bindVal] of entries) {
+        if (typeof actKey !== 'string' || !actKey.trim() || actKey.length > 80) continue;
+        if (typeof bindVal !== 'string' || bindVal.length > 80) continue;
+        cleanShortcuts[actKey.trim()] = bindVal.trim();
+      }
+      return cleanShortcuts;
+    }
+    case 'screenshotMouseButton':
+      return [-1, 1, 3, 4].includes(Number(value)) ? Number(value) : INVALID_PREF;
     default:
       return INVALID_PREF;
   }
@@ -852,6 +875,9 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
   });
   ipcMain.handle('window:set-ui-locked', (_, state) => {
     win.__hybridUiLocked = !!state;
+    if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
+      win.webContents.focus();
+    }
     return win.__hybridUiLocked;
   });
   ipcMain.handle('window:set-prevent-exit-fullscreen', (_, state) => {

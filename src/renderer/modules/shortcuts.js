@@ -10,65 +10,511 @@
  * - Input Safety: Ignores hotkeys when typing in text inputs, textareas, or select dropdowns.
  */
 
+const SHORTCUT_CATALOG = Object.freeze([
+  // Screenshots & Recording
+  { id: 'screenshot', action: 'screenshot', label: 'Take Screenshot (Hold for Burst)', category: 'Screenshots & Recording', defaultCombo: 'KeyS' },
+  { id: 'screenshot-png', action: 'screenshot-png', label: 'Take Screenshot (PNG)', category: 'Screenshots & Recording', defaultCombo: 'Shift+KeyS' },
+  { id: 'delete-latest-screenshot', action: 'delete-latest-screenshot', label: 'Delete Latest Screenshot', category: 'Screenshots & Recording', defaultCombo: 'KeyD' },
+  { id: 'restore-latest-screenshot', action: 'restore-latest-screenshot', label: 'Restore Latest Screenshot', category: 'Screenshots & Recording', defaultCombo: 'KeyZ' },
+  { id: 'toggle-screenshot-carousel', action: 'toggle-screenshot-carousel', label: 'Delete Selected Screenshot', category: 'Screenshots & Recording', defaultCombo: 'Ctrl+KeyD' },
+  { id: 'toggle-restore-carousel', action: 'toggle-restore-carousel', label: 'Restore Selected Screenshot', category: 'Screenshots & Recording', defaultCombo: 'Ctrl+KeyZ' },
+  { id: 'toggle-recording', action: 'toggle-recording', label: 'Record Video Clip', category: 'Screenshots & Recording', defaultCombo: 'Ctrl+KeyS' },
+
+  // Playback
+  { id: 'toggle-play', action: 'toggle-play', label: 'Play / Pause', category: 'Playback', defaultCombo: 'Space' },
+  { id: 'toggle-play-alt', action: 'toggle-play', label: 'Play / Pause (Secondary)', category: 'Playback', defaultCombo: 'KeyK' },
+  { id: 'stop', action: 'stop', label: 'Stop Playback', category: 'Playback', defaultCombo: '' },
+  { id: 'previous-track', action: 'previous-track', label: 'Previous Track', category: 'Playback', defaultCombo: 'KeyP' },
+  { id: 'next-track', action: 'next-track', label: 'Next Track', category: 'Playback', defaultCombo: 'KeyN' },
+  { id: 'speed-down', action: 'speed-down', label: 'Decrease Speed (-0.25x)', category: 'Playback', defaultCombo: 'BracketLeft' },
+  { id: 'speed-up', action: 'speed-up', label: 'Increase Speed (+0.25x)', category: 'Playback', defaultCombo: 'BracketRight' },
+  { id: 'frame-backward', action: 'frame-backward', label: 'Previous Frame', category: 'Playback', defaultCombo: 'Comma' },
+  { id: 'frame-forward', action: 'frame-forward', label: 'Next Frame', category: 'Playback', defaultCombo: 'Period' },
+  { id: 'toggle-repeat', action: 'toggle-repeat', label: 'Cycle Repeat Mode', category: 'Playback', defaultCombo: 'KeyL' },
+  { id: 'toggle-ab-loop', action: 'toggle-ab-loop', label: 'A-B Loop (Set A / Set B / Clear)', category: 'Playback', defaultCombo: 'KeyR' },
+
+  // Seeking & Navigation
+  { id: 'seek-back-5', action: 'seek-back-5', label: 'Seek Backward', category: 'Seeking & Navigation', defaultCombo: 'ArrowLeft' },
+  { id: 'seek-forward-5', action: 'seek-forward-5', label: 'Seek Forward', category: 'Seeking & Navigation', defaultCombo: 'ArrowRight' },
+  { id: 'seek-0', action: 'seek-0', label: 'Jump to 0%', category: 'Seeking & Navigation', defaultCombo: 'Digit0' },
+  { id: 'seek-10', action: 'seek-10', label: 'Jump to 10%', category: 'Seeking & Navigation', defaultCombo: 'Digit1' },
+  { id: 'seek-20', action: 'seek-20', label: 'Jump to 20%', category: 'Seeking & Navigation', defaultCombo: 'Digit2' },
+  { id: 'seek-30', action: 'seek-30', label: 'Jump to 30%', category: 'Seeking & Navigation', defaultCombo: 'Digit3' },
+  { id: 'seek-40', action: 'seek-40', label: 'Jump to 40%', category: 'Seeking & Navigation', defaultCombo: 'Digit4' },
+  { id: 'seek-50', action: 'seek-50', label: 'Jump to 50%', category: 'Seeking & Navigation', defaultCombo: 'Digit5' },
+  { id: 'seek-60', action: 'seek-60', label: 'Jump to 60%', category: 'Seeking & Navigation', defaultCombo: 'Digit6' },
+  { id: 'seek-70', action: 'seek-70', label: 'Jump to 70%', category: 'Seeking & Navigation', defaultCombo: 'Digit7' },
+  { id: 'seek-80', action: 'seek-80', label: 'Jump to 80%', category: 'Seeking & Navigation', defaultCombo: 'Digit8' },
+  { id: 'seek-90', action: 'seek-90', label: 'Jump to 90%', category: 'Seeking & Navigation', defaultCombo: 'Digit9' },
+
+  // Audio & Subtitles
+  { id: 'volume-up', action: 'volume-up', label: 'Volume Up (+5%)', category: 'Audio & Subtitles', defaultCombo: 'ArrowUp' },
+  { id: 'volume-down', action: 'volume-down', label: 'Volume Down (-5%)', category: 'Audio & Subtitles', defaultCombo: 'ArrowDown' },
+  { id: 'toggle-mute', action: 'toggle-mute', label: 'Mute / Unmute', category: 'Audio & Subtitles', defaultCombo: 'KeyM' },
+  { id: 'cycle-audio', action: 'cycle-audio', label: 'Cycle Audio Track (Subs / Dubs)', category: 'Audio & Subtitles', defaultCombo: 'KeyA' },
+  { id: 'toggle-equalizer', action: 'toggle-equalizer', label: 'Audio Equalizer', category: 'Audio & Subtitles', defaultCombo: 'KeyE' },
+  { id: 'toggle-subtitles', action: 'toggle-subtitles', label: 'Subtitles Panel', category: 'Audio & Subtitles', defaultCombo: 'KeyC' },
+  { id: 'sub-delay-down', action: 'sub-delay-down', label: 'Subtitle Delay -0.1s', category: 'Audio & Subtitles', defaultCombo: 'KeyG' },
+  { id: 'sub-delay-up', action: 'sub-delay-up', label: 'Subtitle Delay +0.1s', category: 'Audio & Subtitles', defaultCombo: 'KeyH' },
+
+  // View & Interface
+  { id: 'toggle-fullscreen', action: 'toggle-fullscreen', label: 'Toggle Fullscreen', category: 'View & Interface', defaultCombo: 'KeyF' },
+  { id: 'exit-fullscreen', action: 'exit-fullscreen', label: 'Exit Fullscreen', category: 'View & Interface', defaultCombo: 'Escape' },
+  { id: 'toggle-playlist', action: 'toggle-playlist', label: 'Toggle Playlist Sidebar', category: 'View & Interface', defaultCombo: 'Ctrl+KeyL' },
+  { id: 'toggle-stats', action: 'toggle-stats', label: 'Stats for Nerds', category: 'View & Interface', defaultCombo: 'KeyI' },
+  { id: 'toggle-time-format', action: 'toggle-time-format', label: 'Toggle Time Format', category: 'View & Interface', defaultCombo: 'KeyT' },
+  { id: 'toggle-bg-settings', action: 'toggle-bg-settings', label: 'Welcome Background Settings', category: 'View & Interface', defaultCombo: 'KeyB' },
+  { id: 'unlock-ui', action: 'unlock-ui', label: 'Unlock Controls (When Locked)', category: 'View & Interface', defaultCombo: 'Ctrl+KeyU' },
+  { id: 'toggle-lock', action: 'toggle-lock', label: 'Lock / Unlock Controls', category: 'View & Interface', defaultCombo: '' },
+
+  // File & Application
+  { id: 'open-file', action: 'open-file', label: 'Open File', category: 'File & Application', defaultCombo: 'Ctrl+KeyO' },
+  { id: 'open-multiple-files', action: 'open-multiple-files', label: 'Open Multiple Files', category: 'File & Application', defaultCombo: 'Ctrl+Shift+KeyO' },
+  { id: 'open-folder', action: 'open-folder', label: 'Open Folder', category: 'File & Application', defaultCombo: 'Ctrl+KeyF' },
+  { id: 'open-network-stream', action: 'open-network-stream', label: 'Open Network Stream / URL', category: 'File & Application', defaultCombo: 'Ctrl+KeyN' },
+  { id: 'toggle-settings', action: 'toggle-settings', label: 'Open Settings', category: 'File & Application', defaultCombo: 'Ctrl+Comma' },
+  { id: 'quit', action: 'quit', label: 'Quit Player', category: 'File & Application', defaultCombo: 'Ctrl+KeyQ' },
+]);
+
+const MODIFIER_CODES = new Set([
+  'ControlLeft', 'ControlRight',
+  'ShiftLeft', 'ShiftRight',
+  'AltLeft', 'AltRight',
+  'MetaLeft', 'MetaRight',
+  'OSLeft', 'OSRight',
+]);
+
+const CODE_DISPLAY_LABELS = Object.freeze({
+  Space: 'Space',
+  ArrowLeft: '←',
+  ArrowRight: '→',
+  ArrowUp: '↑',
+  ArrowDown: '↓',
+  Escape: 'Esc',
+  Enter: 'Enter',
+  NumpadEnter: 'Num Enter',
+  Tab: 'Tab',
+  Backspace: 'Backspace',
+  Delete: 'Del',
+  Insert: 'Ins',
+  Home: 'Home',
+  End: 'End',
+  PageUp: 'PgUp',
+  PageDown: 'PgDn',
+  BracketLeft: '[',
+  BracketRight: ']',
+  Comma: ',',
+  Period: '.',
+  Slash: '/',
+  Backslash: '\\',
+  Semicolon: ';',
+  Quote: "'",
+  Backquote: '`',
+  Minus: '-',
+  Equal: '=',
+});
+
 class HybridShortcuts {
   constructor(player, controls) {
     this.player = player;
     this.controls = controls;
-    
-    this.defaults = {
-      'Space': 'toggle-play',
-      'KeyK': 'toggle-play',
-      'ArrowLeft': 'seek-back-5',
-      'ArrowRight': 'seek-forward-5',
-      'ArrowUp': 'volume-up',
-      'ArrowDown': 'volume-down',
-      'KeyM': 'toggle-mute',
-      'KeyU': 'unlock-ui',
-      'KeyF': 'toggle-fullscreen',
-      'Escape': 'exit-fullscreen',
-      'BracketRight': 'speed-up',
-      'BracketLeft': 'speed-down',
-      'Period': 'frame-forward',
-      'Comma': 'frame-backward',
-      'KeyI': 'toggle-stats',
-      'KeyC': 'toggle-subtitles',
-      'KeyG': 'sub-delay-down',
-      'KeyH': 'sub-delay-up',
-      'KeyA': 'cycle-audio',
-      'KeyN': 'next-track',
-      'KeyP': 'previous-track',
-      'KeyE': 'toggle-equalizer',
-      'KeyL': 'toggle-repeat',
-      'KeyR': 'toggle-ab-loop',
-      'KeyT': 'toggle-time-format',
-      'KeyS': 'screenshot',
-      'KeyD': 'delete-latest-screenshot',
-      'KeyZ': 'restore-latest-screenshot',
-      'KeyB': 'toggle-bg-settings',
-      'Digit0': 'seek-0',
-      'Digit1': 'seek-10',
-      'Digit2': 'seek-20',
-      'Digit3': 'seek-30',
-      'Digit4': 'seek-40',
-      'Digit5': 'seek-50',
-      'Digit6': 'seek-60',
-      'Digit7': 'seek-70',
-      'Digit8': 'seek-80',
-      'Digit9': 'seek-90',
-    };
+    this.catalog = SHORTCUT_CATALOG;
 
+    // Default combo -> action map (preserves legacy this.defaults structure)
+    this.defaults = {};
+    this.defaultBindings = {};
+    for (const item of SHORTCUT_CATALOG) {
+      this.defaultBindings[item.id] = item.defaultCombo;
+      if (item.defaultCombo) {
+        this.defaults[item.defaultCombo] = item.action;
+      }
+    }
+
+    // Active actionId -> combo string map
+    this.bindings = { ...this.defaultBindings };
+    // Active combo -> action map (preserves legacy this.shortcuts structure)
     this.shortcuts = { ...this.defaults };
+    this._customOverrides = {};
+    this.screenshotMouseButton = 3; // Default: Mouse 4 (Back button)
+
     this._keySHoldTimer = null;
     this._keySPressed = false;
+    this._activeScreenshotCode = null;
     this._mouse4HoldTimer = null;
     this._mouse4Pressed = false;
+
     this._bindKeyboard();
     this._bindMouse();
     this._bindMenuActions();
+    this._loadSavedShortcutsFromDb();
+  }
+
+  async _loadSavedShortcutsFromDb() {
+    try {
+      const [saved, savedMouseBtn] = await Promise.all([
+        window.hybridAPI?.db?.getPreference?.('customShortcuts').catch(() => null),
+        window.hybridAPI?.db?.getPreference?.('screenshotMouseButton').catch(() => null),
+      ]);
+      if ( [-1, 1, 3, 4].includes(Number(savedMouseBtn)) ) {
+        this.screenshotMouseButton = Number(savedMouseBtn);
+      }
+      if (saved && typeof saved === 'object') {
+        this.applyCustomShortcuts(saved, { persist: false });
+      } else {
+        this.updateTooltips();
+      }
+    } catch (_) {
+      this.updateTooltips();
+    }
+  }
+
+  getScreenshotMouseButton() {
+    return [-1, 1, 3, 4].includes(Number(this.screenshotMouseButton)) ? Number(this.screenshotMouseButton) : 3;
+  }
+
+  async setScreenshotMouseButton(button, { persist = true } = {}) {
+    const num = [-1, 1, 3, 4].includes(Number(button)) ? Number(button) : 3;
+    this.screenshotMouseButton = num;
+    if (persist) {
+      try {
+        await window.hybridAPI?.db?.setPreference?.('screenshotMouseButton', num);
+      } catch (err) {
+        console.warn('Failed to persist screenshotMouseButton:', err);
+      }
+    }
+    return num;
+  }
+
+  getCatalog() {
+    return this.catalog;
+  }
+
+  getBinding(actionId) {
+    if (Object.prototype.hasOwnProperty.call(this.bindings, actionId)) {
+      return this.bindings[actionId] || '';
+    }
+    return '';
+  }
+
+  getDefaultBinding(actionId) {
+    return this.defaultBindings[actionId] || '';
+  }
+
+  getCustomOverrides() {
+    const overrides = {};
+    for (const item of this.catalog) {
+      const current = this.bindings[item.id] ?? '';
+      const def = this.defaultBindings[item.id] ?? '';
+      if (current !== def) {
+        overrides[item.id] = current;
+      }
+    }
+    return overrides;
+  }
+
+  normalizeKeyToken(rawToken) {
+    if (!rawToken || typeof rawToken !== 'string') return '';
+    const token = rawToken.trim();
+    if (!token) return '';
+
+    if (/^Key[A-Z]$/.test(token) || /^Digit[0-9]$/.test(token) || /^Numpad[0-9]$/.test(token) || /^F([1-9]|1[0-2])$/.test(token)) {
+      return token;
+    }
+    if (/^[a-zA-Z]$/.test(token)) {
+      return `Key${token.toUpperCase()}`;
+    }
+    if (/^[0-9]$/.test(token)) {
+      return `Digit${token}`;
+    }
+
+    const lower = token.toLowerCase();
+    const aliases = {
+      space: 'Space',
+      spacebar: 'Space',
+      esc: 'Escape',
+      escape: 'Escape',
+      enter: 'Enter',
+      return: 'Enter',
+      tab: 'Tab',
+      backspace: 'Backspace',
+      delete: 'Delete',
+      del: 'Delete',
+      insert: 'Insert',
+      ins: 'Insert',
+      home: 'Home',
+      end: 'End',
+      pageup: 'PageUp',
+      pgup: 'PageUp',
+      pagedown: 'PageDown',
+      pgdn: 'PageDown',
+      arrowleft: 'ArrowLeft',
+      left: 'ArrowLeft',
+      arrowright: 'ArrowRight',
+      right: 'ArrowRight',
+      arrowup: 'ArrowUp',
+      up: 'ArrowUp',
+      arrowdown: 'ArrowDown',
+      down: 'ArrowDown',
+      '[': 'BracketLeft',
+      bracketleft: 'BracketLeft',
+      ']': 'BracketRight',
+      bracketright: 'BracketRight',
+      ',': 'Comma',
+      comma: 'Comma',
+      '.': 'Period',
+      period: 'Period',
+      '/': 'Slash',
+      slash: 'Slash',
+      '\\': 'Backslash',
+      backslash: 'Backslash',
+      ';': 'Semicolon',
+      semicolon: 'Semicolon',
+      "'": 'Quote',
+      quote: 'Quote',
+      '`': 'Backquote',
+      backquote: 'Backquote',
+      '-': 'Minus',
+      minus: 'Minus',
+      '=': 'Equal',
+      equal: 'Equal',
+    };
+
+    if (aliases[lower]) return aliases[lower];
+    if (/^key[a-z]$/.test(lower)) return `Key${lower.slice(3).toUpperCase()}`;
+    if (/^digit[0-9]$/.test(lower)) return `Digit${lower.slice(5)}`;
+    if (/^f([1-9]|1[0-2])$/.test(lower)) return lower.toUpperCase();
+    return token;
+  }
+
+  normalizeCombo(rawCombo) {
+    if (rawCombo === '' || rawCombo === null || rawCombo === undefined) return '';
+    if (typeof rawCombo !== 'string') return '';
+    const trimmed = rawCombo.trim();
+    if (!trimmed) return '';
+
+    const parts = trimmed.split('+').map((p) => p.trim()).filter(Boolean);
+    if (parts.length === 0) return '';
+
+    let ctrl = false;
+    let alt = false;
+    let shift = false;
+    let keyCode = '';
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      const lower = part.toLowerCase();
+      if (i < parts.length - 1) {
+        if (lower === 'ctrl' || lower === 'control' || lower === 'cmd' || lower === 'meta' || lower === 'command') {
+          ctrl = true;
+          continue;
+        }
+        if (lower === 'alt' || lower === 'option') {
+          alt = true;
+          continue;
+        }
+        if (lower === 'shift') {
+          shift = true;
+          continue;
+        }
+      }
+      keyCode = this.normalizeKeyToken(part);
+    }
+
+    if (!keyCode || MODIFIER_CODES.has(keyCode)) return '';
+
+    const prefix = [];
+    if (ctrl) prefix.push('Ctrl');
+    if (alt) prefix.push('Alt');
+    if (shift) prefix.push('Shift');
+    prefix.push(keyCode);
+    return prefix.join('+');
+  }
+
+  eventToCombo(e) {
+    if (!e) return null;
+    const rawCode = e.code || this.normalizeKeyToken(e.key || '');
+    if (!rawCode || MODIFIER_CODES.has(rawCode)) return null;
+
+    const parts = [];
+    if (e.ctrlKey || e.metaKey) parts.push('Ctrl');
+    if (e.altKey) parts.push('Alt');
+    if (e.shiftKey) parts.push('Shift');
+    parts.push(rawCode);
+    return parts.join('+');
+  }
+
+  formatComboForDisplay(combo) {
+    const normalized = this.normalizeCombo(combo);
+    if (!normalized) return 'Unbound';
+
+    const parts = normalized.split('+');
+    return parts
+      .map((part) => {
+        if (part === 'Ctrl' || part === 'Alt' || part === 'Shift') return part;
+        if (CODE_DISPLAY_LABELS[part]) return CODE_DISPLAY_LABELS[part];
+        if (part.startsWith('Key') && part.length === 4) return part.slice(3);
+        if (part.startsWith('Digit') && part.length === 6) return part.slice(5);
+        if (part.startsWith('Numpad')) return `Num ${part.slice(6)}`;
+        return part;
+      })
+      .join(' + ');
+  }
+
+  formatComboCompact(combo) {
+    const normalized = this.normalizeCombo(combo);
+    if (!normalized) return '';
+    return this.formatComboForDisplay(normalized).replace(/\s+\+\s+/g, '+');
+  }
+
+  _rebuildLookupMaps() {
+    const nextShortcuts = {};
+    for (const item of this.catalog) {
+      const combo = this.bindings[item.id];
+      if (combo) {
+        nextShortcuts[combo] = item.action;
+      }
+    }
+    this.shortcuts = nextShortcuts;
+    this._customOverrides = this.getCustomOverrides();
+    this.updateTooltips();
+    window.dispatchEvent(new CustomEvent('hybrid:shortcuts-changed', {
+      detail: {
+        bindings: { ...this.bindings },
+        overrides: { ...this._customOverrides },
+      },
+    }));
+  }
+
+  applyCustomShortcuts(customMap, { persist = false } = {}) {
+    this.bindings = { ...this.defaultBindings };
+    if (customMap && typeof customMap === 'object') {
+      for (const [actionId, rawCombo] of Object.entries(customMap)) {
+        if (!Object.prototype.hasOwnProperty.call(this.bindings, actionId)) continue;
+        const normalized = this.normalizeCombo(rawCombo);
+        if (normalized) {
+          // Clear any other action currently holding this combo
+          for (const other of this.catalog) {
+            if (other.id !== actionId && this.bindings[other.id] === normalized) {
+              this.bindings[other.id] = '';
+            }
+          }
+        }
+        this.bindings[actionId] = normalized;
+      }
+    }
+    this._rebuildLookupMaps();
+    if (persist) {
+      this._persistCustomShortcuts();
+    }
+    return { ...this.bindings };
+  }
+
+  async setShortcut(actionId, rawCombo, { persist = true } = {}) {
+    const entry = this.catalog.find((item) => item.id === actionId);
+    if (!entry) return { ok: false, error: 'Unknown shortcut action' };
+
+    const combo = this.normalizeCombo(rawCombo);
+    const previousCombo = this.bindings[actionId] || '';
+
+    let displacedActionId = null;
+    let displacedActionLabel = null;
+
+    if (combo) {
+      for (const item of this.catalog) {
+        if (item.id !== actionId && this.bindings[item.id] === combo) {
+          this.bindings[item.id] = '';
+          displacedActionId = item.id;
+          displacedActionLabel = item.label;
+        }
+      }
+    }
+
+    this.bindings[actionId] = combo;
+    this._rebuildLookupMaps();
+
+    if (persist) {
+      await this._persistCustomShortcuts();
+    }
+
+    return {
+      ok: true,
+      actionId,
+      label: entry.label,
+      combo,
+      displayCombo: this.formatComboForDisplay(combo),
+      previousCombo,
+      displacedActionId,
+      displacedActionLabel,
+    };
+  }
+
+  async resetShortcut(actionId, { persist = true } = {}) {
+    const entry = this.catalog.find((item) => item.id === actionId);
+    if (!entry) return { ok: false };
+    return this.setShortcut(actionId, entry.defaultCombo, { persist });
+  }
+
+  async resetAllShortcuts({ persist = true } = {}) {
+    this.bindings = { ...this.defaultBindings };
+    this._rebuildLookupMaps();
+    if (persist) {
+      await this._persistCustomShortcuts();
+    }
+    return { ok: true, bindings: { ...this.bindings } };
+  }
+
+  async _persistCustomShortcuts() {
+    try {
+      const overrides = this.getCustomOverrides();
+      await window.hybridAPI?.db?.setPreference?.('customShortcuts', overrides);
+    } catch (err) {
+      console.warn('Failed to persist custom shortcuts:', err);
+    }
+  }
+
+  updateTooltips() {
+    const setBtnTooltip = (id, label, actionId) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const keyText = this.formatComboCompact(this.getBinding(actionId));
+      el.title = keyText ? `${label} (${keyText})` : label;
+    };
+
+    const isPlaying = !!this.player?.isPlaying;
+    setBtnTooltip('btnPlay', isPlaying ? 'Pause' : 'Play', 'toggle-play');
+    setBtnTooltip('btnPrev', 'Previous', 'previous-track');
+    setBtnTooltip('btnNext', 'Next', 'next-track');
+    setBtnTooltip('btnVolume', 'Volume', 'toggle-mute');
+    setBtnTooltip('bgSettingsToggle', 'Background Settings', 'toggle-bg-settings');
+    setBtnTooltip('btnEqualizer', 'Equalizer', 'toggle-equalizer');
+    setBtnTooltip('btnAudioTrack', 'Subs / Dubs', 'cycle-audio');
+    setBtnTooltip('btnSubtitles', 'Subtitles', 'toggle-subtitles');
+    setBtnTooltip('btnPlaylist', 'Playlist', 'toggle-playlist');
+    setBtnTooltip('btnABLoop', 'A-B Loop', 'toggle-ab-loop');
+    setBtnTooltip('btnSettings', 'Settings', 'toggle-settings');
+    setBtnTooltip('btnFullscreen', 'Fullscreen', 'toggle-fullscreen');
+    setBtnTooltip('unlockOverlay', 'Unlock', 'unlock-ui');
+    setBtnTooltip('btnLock', 'Lock Controls', 'toggle-lock');
+  }
+
+  _resolveActionForEvent(e) {
+    if (!e || window.__hybridRecordingShortcut) return null;
+    const combo = this.eventToCombo(e);
+    if (!combo) return null;
+    if (this.shortcuts[combo]) {
+      return this.shortcuts[combo];
+    }
+    // Fallback for unmodified key lookup in case external code modified this.shortcuts[e.code]
+    if (!e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && e.code && this.shortcuts[e.code]) {
+      return this.shortcuts[e.code];
+    }
+    return null;
   }
 
   _bindKeyboard() {
     document.addEventListener('keydown', (e) => {
+      if (window.__hybridRecordingShortcut) return;
+
       // Don't intercept when typing in inputs
       if (
         e.target.tagName === 'INPUT' ||
@@ -84,6 +530,7 @@ class HybridShortcuts {
       const anyModalOpen = document.querySelector('.modal-overlay:not([hidden])');
 
       const code = e.code;
+      const action = this._resolveActionForEvent(e);
 
       // Special handling when screenshot carousel is open
       if (this.player?.isScreenshotCarouselOpen?.()) {
@@ -107,14 +554,14 @@ class HybridShortcuts {
         }
         const carouselMode = this.player?.getCarouselMode?.() || 'delete';
         if (carouselMode === 'restore') {
-          if (code === 'Enter' || (code === 'KeyZ' && !e.ctrlKey && !e.altKey && !e.metaKey)) {
+          if (code === 'Enter' || action === 'restore-latest-screenshot') {
             e.preventDefault();
             e.stopPropagation();
             this.player.restoreSelectedCarouselScreenshot();
             return;
           }
         } else {
-          if (code === 'Enter' || (code === 'KeyD' && !e.ctrlKey && !e.altKey && !e.metaKey)) {
+          if (code === 'Enter' || action === 'delete-latest-screenshot') {
             e.preventDefault();
             e.stopPropagation();
             this.player.deleteSelectedCarouselScreenshot();
@@ -123,9 +570,7 @@ class HybridShortcuts {
         }
       }
 
-      const action = this._getModifiedShortcutAction(e) || this.shortcuts[code];
-
-      if (code === 'KeyF' || code === 'Escape') {
+      if (code === 'KeyF' || code === 'Escape' || action === 'toggle-fullscreen' || action === 'exit-fullscreen') {
         console.log('[FSDBG][renderer-shortcuts] keydown', {
           code,
           key: e.key,
@@ -137,7 +582,13 @@ class HybridShortcuts {
       if (!action) return;
 
       const isLocked = !!window.HybridApp?.isLocked;
-      if (isLocked && action !== 'unlock-ui') {
+      if (
+        isLocked &&
+        action !== 'unlock-ui' &&
+        action !== 'toggle-lock' &&
+        action !== 'screenshot' &&
+        action !== 'screenshot-png'
+      ) {
         e.preventDefault();
         return;
       }
@@ -145,11 +596,13 @@ class HybridShortcuts {
       // Some actions should work even in modals
       if (action !== 'toggle-play' && anyModalOpen) return;
 
-      // Special handling for KeyS (Hold-to-Burst frame capture vs Single Tap)
-      if (code === 'KeyS' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      // Special handling for screenshot action (Hold-to-Burst frame capture vs Single Tap)
+      if (action === 'screenshot') {
         e.preventDefault();
+        if (!this._hasActiveMedia()) return;
         if (!e.repeat) {
           this._keySPressed = true;
+          this._activeScreenshotCode = code;
           if (this._keySHoldTimer) clearTimeout(this._keySHoldTimer);
           this._keySHoldTimer = setTimeout(() => {
             if (this._keySPressed && !this.player._isBurstCapturing) {
@@ -164,6 +617,14 @@ class HybridShortcuts {
         return;
       }
 
+      if (action === 'screenshot-png') {
+        e.preventDefault();
+        if (!e.repeat) {
+          this._executeAction(action, e);
+        }
+        return;
+      }
+
       e.preventDefault();
       if (action === 'toggle-fullscreen' || action === 'exit-fullscreen') {
         console.log('[FSDBG][renderer-shortcuts] execute action', action);
@@ -172,7 +633,12 @@ class HybridShortcuts {
     });
 
     document.addEventListener('keyup', (e) => {
-      if (e.code === 'KeyS') {
+      if (window.__hybridRecordingShortcut) return;
+      const releaseAction = this._resolveActionForEvent(e);
+      if (
+        (this._keySPressed && e.code && e.code === this._activeScreenshotCode) ||
+        releaseAction === 'screenshot'
+      ) {
         if (this._keySHoldTimer) {
           clearTimeout(this._keySHoldTimer);
           this._keySHoldTimer = null;
@@ -185,40 +651,13 @@ class HybridShortcuts {
           this.player.takeScreenshot();
         }
         this._keySPressed = false;
+        this._activeScreenshotCode = null;
       }
     });
   }
 
   _getModifiedShortcutAction(e) {
-    const isPrimaryModifier = e.ctrlKey || e.metaKey;
-    if (!isPrimaryModifier || e.altKey) return null;
-
-    if (e.shiftKey) {
-      return e.code === 'KeyO' ? 'open-multiple-files' : null;
-    }
-
-    switch (e.code) {
-      case 'KeyO':
-        return 'open-file';
-      case 'KeyF':
-        return 'open-folder';
-      case 'KeyN':
-        return 'open-network-stream';
-      case 'KeyL':
-        return 'toggle-playlist';
-      case 'Comma':
-        return 'toggle-settings';
-      case 'KeyS':
-        return 'toggle-recording';
-      case 'KeyZ':
-        return 'toggle-restore-carousel';
-      case 'KeyD':
-        return 'toggle-screenshot-carousel';
-      case 'KeyQ':
-        return 'quit';
-      default:
-        return null;
-    }
+    return this._resolveActionForEvent(e);
   }
 
   _hasActiveMedia() {
@@ -228,8 +667,8 @@ class HybridShortcuts {
 
   _bindMouse() {
     const handleDown = (e) => {
-      // Mouse 4 corresponds to button === 3 (Back button)
-      if (e.button !== 3) return;
+      const targetBtn = this.getScreenshotMouseButton();
+      if (targetBtn < 0 || e.button !== targetBtn) return;
 
       e.preventDefault();
       e.stopPropagation();
@@ -245,11 +684,10 @@ class HybridShortcuts {
         return;
       }
 
-      const isLocked = !!window.HybridApp?.isLocked || document.body.classList.contains('is-locked');
-      if (isLocked) return;
-
       const anyModalOpen = document.querySelector('.modal-overlay:not([hidden])');
       if (anyModalOpen) return;
+
+      if (!this._hasActiveMedia()) return;
 
       if (this.player?.isScreenshotCarouselOpen?.()) return;
 
@@ -265,7 +703,8 @@ class HybridShortcuts {
     };
 
     const handleUp = (e) => {
-      if (e.button !== 3) return;
+      const targetBtn = this.getScreenshotMouseButton();
+      if (targetBtn < 0 || e.button !== targetBtn) return;
 
       e.preventDefault();
       e.stopPropagation();
@@ -287,7 +726,8 @@ class HybridShortcuts {
     window.addEventListener('mousedown', handleDown, { capture: true });
     window.addEventListener('mouseup', handleUp, { capture: true });
     window.addEventListener('auxclick', (e) => {
-      if (e.button === 3) {
+      const targetBtn = this.getScreenshotMouseButton();
+      if (targetBtn >= 0 && e.button === targetBtn) {
         e.preventDefault();
         e.stopPropagation();
       }
@@ -302,6 +742,7 @@ class HybridShortcuts {
         this.player.stopBurstCapture();
       }
       this._keySPressed = false;
+      this._activeScreenshotCode = null;
 
       if (this._mouse4HoldTimer) {
         clearTimeout(this._mouse4HoldTimer);
@@ -343,10 +784,12 @@ class HybridShortcuts {
       'sub-delay-down',
       'sub-delay-up',
       'screenshot',
+      'screenshot-png',
       'delete-latest-screenshot',
       'restore-latest-screenshot',
       'toggle-time-format',
       'toggle-ab-loop',
+      'toggle-lock',
     ];
 
     if (mediaRequiredActions.includes(action) && !hasMedia) {
@@ -463,6 +906,10 @@ class HybridShortcuts {
         this.player.takeScreenshot();
         break;
 
+      case 'screenshot-png':
+        this.player.takeScreenshot('png');
+        break;
+
       case 'delete-latest-screenshot':
         this.player.deleteLatestScreenshot();
         break;
@@ -485,6 +932,10 @@ class HybridShortcuts {
 
       case 'unlock-ui':
         window.HybridApp?.setLocked(false);
+        break;
+
+      case 'toggle-lock':
+        window.HybridApp?.toggleLock?.();
         break;
       
       case 'toggle-repeat':
@@ -536,9 +987,14 @@ class HybridShortcuts {
         window.hybridAPI?.window?.close();
         break;
       
-      case 'show-shortcuts':
-        window.HybridToast?.show('Keyboard shortcuts: Space=Play, F=Fullscreen, M=Mute, [/]=Speed');
+      case 'show-shortcuts': {
+        const playKey = this.formatComboCompact(this.getBinding('toggle-play')) || 'Space';
+        const fsKey = this.formatComboCompact(this.getBinding('toggle-fullscreen')) || 'F';
+        const muteKey = this.formatComboCompact(this.getBinding('toggle-mute')) || 'M';
+        const shotKey = this.formatComboCompact(this.getBinding('screenshot')) || 'S';
+        window.HybridToast?.show(`Shortcuts: ${playKey}=Play, ${fsKey}=Fullscreen, ${muteKey}=Mute, ${shotKey}=Screenshot`);
         break;
+      }
       
       case 'show-about':
         window.HybridToast?.show('Hybrid Player v1.0.0 — Next-gen media player');
