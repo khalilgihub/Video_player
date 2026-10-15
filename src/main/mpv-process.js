@@ -118,10 +118,20 @@ class MpvProcess extends EventEmitter {
       throw new Error('mpv binary not found');
     }
     const ytDlpPath = opts.ytdlPath || MpvProcess.findYtDlpBinary();
-    const cookiesPath = opts.cookiesPath || path.join(__dirname, '../../cookies.txt');
+    const cookiesCandidates = [
+      opts.cookiesPath,
+      app?.getPath ? path.join(app.getPath('userData'), 'cookies.txt') : null,
+      process.resourcesPath ? path.join(process.resourcesPath, 'cookies.txt') : null,
+      process.execPath ? path.join(path.dirname(process.execPath), 'cookies.txt') : null,
+      !app?.isPackaged ? path.join(__dirname, '../../cookies.txt') : null,
+    ].filter((candidate) => candidate && !candidate.includes('app.asar'));
+    const cookiesPath = cookiesCandidates.find((candidate) => fs.existsSync(candidate)) || cookiesCandidates[0] || '';
     const defaultUserAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36';
-    const defaultScreenshotDir = opts.defaultScreenshotDir || opts.screenshotDir || path.join(__dirname, '../../screenshots');
+    const fallbackScreenshotDir = (app?.isPackaged && app?.getPath)
+      ? path.join(app.getPath('userData'), 'screenshots')
+      : path.join(__dirname, '../../screenshots');
+    const defaultScreenshotDir = opts.defaultScreenshotDir || opts.screenshotDir || fallbackScreenshotDir;
     const screenshotDir = opts.screenshotDir || defaultScreenshotDir;
     const screenshotFormat = String(opts.screenshotFormat || 'jpg').toLowerCase();
 
@@ -135,7 +145,7 @@ class MpvProcess extends EventEmitter {
 
     // ── Generate input.conf that relays key/mouse to Electron via script-message ──
     const os = require('os');
-    const inputConfDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hybrid-player-input-'));
+    const inputConfDir = fs.mkdtempSync(path.join(os.tmpdir(), `hybrid-player-input-${process.pid}-`));
     this._inputConfDir = inputConfDir;
     const inputConfPath = path.join(inputConfDir, 'input.conf');
     const inputConfContent = [
@@ -221,13 +231,17 @@ class MpvProcess extends EventEmitter {
       fsdbg('yt-dlp path not resolved for mpv; relying on PATH lookup');
     }
 
+    const formatYtdlOptionValue = (val) => {
+      const str = String(val || '');
+      return str.includes(',') ? `[${str}]` : str;
+    };
     const ytdlRawOptions = [];
     if (opts.enableYtdlRawOptions === true) {
       if (opts.ytdlUserAgent) {
-        ytdlRawOptions.push(`user-agent=${opts.ytdlUserAgent}`);
+        ytdlRawOptions.push(`user-agent=${formatYtdlOptionValue(opts.ytdlUserAgent)}`);
       }
-      if (fs.existsSync(cookiesPath)) {
-        ytdlRawOptions.push(`cookies=${cookiesPath}`);
+      if (cookiesPath && fs.existsSync(cookiesPath)) {
+        ytdlRawOptions.push(`cookies=${formatYtdlOptionValue(cookiesPath)}`);
         fsdbg('using cookies for ytdl', { cookiesPath });
       }
 
@@ -273,24 +287,31 @@ class MpvProcess extends EventEmitter {
       mpverr(text.trim());
     });
 
+    this._terminationEmitted = false;
     this.process.on('error', (err) => {
       mpverr('child process error', err?.message || err);
       this.emit('error', err);
-      this.ready = false;
+      this._handleProcessTermination(null);
     });
 
     this.process.on('exit', (code) => {
-      if (code !== 0 && code !== null) {
-        mpverr('mpv exited with code', code);
-      }
-      this.emit('exit', code);
-      this.ready = false;
-      this.socket = null;
-      this.process = null;
+      this._handleProcessTermination(code);
     });
 
     // Give mpv a moment to create the pipe, then connect
     setTimeout(() => this._connectSocket(), 300);
+  }
+
+  _handleProcessTermination(code) {
+    if (this._terminationEmitted) return;
+    this._terminationEmitted = true;
+    if (code !== 0 && code !== null) {
+      mpverr('mpv exited with code', code);
+    }
+    this.ready = false;
+    this.socket = null;
+    this.process = null;
+    this.emit('exit', code);
   }
 
   // ─── IPC Socket ────────────────────────────────────────
@@ -762,7 +783,7 @@ class MpvProcess extends EventEmitter {
   destroy() {
     if (this.socket) {
       try { this.command('quit').catch(() => {}); } catch {}
-      this.socket.destroy();
+      try { this.socket.end(); } catch {}
       this.socket = null;
     }
     if (this.process) {

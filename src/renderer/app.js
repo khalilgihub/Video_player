@@ -255,6 +255,7 @@ class HybridApp {
     this._loadSpinnerPending = false;
     this._loadSpinnerShownAt = 0;
     this._loadSpinnerFailSafeTimer = null;
+    this._loadSpinnerCompleteTimer = null;
     
     this._statsInterval = null;
     this._fsTransitionTimer = null;
@@ -781,6 +782,8 @@ class HybridApp {
     const clean = Array.from(new Set((filePaths || []).filter((filePath) => typeof filePath === 'string' && filePath.trim())));
     if (clean.length === 0) return;
 
+    this._closeSettingsModal();
+
     if (replacePlaylist) {
       this.playlistModule.replaceFiles(clean, { autoPlay: playFirst !== false });
       return;
@@ -880,17 +883,29 @@ class HybridApp {
     this._closeSettingsModal();
     this._syncUiAfterDirectLoad(filePathOrUrl);
     this._beginVideoLoadSpinner();
+    if (this.playlistModule && !this._isNetworkMediaUrl(filePathOrUrl)) {
+      this.playlistModule.items = this.playlistModule._createItems([filePathOrUrl]);
+      this.playlistModule.currentIndex = 0;
+      this.playlistModule._playedShuffleIndices.clear();
+      this.playlistModule._renderList();
+    }
     await window.hybridAPI.mpv.setProperty('vid', 'auto');
     await window.hybridAPI.mpv.command('loadfile', filePathOrUrl, 'replace');
   }
 
   async _loadMediaReplaceAppend(paths) {
     this._closeSettingsModal();
-    const clean = paths.filter((p) => typeof p === 'string' && p.trim());
+    const clean = (paths || []).filter((p) => typeof p === 'string' && p.trim());
     if (clean.length === 0) return;
 
     this._syncUiAfterDirectLoad(clean[0]);
     this._beginVideoLoadSpinner();
+    if (this.playlistModule) {
+      this.playlistModule.items = this.playlistModule._createItems(clean);
+      this.playlistModule.currentIndex = 0;
+      this.playlistModule._playedShuffleIndices.clear();
+      this.playlistModule._renderList();
+    }
     await window.hybridAPI.mpv.setProperty('vid', 'auto');
     await window.hybridAPI.mpv.command('loadfile', clean[0], 'replace');
     for (let i = 1; i < clean.length; i++) {
@@ -923,6 +938,10 @@ class HybridApp {
       this.player.onPlayStateChanged?.(true);
     }
 
+    this._applyPlaybackSourceState(filePathOrUrl);
+  }
+
+  _applyPlaybackSourceState(filePathOrUrl) {
     const isUrl = this._isNetworkMediaUrl(filePathOrUrl);
     this.currentStreamUrl = isUrl ? filePathOrUrl : null;
     this.currentPlaybackType = this._isYoutubeUrl(filePathOrUrl)
@@ -1053,7 +1072,7 @@ class HybridApp {
     if (spinner) {
       spinner.classList.add('hidden');
     }
-    if (welcome) {
+    if (welcome && this.player?.currentFilePath) {
       welcome.classList.add('hidden');
     }
     if (this._isMpvPaused) {
@@ -1149,6 +1168,10 @@ class HybridApp {
       clearTimeout(this._loadSpinnerFailSafeTimer);
       this._loadSpinnerFailSafeTimer = null;
     }
+    if (this._loadSpinnerCompleteTimer) {
+      clearTimeout(this._loadSpinnerCompleteTimer);
+      this._loadSpinnerCompleteTimer = null;
+    }
 
     this._loadSpinnerPending = true;
     this._hasStartedPlaying = false;
@@ -1174,6 +1197,10 @@ class HybridApp {
       clearTimeout(this._loadSpinnerFailSafeTimer);
       this._loadSpinnerFailSafeTimer = null;
     }
+    if (this._loadSpinnerCompleteTimer) {
+      clearTimeout(this._loadSpinnerCompleteTimer);
+      this._loadSpinnerCompleteTimer = null;
+    }
 
     if (!this._loadSpinnerPending) {
       this._setNetworkLoading(false);
@@ -1185,7 +1212,9 @@ class HybridApp {
     const minVisibleMs = 180;
     const delay = Math.max(0, minVisibleMs - elapsed);
 
-    setTimeout(() => {
+    this._loadSpinnerCompleteTimer = setTimeout(() => {
+      this._loadSpinnerCompleteTimer = null;
+      if (!this._loadSpinnerPending) return;
       this._loadSpinnerPending = false;
       this._setNetworkLoading(false);
       this._setVideoCurtain(false);
@@ -1196,6 +1225,10 @@ class HybridApp {
     if (this._loadSpinnerFailSafeTimer) {
       clearTimeout(this._loadSpinnerFailSafeTimer);
       this._loadSpinnerFailSafeTimer = null;
+    }
+    if (this._loadSpinnerCompleteTimer) {
+      clearTimeout(this._loadSpinnerCompleteTimer);
+      this._loadSpinnerCompleteTimer = null;
     }
     this._loadSpinnerPending = false;
     this._setNetworkLoading(false);
@@ -1252,7 +1285,8 @@ class HybridApp {
     try {
       const host = new URL(normalized).hostname.toLowerCase().replace(/^\[|\]$/g, '');
       if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
-      if (host === '::1' || host.startsWith('fe80:') || host.startsWith('fc') || host.startsWith('fd')) return true;
+      if (host === '::1' || host.startsWith('fe80:')) return true;
+      if (host.includes(':') && (host.startsWith('fc') || host.startsWith('fd'))) return true;
 
       const parts = host.split('.').map((part) => Number(part));
       if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
@@ -1762,6 +1796,8 @@ class HybridApp {
     if (this.isClipRecording && this.recordSourcePath && this.recordSourcePath !== nextPath) {
       this.cancelClipRecording('Clip recording stopped because the source changed');
     }
+    if (!nextPath) return;
+    this._applyPlaybackSourceState(nextPath);
   }
 }
 

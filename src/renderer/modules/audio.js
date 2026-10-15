@@ -25,12 +25,20 @@ class HybridAudio {
   _bindEvents() {
     // Quick Anime Preset buttons
     document.getElementById('btnQuickSubs')?.addEventListener('click', () => {
-      this.player.setSubsDubsMode?.('subs') || this.player.toggleSubsDubs?.('subs');
+      if (typeof this.player.setSubsDubsMode === 'function') {
+        this.player.setSubsDubsMode('subs');
+      } else if (typeof this.player.toggleSubsDubs === 'function') {
+        this.player.toggleSubsDubs('subs');
+      }
       this._updateTrackList(this.player.trackList);
     });
 
     document.getElementById('btnQuickDubs')?.addEventListener('click', () => {
-      this.player.setSubsDubsMode?.('dubs') || this.player.toggleSubsDubs?.('dubs');
+      if (typeof this.player.setSubsDubsMode === 'function') {
+        this.player.setSubsDubsMode('dubs');
+      } else if (typeof this.player.toggleSubsDubs === 'function') {
+        this.player.toggleSubsDubs('dubs');
+      }
       this._updateTrackList(this.player.trackList);
     });
 

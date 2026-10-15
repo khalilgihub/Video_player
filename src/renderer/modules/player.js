@@ -157,7 +157,7 @@ class HybridPlayer {
 
         case 'mute':
           this.muted = value;
-          this.onVolumeChange?.(this.muted ? 0 : this.volume);
+          this.onVolumeChange?.(this.muted ? 0 : this.volume, { reason: 'mute' });
           break;
 
         case 'speed':
@@ -223,6 +223,7 @@ class HybridPlayer {
           this._tryExecutePendingResume();
           if (this.currentFilePath) {
             window.hybridAPI.mpv.getProperty('pause').then((isPaused) => {
+              if (typeof isPaused !== 'boolean') return;
               const activePlaying = !isPaused && !!this.currentFilePath;
               if (this.isPlaying !== activePlaying) {
                 this.isPlaying = activePlaying;
@@ -425,7 +426,9 @@ class HybridPlayer {
       // Save previous file's resume position before switching away, if valid
       if (previousFilePath && previousFilePath !== filePath && previousTime > 5 && !this._isNearEnd()) {
         try {
-          window.hybridAPI.resume.save(previousFilePath, previousTime);
+          window.hybridAPI.resume.save(previousFilePath, previousTime)?.catch?.((e) => {
+            console.warn('Failed to save previous file resume position:', e);
+          });
         } catch (e) {
           console.warn('Failed to save previous file resume position:', e);
         }
@@ -624,10 +627,10 @@ class HybridPlayer {
 
   // ── Volume ─────────────────────────────────────────────
   setVolume(value) {
-    // value: 0–1 or 0–100 → mpv volume 0–100
+    // value: fractional (0 < v < 1) or integer percentage (0–100) → mpv volume 0–100
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return;
-    const target = numeric > 1 ? numeric : numeric * 100;
+    const target = (numeric > 0 && numeric < 1) ? numeric * 100 : numeric;
     const clamped = Math.max(0, Math.min(100, Math.round(target)));
     this.volume = clamped;
     window.hybridAPI.mpv.setVolume(clamped);
@@ -682,17 +685,20 @@ class HybridPlayer {
         this.abLoop.b = later;
         window.hybridAPI.mpv.setABLoopA(earlier);
         window.hybridAPI.mpv.setABLoopB(later);
-        this.abLoop.active = true;
-        window.HybridToast?.show('Loop A-B active');
-        const indicator = document.getElementById('abLoopIndicator');
-        if (indicator) indicator.hidden = false;
       } else {
         this.abLoop.b = this.currentTime;
-        this.abLoop.active = true;
         window.hybridAPI.mpv.setABLoopB(this.currentTime);
-        window.HybridToast?.show('Loop A-B active');
-        const indicator = document.getElementById('abLoopIndicator');
-        if (indicator) indicator.hidden = false;
+      }
+      this.abLoop.active = true;
+      window.HybridToast?.show('Loop A-B active');
+      const indicator = document.getElementById('abLoopIndicator');
+      const textEl = document.getElementById('abLoopText');
+      if (textEl) {
+        textEl.textContent = `A-B: ${this.formatTime(this.abLoop.a)} - ${this.formatTime(this.abLoop.b)}`;
+      }
+      if (indicator) {
+        indicator.hidden = false;
+        indicator.setAttribute('aria-hidden', 'false');
       }
     } else {
       this.clearABLoop();
@@ -705,7 +711,14 @@ class HybridPlayer {
     this.abLoop = { a: null, b: null, active: false };
     window.hybridAPI.mpv.clearABLoop();
     const indicator = document.getElementById('abLoopIndicator');
-    if (indicator) indicator.hidden = true;
+    const textEl = document.getElementById('abLoopText');
+    if (textEl) {
+      textEl.textContent = 'A-B Loop Active';
+    }
+    if (indicator) {
+      indicator.hidden = true;
+      indicator.setAttribute('aria-hidden', 'true');
+    }
     window.HybridApp?.controlsModule?._updateABLoopButton?.();
     if (notify) {
       window.HybridToast?.show('Loop cleared');
@@ -763,7 +776,9 @@ class HybridPlayer {
       this._recordSingleScreenshot(payload);
     } catch (err) {
       console.error('[SCREENSHOT][renderer] Screenshot failed:', err);
-      window.HybridToast?.show('Screenshot failed');
+      if (this.currentFilePath) {
+        window.HybridToast?.show('Screenshot failed');
+      }
     }
   }
 
@@ -773,27 +788,29 @@ class HybridPlayer {
       return;
     }
 
-    const targetPath = this._singleScreenshotStack.pop();
+    const targetPath = this._singleScreenshotStack[this._singleScreenshotStack.length - 1];
     if (!targetPath) {
       this._showScreenshotNotice('No screenshots to delete', '🗑️');
       return;
     }
 
-    if (this._sessionScreenshots) {
-      this._sessionScreenshots = this._sessionScreenshots.filter((s) => s.filePath !== targetPath);
-      if (this.isScreenshotCarouselOpen?.()) {
-        if (this._sessionScreenshots.length === 0) {
-          this.closeScreenshotCarousel();
-        } else {
-          this._carouselIndex = Math.min(this._carouselIndex, this._sessionScreenshots.length - 1);
-          this._updateCarouselContent();
-        }
-      }
-    }
-
     try {
       const result = await window.hybridAPI?.mpv?.deleteScreenshot?.(targetPath);
       if (result?.success) {
+        this._singleScreenshotStack.pop();
+
+        if (this._sessionScreenshots) {
+          this._sessionScreenshots = this._sessionScreenshots.filter((s) => s.filePath !== targetPath);
+          if (this.isScreenshotCarouselOpen?.()) {
+            if (this._sessionScreenshots.length === 0) {
+              this.closeScreenshotCarousel();
+            } else {
+              this._carouselIndex = Math.min(this._carouselIndex, this._sessionScreenshots.length - 1);
+              this._updateCarouselContent();
+            }
+          }
+        }
+
         const fileName = result.fileName || targetPath.split(/[/\\]/).pop();
 
         // Push to undo stack for Z recovery
@@ -852,7 +869,7 @@ class HybridPlayer {
           filePath: result.filePath,
           fileName,
           previewDataUrl: result.previewDataUrl || stagedItem.previewDataUrl || '',
-          previewUrl: `local-file:///${encodeURI(result.filePath.replace(/\\/g, '/'))}`,
+          previewUrl: `local-file:///${encodeURI(result.filePath.replace(/\\/g, '/')).replace(/\?/g, '%3F').replace(/#/g, '%23')}`,
           timestamp: Date.now(),
         });
 
@@ -1044,9 +1061,12 @@ class HybridPlayer {
       image.onload = () => {
         console.log('[SCREENSHOT][renderer] Screenshot preview image loaded successfully in DOM');
       };
+      let retriedPreviewUrl = false;
       image.onerror = (err) => {
         console.error('[SCREENSHOT][renderer] Screenshot preview image load error:', err);
+        if (retriedPreviewUrl) return;
         if (imageSource !== previewUrl && previewUrl) {
+          retriedPreviewUrl = true;
           const sep = previewUrl.includes('?') ? '&' : '?';
           image.src = `${previewUrl}${sep}cb=${Date.now()}`;
         }
@@ -1316,9 +1336,6 @@ class HybridPlayer {
       return;
     }
 
-    // Remove from undo stack at this specific index
-    this._deletedScreenshotStack.splice(this._carouselIndex, 1);
-
     const fileName = stagedItem.fileName || stagedItem.originalPath?.split(/[/\\]/).pop() || 'screenshot.png';
     const carousel = this._carouselEl;
 
@@ -1356,6 +1373,9 @@ class HybridPlayer {
     try {
       const result = await window.hybridAPI?.mpv?.restoreScreenshot?.(stagedItem);
       if (result?.success) {
+        // Remove from undo stack at this specific index
+        this._deletedScreenshotStack.splice(this._carouselIndex, 1);
+
         const restoredFileName = result.fileName || fileName;
 
         // Push restored screenshot back to singleScreenshotStack so D can delete it again
@@ -1368,7 +1388,7 @@ class HybridPlayer {
           filePath: result.filePath,
           fileName: restoredFileName,
           previewDataUrl: result.previewDataUrl || stagedItem.previewDataUrl || '',
-          previewUrl: `local-file:///${encodeURI(result.filePath.replace(/\\/g, '/'))}`,
+          previewUrl: `local-file:///${encodeURI(result.filePath.replace(/\\/g, '/')).replace(/\?/g, '%3F').replace(/#/g, '%23')}`,
           timestamp: Date.now(),
         });
       } else {
@@ -1474,11 +1494,14 @@ class HybridPlayer {
 
     const img = this._carouselEl.querySelector('img');
     if (img) {
+      let retriedFallback = false;
       img.onerror = () => {
+        if (retriedFallback) return;
         const fallbackPath = current.filePath || current.tempPath || current.originalPath;
         if (fallbackPath) {
+          retriedFallback = true;
           const normalized = fallbackPath.replace(/\\/g, '/');
-          img.src = `local-file:///${encodeURI(normalized)}?cb=${Date.now()}`;
+          img.src = `local-file:///${encodeURI(normalized).replace(/\?/g, '%3F').replace(/#/g, '%23')}?cb=${Date.now()}`;
         }
       };
       const src = current.previewDataUrl || current.previewUrl || '';

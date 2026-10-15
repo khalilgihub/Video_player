@@ -625,6 +625,9 @@ class HybridShortcuts {
         return;
       }
 
+      const repeatableActions = ['seek-back-5', 'seek-forward-5', 'volume-up', 'volume-down'];
+      if (e.repeat && !repeatableActions.includes(action)) return;
+
       e.preventDefault();
       if (action === 'toggle-fullscreen' || action === 'exit-fullscreen') {
         console.log('[FSDBG][renderer-shortcuts] execute action', action);
@@ -823,13 +826,19 @@ class HybridShortcuts {
         break;
       }
       
-      case 'volume-up':
+      case 'volume-up': {
         window.hybridAPI.mpv.command('add', 'volume', 5);
+        const nextUp = Math.min(100, Math.round((this.player.volume || 0) + 5));
+        this.controls.showVolumeOsd(nextUp);
         break;
+      }
       
-      case 'volume-down':
+      case 'volume-down': {
         window.hybridAPI.mpv.command('add', 'volume', -5);
+        const nextDown = Math.max(0, Math.round((this.player.volume || 0) - 5));
+        this.controls.showVolumeOsd(nextDown);
         break;
+      }
       
       case 'toggle-mute':
         this.player.toggleMute();

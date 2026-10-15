@@ -88,7 +88,9 @@ class HybridEqualizer {
         this.setBand(band, value, { immediate: false, persist: true });
         this._updateBandLabel(band, value);
         document.getElementById('eqPresetSelect').value = 'custom';
-        window.hybridAPI.db.setPreference('equalizerPreset', 'custom');
+        window.hybridAPI.db.setPreference('equalizerPreset', 'custom')?.catch?.((err) => {
+          console.warn('[eq] failed to persist equalizer preset:', err?.message || err);
+        });
       }
     });
 
@@ -134,9 +136,10 @@ class HybridEqualizer {
     this._scheduleApply({ immediate, persist: true });
 
     if (savePreset) {
-      window.hybridAPI.db.setPreference('equalizerPreset', presetName);
+      window.hybridAPI.db.setPreference('equalizerPreset', presetName)?.catch?.((err) => {
+        console.warn('[eq] failed to persist equalizer preset:', err?.message || err);
+      });
     }
-    window.hybridAPI.db.setPreference('equalizerBands', [...values]);
   }
 
   _scheduleApply({ immediate = false, persist = true } = {}) {

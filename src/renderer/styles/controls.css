@@ -607,38 +607,87 @@ body.playlist-open .controls-right #btnShuffle {
 
 @media (max-width: 950px) {
   body.playlist-open .controls-bar {
-    padding: 4px 8px;
+    padding: 4px 6px;
+  }
+  body.playlist-open .controls-left,
+  body.playlist-open .controls-right {
+    gap: 2px;
   }
   body.playlist-open .ctrl-btn {
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
   }
   body.playlist-open .ctrl-btn-play {
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
   }
   body.playlist-open .ctrl-btn-text {
     width: auto;
     padding: 0 4px;
-    font-size: 10.5px;
+    font-size: 10px;
   }
   body.playlist-open .volume-container {
     margin-left: 2px;
+    gap: 2px;
   }
   body.playlist-open .volume-slider-track,
   body.playlist-open .volume-container:hover .volume-slider-track,
   body.playlist-open .volume-container.expanded .volume-slider-track {
-    width: 42px;
-    margin-left: 4px;
+    width: 34px;
+    margin-left: 2px;
   }
   body.playlist-open .volume-value,
-  body.playlist-open .volume-container:hover .volume-value,
-  body.playlist-open .volume-container.expanded .volume-value {
-    width: 30px;
-    margin-left: 4px;
-    font-size: 10.5px;
+  body.playlist-open #btnSkipBack,
+  body.playlist-open #btnSkipForward,
+  body.playlist-open .controls-right #btnRecordClip,
+  body.playlist-open .controls-right #btnScreenshot,
+  body.playlist-open .controls-right #btnPiP {
+    display: none;
   }
   body.playlist-open .time-display {
+    font-size: 10.5px;
+    margin-left: 4px;
+    gap: 2px;
+  }
+}
+
+@media (max-width: 760px) {
+  .controls-bar {
+    padding: 4px 8px;
+  }
+  .controls-left,
+  .controls-right {
+    gap: 2px;
+  }
+  .ctrl-btn {
+    width: 28px;
+    height: 28px;
+  }
+  .ctrl-btn-play {
+    width: 32px;
+    height: 32px;
+  }
+  .ctrl-btn-text {
+    width: auto;
+    padding: 0 4px;
+    font-size: 10.5px;
+  }
+  .volume-slider-track,
+  .volume-container:hover .volume-slider-track,
+  .volume-container.expanded .volume-slider-track {
+    width: 40px;
+    margin-left: 4px;
+  }
+  .volume-value,
+  .controls-right #btnRepeat,
+  .controls-right #btnShuffle,
+  .controls-right #btnABLoop,
+  .controls-right #btnLock,
+  .controls-right #btnPiP,
+  .controls-right #btnRecordClip {
+    display: none;
+  }
+  .time-display {
     font-size: 11px;
     margin-left: 4px;
     gap: 2px;

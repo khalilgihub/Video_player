@@ -63,6 +63,8 @@ class HybridControls {
     this.skipIndicatorTimer = null;
     this.recordingIndicatorTimer = null;
     this._hasReceivedInitialVolume = false;
+    this._lastVolumePct = null;
+    this._pendingSavedVolumePct = null;
     this._volumeOsdTimeout = null;
     this._titlebarDragSession = null;
     this._hitTestSyncRaf = null;
@@ -550,21 +552,40 @@ class HybridControls {
       this.spinner.classList.toggle('active', isBuffering);
     };
 
-    this.player.onVolumeChange = (volume) => {
+    this.player.onVolumeChange = (volume, meta) => {
       // volume from mpv is 0-100 scale
       const clamped = Math.max(0, Math.min(100, typeof volume === 'number' ? volume : 0));
+      const pct = Math.round(clamped);
+      const previousPct = this._lastVolumePct;
+      this._lastVolumePct = pct;
       this.currentVolume = clamped / 100;                        // normalised 0-1
       this.volumeSlider.value = clamped;
       if (this.volumeValue) {
-        this.volumeValue.textContent = Math.round(clamped) + '%';
+        this.volumeValue.textContent = pct + '%';
       }
       this._updateVolumeIcon(this.player.muted ? 0 : this.currentVolume);
       this._updateVolumeSliderFill();
 
-      if (this._hasReceivedInitialVolume && this.player.currentFilePath) {
-        this.showVolumeOsd(clamped);
-      }
+      const isInitialSync = !this._hasReceivedInitialVolume;
       this._hasReceivedInitialVolume = true;
+
+      // Echo of the volume applied from saved preferences is a startup sync, not a user action.
+      const isSavedVolumeEcho = this._pendingSavedVolumePct !== null
+        && pct === Math.round(this._pendingSavedVolumePct);
+      if (isSavedVolumeEcho) {
+        this._pendingSavedVolumePct = null;
+      }
+
+      if (!isInitialSync
+        && !isSavedVolumeEcho
+        && !this._isApplyingSavedVolume
+        && previousPct !== null
+        && pct !== previousPct) {
+        this.showVolumeOsd(clamped);
+        if (meta?.reason !== 'mute') {
+          window.HybridApp?.settingsModule?.savePreference?.('volume', this.currentVolume);
+        }
+      }
     };
 
     this.player.onEnded = () => {
@@ -1030,13 +1051,17 @@ class HybridControls {
     this.volumeSlider.addEventListener('input', () => {
       const value = parseInt(this.volumeSlider.value);          // 0-100
       this.currentVolume = value / 100;                         // normalised 0-1
-      this.player.setVolume(this.currentVolume);
+      this.player.setVolume(value);
       if (this.volumeValue) {
         this.volumeValue.textContent = value + '%';
       }
       this._updateVolumeIcon(this.player.muted ? 0 : this.currentVolume);
       this._updateVolumeSliderFill();
-      window.HybridApp?.settingsModule?.savePreference?.('volume', value);
+      if (this._isApplyingSavedVolume) {
+        this._pendingSavedVolumePct = value;
+      } else {
+        window.HybridApp?.settingsModule?.savePreference?.('volume', this.currentVolume);
+      }
     });
 
     this.volumeContainer.addEventListener('wheel', (e) => {
@@ -1328,6 +1353,8 @@ class HybridControls {
     const osd = document.getElementById('volumeOsd');
     const val = document.getElementById('volumeOsdVal');
     if (!osd || !val) return;
+    // Only surface the indicator once media is loaded; never on the welcome/startup screen.
+    if (!this.player?.currentFilePath) return;
 
     val.textContent = Math.round(percent);
     osd.classList.add('visible');
@@ -1539,11 +1566,22 @@ class HybridControls {
       if (!modal.hidden && modalId === 'settingsModal') {
         window.HybridApp?.settingsModule?.syncFormState?.();
       }
+      if (modalId === 'bgSettingsModal') {
+        if (!modal.hidden) {
+          const bgSelect = document.getElementById('settBackground');
+          window.HybridApp?.settingsModule?._showBgSettingsGroupFor?.(bgSelect?.value || 'dither');
+        } else {
+          const popover = document.getElementById('bgAccordionPopover');
+          if (popover) popover.hidden = true;
+        }
+      }
     }
   }
 
   closeAllModals() {
     document.querySelectorAll('.modal-overlay').forEach(m => m.hidden = true);
+    const popover = document.getElementById('bgAccordionPopover');
+    if (popover) popover.hidden = true;
   }
 
   // Update stats overlay (async – uses mpv property fetch)

@@ -56,6 +56,9 @@ class CursorManager {
       this._isMouseDown = false;
       this._onActivity();
     }, { passive: true });
+    window.addEventListener('blur', () => {
+      this._isMouseDown = false;
+    }, { passive: true });
 
     this._setupModalObserver();
   }

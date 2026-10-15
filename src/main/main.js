@@ -8,7 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const { execFile, spawn } = require('child_process');
 const { fileURLToPath } = require('url');
-const { setupIpcHandlers } = require('./ipc-handlers');
+const { setupIpcHandlers, applyFakeMaximize } = require('./ipc-handlers');
 const { MpvProcess } = require('./mpv-process');
 const { setupMpvIpc } = require('./mpv-ipc-bridge');
 const {
@@ -37,9 +37,9 @@ function maindbg(...args) {
 }
 
 const MEDIA_EXTENSIONS = new Set([
-  '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.m4v', '.wmv', '.ts', '.m2ts', '.mts',
+  '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.m4v', '.wmv', '.mpg', '.mpeg', '.ts', '.m2ts', '.mts', '.vob', '.ogv', '.3gp',
   '.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.wma', '.opus', '.aiff', '.alac',
-  '.m3u8', '.mpd'
+  '.m3u', '.m3u8', '.pls', '.mpd'
 ]);
 const MEDIA_DIALOG_EXTENSIONS = Array.from(MEDIA_EXTENSIONS, (ext) => ext.slice(1));
 const FOLDER_SCAN_MAX_DEPTH = 8;
@@ -380,9 +380,16 @@ async function getYoutubeQualityHeights(url) {
   }
 
   let payload = null;
-  const cookiesPath = path.join(__dirname, '../../cookies.txt');
+  const cookieCandidates = [
+    path.join(app.getPath('userData'), 'cookies.txt'),
+    process.resourcesPath ? path.join(process.resourcesPath, 'cookies.txt') : null,
+    path.join(path.dirname(process.execPath), 'cookies.txt'),
+    path.join(__dirname, '../../cookies.txt').replace('app.asar', 'app.asar.unpacked'),
+    !app.isPackaged ? path.join(__dirname, '../../cookies.txt') : null,
+  ].filter(Boolean);
+  const cookiesPath = cookieCandidates.find((p) => !p.includes('app.asar\\') && !p.includes('app.asar/') && fs.existsSync(p)) || null;
   const args = ['-J', '--no-warnings', '--no-playlist'];
-  if (fs.existsSync(cookiesPath)) {
+  if (cookiesPath) {
     args.push('--cookies', cookiesPath);
   }
   args.push('--', target);
@@ -710,10 +717,10 @@ function capturePreFullscreenBounds(win, source = 'unknown') {
   fsdbg('captured pre-fullscreen bounds', { source, bounds, maximized: win.__hybridPreFullscreenMaximized });
 }
 
-function restorePreFullscreenBounds(win, source = 'unknown') {
+function restorePreFullscreenBounds(win, source = 'unknown', wasMaximizedHint = false) {
   if (!win || win.isDestroyed()) return false;
 
-  const wasMaximized = !!win.__hybridPreFullscreenMaximized;
+  const wasMaximized = !!(wasMaximizedHint || win.__hybridPreFullscreenMaximized);
   win.__hybridPreFullscreenMaximized = false;
 
   if (wasMaximized) {
@@ -724,9 +731,15 @@ function restorePreFullscreenBounds(win, source = 'unknown') {
 
     if (win.__hybridUseFakeMaximize) {
       applyFakeMaximize(win);
-    } else {
+    } else if (!win.isMaximized()) {
       win.maximize();
     }
+    setTimeout(() => {
+      if (!win || win.isDestroyed()) return;
+      if (win.isMaximized()) {
+        win.setResizable(false);
+      }
+    }, 80);
     if (process.platform === 'win32') {
       scheduleNativeDwmWindowStyles(win, [0, 80, 200, 350]);
     }
@@ -811,9 +824,11 @@ function convertNativeMaximizeToFake(win, source = 'native-maximize') {
 
   win.__hybridConvertingNativeMaximize = true;
   try {
-    win.__hybridRestoreBounds = typeof win.getNormalBounds === 'function'
-      ? win.getNormalBounds()
-      : win.getBounds();
+    if (!win.__hybridRestoreBounds) {
+      win.__hybridRestoreBounds = typeof win.getNormalBounds === 'function'
+        ? win.getNormalBounds()
+        : win.getBounds();
+    }
 
     if (win.isMaximized()) {
       win.__hybridSuppressNextUnmaximizeEvent = true;
@@ -996,10 +1011,13 @@ function backupUnreadableDatabase() {
 
 let dbSaveTimer = null;
 let pendingDb = null;
+let dbSaveGeneration = 0;
+let dbTmpSeq = 0;
 
 async function flushDatabaseAsync() {
   if (!pendingDb) return;
   const dbToSave = pendingDb;
+  const generation = ++dbSaveGeneration;
   pendingDb = null;
   if (dbSaveTimer) {
     clearTimeout(dbSaveTimer);
@@ -1009,10 +1027,14 @@ async function flushDatabaseAsync() {
   try {
     const dir = path.dirname(DB_PATH);
     await fs.promises.mkdir(dir, { recursive: true });
-    const tmpPath = path.join(dir, `.${path.basename(DB_PATH)}.${process.pid}.${Date.now()}.tmp`);
+    const tmpPath = path.join(dir, `.${path.basename(DB_PATH)}.${process.pid}.${Date.now()}.${++dbTmpSeq}.tmp`);
     const serialized = JSON.stringify(normalizeDatabase(dbToSave, createDefaultDatabase()), null, 2);
     await fs.promises.writeFile(tmpPath, serialized, 'utf-8');
-    await fs.promises.rename(tmpPath, DB_PATH);
+    if (generation !== dbSaveGeneration || pendingDb) {
+      await fs.promises.unlink(tmpPath).catch(() => {});
+      return;
+    }
+    fs.renameSync(tmpPath, DB_PATH);
   } catch (e) {
     console.error('Failed to save database asynchronously:', e);
   }
@@ -1021,6 +1043,7 @@ async function flushDatabaseAsync() {
 function saveDatabase(db, { immediate = false } = {}) {
   pendingDb = db;
   if (immediate) {
+    dbSaveGeneration += 1;
     if (dbSaveTimer) {
       clearTimeout(dbSaveTimer);
       dbSaveTimer = null;
@@ -1028,7 +1051,7 @@ function saveDatabase(db, { immediate = false } = {}) {
     try {
       const dir = path.dirname(DB_PATH);
       fs.mkdirSync(dir, { recursive: true });
-      const tmpPath = path.join(dir, `.${path.basename(DB_PATH)}.${process.pid}.${Date.now()}.tmp`);
+      const tmpPath = path.join(dir, `.${path.basename(DB_PATH)}.${process.pid}.${Date.now()}.${++dbTmpSeq}.tmp`);
       fs.writeFileSync(tmpPath, JSON.stringify(normalizeDatabase(db, createDefaultDatabase()), null, 2), 'utf-8');
       fs.renameSync(tmpPath, DB_PATH);
       pendingDb = null;
@@ -1282,7 +1305,7 @@ function setResizableWhileFullscreen(win, fullscreen) {
   if (!win || win.isDestroyed()) return;
   const baseResizable = typeof win.__hybridBaseResizable === 'boolean'
     ? win.__hybridBaseResizable
-    : win.isResizable();
+    : true;
   if (fullscreen) {
     if (typeof win.__hybridPrevFullscreenResizable !== 'boolean') {
       win.__hybridPrevFullscreenResizable = win.isResizable();
@@ -1293,10 +1316,7 @@ function setResizableWhileFullscreen(win, fullscreen) {
     return;
   }
 
-  const previous = typeof win.__hybridPrevFullscreenResizable === 'boolean'
-    ? win.__hybridPrevFullscreenResizable
-    : baseResizable;
-  win.setResizable(previous);
+  win.setResizable(baseResizable);
   win.__hybridPrevFullscreenResizable = null;
 }
 
@@ -1306,8 +1326,8 @@ function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: WINDOWED_WIDTH,
     height: WINDOWED_HEIGHT,
-    minWidth: 800,
-    minHeight: 500,
+    minWidth: 640,
+    minHeight: 360,
     // Keep native maximize/resize path: fake-maximize + border suppression can break
     // mpv composition on some Windows/Electron combinations (white live surface).
     resizable: true,
@@ -1544,9 +1564,6 @@ function createMainWindow() {
   // Track window state for renderer
   mainWindow.on('maximize', () => {
     scheduleWindowsBorderSuppression(mainWindow, 'maximize');
-    if (process.platform === 'win32') {
-      scheduleNativeDwmWindowStyles(mainWindow, [0, 80, 200, 350]);
-    }
     fsdbg('window maximize');
     logWindowDwmSnapshot(mainWindow, 'maximize');
     // Only intercept maximize when using transparent-window compositor mode on Windows.
@@ -1562,7 +1579,7 @@ function createMainWindow() {
     }
     setTimeout(() => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
-      if (mainWindow.isResizable()) {
+      if (mainWindow.isMaximized() && mainWindow.isResizable()) {
         mainWindow.setResizable(false);
       }
     }, 50);
@@ -1572,36 +1589,18 @@ function createMainWindow() {
   });
   mainWindow.on('unmaximize', () => {
     scheduleWindowsBorderSuppression(mainWindow, 'unmaximize');
-    if (process.platform === 'win32') {
-      scheduleNativeDwmWindowStyles(mainWindow, [0, 80, 200, 350]);
-    }
     if (mainWindow.__hybridUseFakeMaximize) {
-      mainWindow.__hybridFakeMaximized = false;
-      const baseResizable = typeof mainWindow.__hybridBaseResizable === 'boolean'
-        ? mainWindow.__hybridBaseResizable
-        : mainWindow.isResizable();
-      const previousResizable = typeof mainWindow.__hybridPrevResizable === 'boolean'
-        ? mainWindow.__hybridPrevResizable
-        : baseResizable;
-      mainWindow.setResizable(previousResizable);
+      mainWindow.setResizable(true);
       mainWindow.__hybridPrevResizable = null;
     } else {
-      mainWindow.__hybridFakeMaximized = false;
-
-      // Explicitly restore resizability when natively unmaximized (deferred)
-      const baseResizable = typeof mainWindow.__hybridBaseResizable === 'boolean'
-        ? mainWindow.__hybridBaseResizable
-        : mainWindow.isResizable();
-      const previousResizable = typeof mainWindow.__hybridPrevResizable === 'boolean'
-        ? mainWindow.__hybridPrevResizable
-        : baseResizable;
-
+      // Restore resizability for the windowed (restored) mode (deferred)
       setTimeout(() => {
         if (!mainWindow || mainWindow.isDestroyed()) return;
-        mainWindow.setResizable(previousResizable);
+        mainWindow.setResizable(true);
         mainWindow.__hybridPrevResizable = null;
       }, 50);
     }
+    mainWindow.__hybridFakeMaximized = false;
     fsdbg('window unmaximize');
     logWindowDwmSnapshot(mainWindow, 'unmaximize');
     if (ENABLE_WINDOW_BOUNDS_CLAMP) {
@@ -1612,18 +1611,10 @@ function createMainWindow() {
   });
   mainWindow.on('restore', () => {
     scheduleWindowsBorderSuppression(mainWindow, 'restore');
-    if (process.platform === 'win32') {
-      scheduleNativeDwmWindowStyles(mainWindow, [0, 80, 200, 350]);
-    }
     fsdbg('window restore');
     logWindowDwmSnapshot(mainWindow, 'restore');
     emitWindowVisualState(mainWindow, 'restore');
     mainWindow.webContents.send('window-state-changed', mainWindow.__hybridFakeMaximized ? 'maximized' : 'normal');
-  });
-  mainWindow.on('resized', () => {
-    if (process.platform === 'win32') {
-      scheduleNativeDwmWindowStyles(mainWindow, [0, 150]);
-    }
   });
   mainWindow.on('enter-full-screen', () => {
     setResizableWhileFullscreen(mainWindow, true);
@@ -1654,7 +1645,7 @@ function createMainWindow() {
       if (!mainWindow || mainWindow.isDestroyed()) return;
       if (getTrackedFullscreen(mainWindow) || mainWindow.isFullScreen()) return;
       if (windowedRestoreApplied) return;
-      const restoredFromSnapshot = restorePreFullscreenBounds(mainWindow, 'leave-full-screen');
+      const restoredFromSnapshot = restorePreFullscreenBounds(mainWindow, 'leave-full-screen', wasMaximized);
       if (!restoredFromSnapshot) {
         applyWindowedSize(mainWindow);
       }
@@ -1818,7 +1809,11 @@ function resolveLocalFileProtocolPath(url) {
     const parsed = new URL(url);
     rawPath = decodeURIComponent(`${parsed.host || ''}${parsed.pathname || ''}`);
   } catch {
-    rawPath = decodeURIComponent(String(url || '').replace(/^local-file:\/\//i, ''));
+    try {
+      rawPath = decodeURIComponent(String(url || '').replace(/^local-file:\/\//i, ''));
+    } catch {
+      return null;
+    }
   }
 
   if (process.platform === 'win32') {
@@ -1840,27 +1835,89 @@ function resolveLocalFileProtocolPath(url) {
   }
 }
 
+function isProcessRunning(pid) {
+  const num = Number(pid);
+  if (!Number.isInteger(num) || num <= 0) return false;
+  try {
+    process.kill(num, 0);
+    return true;
+  } catch (err) {
+    return Boolean(err && err.code === 'EPERM');
+  }
+}
+
+function cleanupTempFiles({ isShuttingDown = false } = {}) {
+  try {
+    const tempDir = app.getPath('temp');
+    if (!fs.existsSync(tempDir)) return;
+    fs.readdirSync(tempDir).forEach((entry) => {
+      const fullPath = path.join(tempDir, entry);
+      if (entry.startsWith('hybrid-player-thumbs-') || entry.startsWith('hybrid-player-input-')) {
+        const pidMatch = entry.match(/^hybrid-player-(?:thumbs|input)-(\d+)(?:-|$)/);
+        if (pidMatch) {
+          const ownerPid = Number(pidMatch[1]);
+          if ((isShuttingDown && ownerPid === process.pid) || (ownerPid !== process.pid && !isProcessRunning(ownerPid))) {
+            try { fs.rmSync(fullPath, { recursive: true, force: true }); } catch {}
+          }
+        } else {
+          // Legacy directory without PID prefix from prior versions
+          try { fs.rmSync(fullPath, { recursive: true, force: true }); } catch {}
+        }
+      } else if (entry === 'hybrid-player-paused-frames' || entry === 'hybrid_screenshot_undo') {
+        try {
+          const children = fs.readdirSync(fullPath);
+          for (const child of children) {
+            const childPidMatch = child.match(/^pid-(\d+)[-_]/);
+            if (childPidMatch) {
+              const ownerPid = Number(childPidMatch[1]);
+              if ((isShuttingDown && ownerPid === process.pid) || (ownerPid !== process.pid && !isProcessRunning(ownerPid))) {
+                try { fs.unlinkSync(path.join(fullPath, child)); } catch {}
+              }
+            } else if (!isShuttingDown) {
+              // Legacy unprefixed file from prior runs: remove if older than 60s
+              const childPath = path.join(fullPath, child);
+              try {
+                const stat = fs.statSync(childPath);
+                if (Date.now() - stat.mtimeMs > 60000) {
+                  fs.unlinkSync(childPath);
+                }
+              } catch {}
+            }
+          }
+          try { fs.rmdirSync(fullPath); } catch {}
+        } catch {}
+      }
+    });
+  } catch {}
+}
+
+// Prevent multiple instances
+const gotLock = process.env.NODE_ENV === 'test' || app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, argv) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+      // Open a trusted local media file from argv if provided.
+      const filePath = argv
+        .map((arg) => resolveExistingLocalFile(arg, MEDIA_EXTENSIONS))
+        .find(Boolean);
+      if (filePath) {
+        mainWindow.webContents.send('open-file-from-args', filePath);
+      }
+    }
+  });
+}
+
 // Initialize
 app.whenReady().then(() => {
+  if (!gotLock) return;
   setupWindowsShellIntegration(app);
 
   // Clean up orphaned temporary directories from previous crashed/closed runs
-  try {
-    const tempDir = app.getPath('temp');
-    if (fs.existsSync(tempDir)) {
-      fs.readdirSync(tempDir).forEach((entry) => {
-        if (
-          entry.startsWith('hybrid-player-input-') ||
-          (entry.startsWith('hybrid-player-thumbs-') && entry !== `hybrid-player-thumbs-${process.pid}`)
-        ) {
-          const fullPath = path.join(tempDir, entry);
-          try {
-            fs.rmSync(fullPath, { recursive: true, force: true });
-          } catch {}
-        }
-      });
-    }
-  } catch {}
+  cleanupTempFiles({ isShuttingDown: false });
 
   // Register custom protocol for local files
   protocol.handle('local-file', (request) => {
@@ -1904,6 +1961,7 @@ app.on('will-quit', () => {
   if (pendingDb) {
     saveDatabase(pendingDb, { immediate: true });
   }
+  cleanupTempFiles({ isShuttingDown: true });
   // Can fire before app is ready (e.g., second-instance lock fails).
   // globalShortcut API throws if used before readiness.
   if (app.isReady()) {
@@ -1920,26 +1978,6 @@ app.on('activate', () => {
     createMainWindow();
   }
 });
-
-// Prevent multiple instances
-const gotLock = process.env.NODE_ENV === 'test' || app.requestSingleInstanceLock();
-if (!gotLock) {
-  app.quit();
-} else {
-  app.on('second-instance', (event, argv) => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-      // Open a trusted local media file from argv if provided.
-      const filePath = argv
-        .map((arg) => resolveExistingLocalFile(arg, MEDIA_EXTENSIONS))
-        .find(Boolean);
-      if (filePath) {
-        mainWindow.webContents.send('open-file-from-args', filePath);
-      }
-    }
-  });
-}
 
 function getMimeType(filePath) {
   const ext = path.extname(filePath).toLowerCase();

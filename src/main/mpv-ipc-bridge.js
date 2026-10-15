@@ -7,7 +7,6 @@
 const { ipcMain, shell, app } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
 const crypto = require('crypto');
 const { fileURLToPath } = require('url');
 const { MpvProcess } = require('./mpv-process');
@@ -95,9 +94,10 @@ function setupMpvIpc(win, mpv) {
   const MAX_INLINE_PREVIEW_BYTES = 12 * 1024 * 1024;
   const NETWORK_MEDIA_PROTOCOLS = new Set(['http:', 'https:', 'rtsp:', 'rtmp:', 'rtmps:', 'srt:']);
   const LOCAL_MEDIA_EXTENSIONS = new Set([
-    '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.m4v', '.wmv', '.ts', '.m2ts', '.mts',
+    '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.m4v', '.wmv', '.mpg', '.mpeg', '.ts', '.m2ts', '.mts', '.vob', '.ogv', '.3gp',
     '.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.wma', '.opus', '.aiff', '.alac',
-    '.m3u8', '.mpd'
+    '.m3u', '.m3u8', '.pls', '.mpd',
+    '.jpg', '.jpeg', '.png', '.webp'
   ]);
   const LOCAL_SUBTITLE_EXTENSIONS = new Set([
     '.srt', '.ass', '.ssa', '.vtt', '.sub', '.idx', '.sup'
@@ -105,9 +105,6 @@ function setupMpvIpc(win, mpv) {
 
   if (!fs.existsSync(previewDir)) {
     fs.mkdirSync(previewDir, { recursive: true });
-  }
-  if (!fs.existsSync(pausedFrameDir)) {
-    fs.mkdirSync(pausedFrameDir, { recursive: true });
   }
 
   const waitForMpvReady = (instance, timeoutMs = 4000) => new Promise((resolve, reject) => {
@@ -170,7 +167,11 @@ function setupMpvIpc(win, mpv) {
     seekdbg('preview mpv process exited');
     previewLoadedPath = null;
     inFlightPreview = null;
-    nextPendingPreview = null;
+    if (nextPendingPreview) {
+      const pending = nextPendingPreview;
+      nextPendingPreview = null;
+      pending.resolve(null);
+    }
   });
 
   previewMpv.on('error', (err) => {
@@ -186,17 +187,32 @@ function setupMpvIpc(win, mpv) {
     ]);
   };
 
+  const stagedUndoMap = new Map();
+
   if (win && !win.isDestroyed()) {
     win.on('closed', () => {
       try {
         previewMpv.destroy();
       } catch {}
       for (const filePath of previewCacheFiles.values()) {
-        fs.unlink(filePath, () => {});
+        try { fs.unlinkSync(filePath); } catch {}
       }
       previewCache.clear();
       previewCacheFiles.clear();
-      fs.rm(previewDir, { recursive: true, force: true }, () => {});
+      try { fs.rmSync(previewDir, { recursive: true, force: true }); } catch {}
+      for (const frameFile of pausedFrameFiles) {
+        try { fs.unlinkSync(frameFile); } catch {}
+      }
+      pausedFrameFiles.length = 0;
+      try { fs.rmdirSync(pausedFrameDir); } catch {}
+      for (const tempPath of stagedUndoMap.keys()) {
+        try { fs.unlinkSync(tempPath); } catch {}
+      }
+      stagedUndoMap.clear();
+      try {
+        const undoDir = path.join(app.getPath('temp'), 'hybrid_screenshot_undo');
+        fs.rmdirSync(undoDir);
+      } catch {}
     });
   }
 
@@ -278,6 +294,7 @@ function setupMpvIpc(win, mpv) {
   };
 
   const rendererGetPropertyAllowlist = new Set([
+    'pause',
     'time-pos',
     'drop-frame-count',
     'estimated-vf-fps',
@@ -475,7 +492,7 @@ function setupMpvIpc(win, mpv) {
   const buildScreenshotPayload = async (filePath, { silent = false } = {}) => {
     const mimeType = getImageMimeType(filePath);
     const normalizedPath = path.resolve(filePath).replace(/\\/g, '/');
-    const fileUrl = `local-file:///${encodeURI(normalizedPath)}`;
+    const fileUrl = `local-file:///${encodeURI(normalizedPath).replace(/\?/g, '%3F').replace(/#/g, '%23')}`;
     const previewDataUrl = await buildInlinePreviewDataUrl(filePath, mimeType, 500, { silent });
     return {
       filePath,
@@ -519,9 +536,12 @@ function setupMpvIpc(win, mpv) {
   };
 
   const capturePausedFrameSilent = async (mode = 'subtitles') => {
+    if (!fs.existsSync(pausedFrameDir)) {
+      try { fs.mkdirSync(pausedFrameDir, { recursive: true }); } catch {}
+    }
     const stamp = Date.now();
     const nonce = crypto.randomBytes(8).toString('hex');
-    const framePath = path.join(pausedFrameDir, `paused-frame-${stamp}-${nonce}.jpg`);
+    const framePath = path.join(pausedFrameDir, `pid-${process.pid}-paused-frame-${stamp}-${nonce}.jpg`);
     await mpv.command('screenshot-to-file', framePath, mode || 'subtitles');
     if (!fs.existsSync(framePath)) {
       throw new Error('Paused frame capture failed');
@@ -703,13 +723,13 @@ function setupMpvIpc(win, mpv) {
         break;
 
       case 'hybrid-screenshot':
-        if (win && !win.isDestroyed() && (mpv.getCached('path') || mpv.getCached('filename'))) {
+        if (win && !win.isDestroyed() && mpv.filePath) {
           win.webContents.send('menu-action', 'screenshot');
         }
         break;
 
       case 'hybrid-screenshot-png':
-        if (win && !win.isDestroyed() && (mpv.getCached('path') || mpv.getCached('filename'))) {
+        if (win && !win.isDestroyed() && mpv.filePath) {
           win.webContents.send('menu-action', 'screenshot-png');
         }
         break;
@@ -728,7 +748,7 @@ function setupMpvIpc(win, mpv) {
           btnMap[cmd] === targetBtn &&
           win &&
           !win.isDestroyed() &&
-          (mpv.getCached('path') || mpv.getCached('filename'))
+          mpv.filePath
         ) {
           win.webContents.send('menu-action', 'screenshot');
         }
@@ -1064,8 +1084,6 @@ function setupMpvIpc(win, mpv) {
     return false;
   });
 
-  const stagedUndoMap = new Map();
-
   const getUndoDir = () => {
     const undoDir = path.join(app.getPath('temp'), 'hybrid_screenshot_undo');
     if (!fs.existsSync(undoDir)) {
@@ -1087,11 +1105,14 @@ function setupMpvIpc(win, mpv) {
       return false;
     }
     const cleanTarget = path.resolve(targetPath.trim());
+    const tempBase = app.getPath('temp');
     const candidateDirs = [
       typeof mpv.getScreenshotDir === 'function' ? mpv.getScreenshotDir() : mpv._screenshotDir,
       typeof mpv.getEffectiveScreenshotDir === 'function' ? await mpv.getEffectiveScreenshotDir() : null,
-      app.getPath('temp'),
-      os.tmpdir(),
+      path.join(tempBase, `hybrid-player-thumbs-${process.pid}`),
+      path.join(tempBase, 'hybrid-player-thumbs'),
+      path.join(tempBase, 'hybrid-player-paused-frames'),
+      path.join(tempBase, 'hybrid_screenshot_undo'),
     ].filter(Boolean);
 
     return candidateDirs.some((dir) => isSubPath(dir, cleanTarget));
@@ -1124,7 +1145,7 @@ function setupMpvIpc(win, mpv) {
       // Move file to session undo staging folder so it can be restored on 'Z'
       const undoDir = getUndoDir();
       const fileName = path.basename(cleanPath);
-      const tempPath = path.join(undoDir, `${Date.now()}_${Math.random().toString(36).substring(2, 6)}_${fileName}`);
+      const tempPath = path.join(undoDir, `pid-${process.pid}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}_${fileName}`);
 
       try {
         fs.renameSync(cleanPath, tempPath);

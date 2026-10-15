@@ -125,8 +125,12 @@ function sanitizePreference(key, value) {
     case 'doubleClickFullscreen':
     case 'showUnlockButton':
       return !!value;
-    case 'volume':
-      return clampNumber(value, 0, 1, 1);
+    case 'volume': {
+      const numericVol = Number(value);
+      if (!Number.isFinite(numericVol)) return 1;
+      const normalizedVol = numericVol > 1 ? numericVol / 100 : numericVol;
+      return clampNumber(normalizedVol, 0, 1, 1);
+    }
     case 'equalizerPreset':
       return EQ_PRESETS.has(value) ? value : INVALID_PREF;
     case 'equalizerBands':
@@ -383,7 +387,7 @@ function setResizableForFakeMaximize(win, maximized) {
   if (!win || win.isDestroyed()) return;
   const baseResizable = typeof win.__hybridBaseResizable === 'boolean'
     ? win.__hybridBaseResizable
-    : win.isResizable();
+    : true;
   if (maximized) {
     if (typeof win.__hybridPrevResizable !== 'boolean') {
       win.__hybridPrevResizable = win.isResizable();
@@ -394,10 +398,7 @@ function setResizableForFakeMaximize(win, maximized) {
     return;
   }
 
-  const previous = typeof win.__hybridPrevResizable === 'boolean'
-    ? win.__hybridPrevResizable
-    : baseResizable;
-  win.setResizable(previous);
+  win.setResizable(baseResizable);
   win.__hybridPrevResizable = null;
 }
 
@@ -453,7 +454,7 @@ function applyFakeMaximize(win) {
     win.restore();
   }
 
-  if (!win.__hybridFakeMaximized) {
+  if (!win.__hybridFakeMaximized && !win.__hybridRestoreBounds) {
     win.__hybridRestoreBounds = typeof win.getNormalBounds === 'function'
       ? win.getNormalBounds()
       : win.getBounds();
@@ -473,20 +474,23 @@ function restoreFromMaximized(win) {
   if (!win || win.isDestroyed()) return false;
   logWindowIpcState(win, 'restoreFromMaximized:start');
 
+  const wasFakeMaximized = !!win.__hybridFakeMaximized;
   const wasNativeMaximized = win.isMaximized();
+  const restoreBounds = normalizeWindowBounds(win.__hybridRestoreBounds);
+
+  setResizableForFakeMaximize(win, false);
+  win.setResizable(true);
+
   if (wasNativeMaximized) {
-    win.setResizable(true);
     win.unmaximize();
   }
 
-  const restoreBounds = win.__hybridRestoreBounds;
-  if (win.__hybridFakeMaximized && restoreBounds) {
+  if ((wasFakeMaximized || wasNativeMaximized) && restoreBounds) {
     win.setBounds(restoreBounds, false);
   }
 
   win.__hybridFakeMaximized = false;
   win.__hybridRestoreBounds = null;
-  setResizableForFakeMaximize(win, false);
   suppressWindowsNonClientBorder(win, 'restoreFromMaximized');
   logWindowIpcState(win, 'restoreFromMaximized:end');
   emitWindowMaximizedState(win, false);
@@ -648,9 +652,6 @@ function toggleFakeMaximize(win) {
 
 function toggleNativeMaximize(win) {
   if (!win || win.isDestroyed()) return false;
-  
-  // Temporarily set resizable to true so maximize/unmaximize always work
-  win.setResizable(true);
 
   if (win.isMaximized()) {
     win.unmaximize();
@@ -661,16 +662,24 @@ function toggleNativeMaximize(win) {
     const area = display?.workArea || screen.getPrimaryDisplay().workArea;
 
     let targetBounds = null;
-    try {
-      const normal = typeof win.getNormalBounds === 'function' ? win.getNormalBounds() : null;
-      if (normal && normal.width > 0 && normal.height > 0) {
-        // Ensure the restored bounds are actually smaller than the maximized screen size
-        if (normal.width < area.width || normal.height < area.height) {
-          targetBounds = normal;
+    const savedRestore = normalizeWindowBounds(win.__hybridRestoreBounds);
+    if (savedRestore && (savedRestore.width < area.width || savedRestore.height < area.height)) {
+      targetBounds = savedRestore;
+    }
+    win.__hybridRestoreBounds = null;
+
+    if (!targetBounds) {
+      try {
+        const normal = typeof win.getNormalBounds === 'function' ? win.getNormalBounds() : null;
+        if (normal && normal.width > 0 && normal.height > 0) {
+          // Ensure the restored bounds are actually smaller than the maximized screen size
+          if (normal.width < area.width || normal.height < area.height) {
+            targetBounds = normal;
+          }
         }
+      } catch (e) {
+        // Ignore
       }
-    } catch (e) {
-      // Ignore
     }
 
     if (!targetBounds) {
@@ -683,10 +692,10 @@ function toggleNativeMaximize(win) {
 
     win.setBounds(targetBounds, false);
   } else {
+    if (!win.__hybridRestoreBounds) {
+      win.__hybridRestoreBounds = normalizeWindowBounds(win.getBounds());
+    }
     win.maximize();
-  }
-  if (process.platform === 'win32') {
-    scheduleNativeDwmWindowStyles(win, [0, 80, 200, 350]);
   }
   return win.isMaximized();
 }
@@ -697,6 +706,11 @@ function toggleWindowMaximize(win) {
     ? win.__hybridFullscreenState
     : win.isFullScreen();
   if (isFs || win.isFullScreen()) {
+    win.__hybridFullscreenState = false;
+    win.__hybridFullscreenTransitionUntil = Date.now() + 400;
+    if (win.webContents && !win.webContents.isDestroyed()) {
+      win.webContents.send('window-fullscreen-transition-start', false);
+    }
     win.setFullScreen(false);
     if (process.platform === 'win32') {
       scheduleNativeDwmWindowStyles(win, [0, 80, 200, 350]);
@@ -852,8 +866,10 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
     const target = typeof state === 'boolean' ? state : !current;
     if (target) {
       capturePreFullscreenBounds(win, 'window:fullscreen');
-      win.__hybridFakeMaximized = false;
-      win.__hybridRestoreBounds = null;
+      if (win.__hybridFakeMaximized) {
+        win.__hybridFakeMaximized = false;
+        win.setResizable(true);
+      }
     }
     win.__hybridFullscreenTransitionUntil = now + 400;
     win.__hybridFullscreenState = !!target;
@@ -941,22 +957,43 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
 
   ipcMain.handle('history:getRecent', async (_, count) => {
     const limit = Math.round(clampNumber(count || 20, 1, 100, 20));
+    const historySnapshot = db.history.slice();
+    const recentSnapshot = db.recentFiles.slice();
     const historyChecks = await Promise.all(
-      db.history.map(async (entry) => ({
+      historySnapshot.map(async (entry) => ({
         entry,
         available: await isAvailableHistoryEntryAsync(entry),
       }))
     );
-    const availableHistory = historyChecks.filter((item) => item.available).map((item) => item.entry);
-    if (availableHistory.length !== db.history.length) {
-      db.history = availableHistory;
+    const unavailableHistoryPaths = new Set(
+      historyChecks.filter((item) => !item.available).map((item) => item.entry.path)
+    );
+    let pruned = false;
+
+    if (unavailableHistoryPaths.size > 0) {
+      const nextHistory = db.history.filter((entry) => !unavailableHistoryPaths.has(entry.path));
+      if (nextHistory.length !== db.history.length) {
+        db.history = nextHistory;
+        pruned = true;
+      }
+
       const recentChecks = await Promise.all(
-        db.recentFiles.map(async (mediaPath) => ({
+        recentSnapshot.map(async (mediaPath) => ({
           mediaPath,
           available: await isAvailableHistoryEntryAsync({ path: mediaPath }),
         }))
       );
-      db.recentFiles = recentChecks.filter((item) => item.available).map((item) => item.mediaPath);
+      const unavailableRecentPaths = new Set(
+        recentChecks.filter((item) => !item.available).map((item) => item.mediaPath)
+      );
+      const nextRecent = db.recentFiles.filter((mediaPath) => !unavailableRecentPaths.has(mediaPath));
+      if (nextRecent.length !== db.recentFiles.length) {
+        db.recentFiles = nextRecent;
+        pruned = true;
+      }
+    }
+
+    if (pruned) {
       try {
         saveDatabase(db);
       } catch (error) {
@@ -1052,4 +1089,4 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
   });
 }
 
-module.exports = { setupIpcHandlers };
+module.exports = { setupIpcHandlers, applyFakeMaximize };

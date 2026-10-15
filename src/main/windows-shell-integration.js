@@ -31,20 +31,32 @@ function setupWindowsShellIntegration(app) {
   }, 1000);
 }
 
+function resolveUnpackedPath(targetPath) {
+  if (!targetPath) return targetPath;
+  if (targetPath.includes('app.asar') && !targetPath.includes('app.asar.unpacked')) {
+    return targetPath.replace('app.asar', 'app.asar.unpacked');
+  }
+  return targetPath;
+}
+
 /**
  * Registers HKCU keys and Start Menu shortcut for mpv / Hybrid Player.
  */
 function registerShellMetadata(app) {
   try {
     const appDir = path.resolve(__dirname, '../..');
-    const icoPath = path.join(appDir, 'assets', 'icons', 'icon.ico');
-    const pngPath = path.join(appDir, 'assets', 'icons', 'icon.png');
+    const icoPath = resolveUnpackedPath(path.join(appDir, 'assets', 'icons', 'icon.ico'));
+    const pngPath = resolveUnpackedPath(path.join(appDir, 'assets', 'icons', 'icon.png'));
 
     if (!fs.existsSync(icoPath)) {
       return;
     }
 
-    const mpvPath = path.join(appDir, 'mpv', 'mpv.exe');
+    const mpvCandidates = [
+      process.resourcesPath ? path.join(process.resourcesPath, 'mpv', 'mpv.exe') : null,
+      path.join(appDir, 'mpv', 'mpv.exe'),
+    ].filter(Boolean);
+    const mpvPath = mpvCandidates.find((candidate) => fs.existsSync(candidate)) || mpvCandidates[mpvCandidates.length - 1];
     const logoPng = fs.existsSync(pngPath) ? pngPath : icoPath;
 
     // 1. Configure HKCU registry keys via native reg.exe
@@ -65,10 +77,7 @@ function registerShellMetadata(app) {
     ];
 
     const combinedRegCmd = regCommands.join(' && ');
-    exec(combinedRegCmd, { windowsHide: true }, () => {
-      // Clear ShellExperienceHost icon cache once so Windows 11 reloads the new PNG
-      exec('taskkill.exe /F /IM ShellExperienceHost.exe', { windowsHide: true }, () => {});
-    });
+    exec(combinedRegCmd, { windowsHide: true }, () => {});
 
     // 2. Ensure Start Menu shortcut exists so Windows 11 Shell Link resolver
     // maps mpv.exe and the AUMID to the official app name and icon.
@@ -93,7 +102,7 @@ function registerShellMetadata(app) {
           { windowsHide: true },
           () => {
             // Apply explicit AppUserModelId to the Start Menu shortcut
-            const setAppIdScript = path.join(__dirname, 'set-shortcut-appid.ps1');
+            const setAppIdScript = resolveUnpackedPath(path.join(__dirname, 'set-shortcut-appid.ps1'));
             if (fs.existsSync(setAppIdScript)) {
               exec(`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${setAppIdScript}"`, { windowsHide: true }, () => {});
             }

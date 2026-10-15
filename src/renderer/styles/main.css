@@ -214,6 +214,7 @@ body.app-unfocused::after {
 
 .titlebar-controls {
   display: flex;
+  flex-shrink: 0;
   height: 100%;
   -webkit-app-region: no-drag;
   background: rgba(255, 255, 255, 0.001) !important;
@@ -239,6 +240,7 @@ body.playlist-open .titlebar {
 
 .titlebar-btn {
   width: 46px;
+  flex-shrink: 0;
   height: 100%;
   display: flex;
   align-items: center;
@@ -249,6 +251,12 @@ body.playlist-open .titlebar {
   color: #fff;
   cursor: default;
   transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+@media (max-width: 720px) {
+  .titlebar-btn {
+    width: 38px;
+  }
 }
 
 .titlebar-btn:hover {
@@ -1194,7 +1202,7 @@ body:has(#statsOverlay:not([hidden])) .screenshot-notice {
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 5;
+  z-index: 15;
   background: #000000;
   overflow: hidden;
   transition: opacity 0.4s ease;
@@ -2342,7 +2350,8 @@ body.welcome-active .welcome-recent {
 
 /* ─── A-B Loop Indicator ─── */
 .ab-loop-indicator {
-  display: none !important;
+  display: inline-flex;
+  align-items: center;
   position: absolute;
   top: 50px;
   right: 15px;
@@ -2354,6 +2363,10 @@ body.welcome-active .welcome-recent {
   font-size: 12px;
   font-weight: 600;
   animation: pulse 1.5s ease-in-out infinite;
+}
+
+.ab-loop-indicator[hidden] {
+  display: none !important;
 }
 
 /* ─── Modal System ─── */

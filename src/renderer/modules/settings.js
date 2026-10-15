@@ -741,7 +741,7 @@ class HybridSettings {
         } else {
           if (statusEl) {
             statusEl.textContent = 'Installed';
-            statusEl.style.color = 'rgba(255, 255, 255, 0.7)';
+            statusEl.style.color = '';
           }
           if (btnUpdate) {
             btnUpdate.style.display = 'none';
@@ -1016,13 +1016,19 @@ class HybridSettings {
     if (fileInput) {
       fileInput.addEventListener('change', async (e) => {
         const files = Array.from(e.target.files);
-        if (files.length === 0) return;
+        if (files.length === 0) {
+          fileInput.value = '';
+          return;
+        }
 
         const resizePromises = files.map(file => resizeGridmotionImage(file));
         const dataUrls = await Promise.all(resizePromises);
         const validUrls = dataUrls.filter(url => !!url);
 
-        if (validUrls.length === 0) return;
+        if (validUrls.length === 0) {
+          fileInput.value = '';
+          return;
+        }
 
         const switchingToCustom = this.welcomeQuality !== 'custom';
         if (switchingToCustom) {
@@ -1316,21 +1322,44 @@ class HybridSettings {
 
     const openDropdown = () => {
       rebuildOptions();
+      dropdown.classList.remove('drop-up');
+      dropdown.style.maxHeight = '';
       dropdown.hidden = false;
       container.classList.add('open');
       trigger.setAttribute('aria-expanded', 'true');
-      
+
+      const panel = container.closest('.settings-modal, .bg-settings-panel, .modal-panel');
+      if (panel) {
+        trigger.scrollIntoView({ block: 'nearest' });
+      }
+      const boundaryRect = panel ? panel.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+      const triggerRect = trigger.getBoundingClientRect();
+      const dropdownRect = dropdown.getBoundingClientRect();
+      const spaceBelow = Math.max(0, boundaryRect.bottom - triggerRect.bottom - 8);
+      const spaceAbove = Math.max(0, triggerRect.top - boundaryRect.top - 8);
+
+      if (dropdownRect.height > spaceBelow && spaceAbove > spaceBelow) {
+        dropdown.classList.add('drop-up');
+        if (dropdownRect.height > spaceAbove) {
+          dropdown.style.maxHeight = `${Math.max(40, Math.floor(spaceAbove))}px`;
+        }
+      } else if (dropdownRect.height > spaceBelow) {
+        dropdown.style.maxHeight = `${Math.max(40, Math.floor(spaceBelow))}px`;
+      }
+
       const activeOption = dropdown.querySelector('.custom-select-option.active');
       if (activeOption) {
-        activeOption.focus();
+        activeOption.focus({ preventScroll: true });
       } else {
         const first = dropdown.querySelector('.custom-select-option');
-        if (first) first.focus();
+        if (first) first.focus({ preventScroll: true });
       }
     };
 
     const closeDropdown = () => {
       dropdown.hidden = true;
+      dropdown.classList.remove('drop-up');
+      dropdown.style.maxHeight = '';
       container.classList.remove('open');
       trigger.setAttribute('aria-expanded', 'false');
     };
@@ -1486,6 +1515,14 @@ class HybridSettings {
     }
   }
 
+  async savePreference(key, value) {
+    try {
+      return await window.hybridAPI?.db?.setPreference?.(key, value);
+    } catch {
+      return false;
+    }
+  }
+
   async loadPreferences() {
     try {
       const prefs = await window.hybridAPI.db.getAllPreferences();
@@ -1587,9 +1624,18 @@ class HybridSettings {
       // Apply volume
       if (prefs.volume !== undefined) {
         const volSlider = document.getElementById('volumeSlider');
+        const controls = window.HybridApp?.controlsModule;
         if (volSlider) {
-          volSlider.value = Math.round(prefs.volume * 100);
-          volSlider.dispatchEvent(new Event('input'));
+          if (controls) controls._isApplyingSavedVolume = true;
+          try {
+            const normalizedVol = Number(prefs.volume) > 1 ? Number(prefs.volume) / 100 : Number(prefs.volume);
+            volSlider.value = Math.round(Math.max(0, Math.min(1, normalizedVol)) * 100);
+            volSlider.dispatchEvent(new Event('input'));
+          } finally {
+            setTimeout(() => {
+              if (controls) controls._isApplyingSavedVolume = false;
+            }, 250);
+          }
         }
       }
 
@@ -2338,6 +2384,9 @@ class HybridSettings {
     const customPill = document.getElementById('bgQualityCustom');
     if (customPill) {
       customPill.addEventListener('click', () => {
+        if (this.welcomeQuality !== 'custom') {
+          this._captureAllEffectiveBgOpts();
+        }
         this._applyWelcomeQuality('custom', { persist: true });
       });
     }
@@ -2350,9 +2399,14 @@ class HybridSettings {
       btn.addEventListener('click', () => {
         const bg = btn.dataset.resetBg;
         if (!bg || !BG_DEFAULTS[bg]) return;
+
+        const switchingToCustom = this.welcomeQuality !== 'custom';
+        if (switchingToCustom) {
+          this._captureAllEffectiveBgOpts();
+        }
         this._bgOpts[bg] = { ...BG_DEFAULTS[bg] };
 
-        if (this.welcomeQuality !== 'custom') {
+        if (switchingToCustom) {
           this._applyWelcomeQuality('custom', {
             persist: true,
             reapply: false,
