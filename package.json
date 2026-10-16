@@ -32,6 +32,7 @@
     "builder-util-runtime": "^9.7.0",
     "ffmpeg-static": "^5.3.0",
     "gsap": "^3.15.0",
+    "koffi": "^3.3.3",
     "ogl": "^1.0.11",
     "postprocessing": "^6.39.1",
     "readable-stream": "^4.7.0",

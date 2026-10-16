@@ -401,6 +401,15 @@ body.is-maximized .video-container {
   height: 100vh;
 }
 
+body.is-animating-bounds {
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
+body.is-animating-bounds * {
+  transition-duration: 0s !important;
+}
+
 .video-container video,
 #mpvContainer,
 .mpv-container {

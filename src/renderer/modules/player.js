@@ -457,7 +457,7 @@ class HybridPlayer {
 
       // Tell mpv to load
       const loadResult = await window.hybridAPI.mpv.loadFile(filePath);
-      if (loadResult === false || loadResult == null) {
+      if (loadResult === false) {
         throw new Error('Playback engine is not ready yet. Please try again.');
       }
       await window.hybridAPI.mpv.play();

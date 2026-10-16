@@ -180,7 +180,16 @@ export function initParticles(containerElement, customOptions = {}) {
     renderer.setSize(width, height);
     camera.perspective({ aspect: gl.canvas.width / gl.canvas.height });
   };
-  window.addEventListener('resize', resize, false);
+  let resizeRafId = 0;
+  const onWindowResize = () => {
+    if (window._isWindowBoundsAnimating) return;
+    if (resizeRafId) return;
+    resizeRafId = window.requestAnimationFrame(() => {
+      resizeRafId = 0;
+      resize();
+    });
+  };
+  window.addEventListener('resize', onWindowResize, false);
   resize();
 
   let resizeObserver = null;
@@ -373,8 +382,12 @@ export function initParticles(containerElement, customOptions = {}) {
       mouseMoveRafId = 0;
     }
 
+    if (resizeRafId) {
+      cancelAnimationFrame(resizeRafId);
+      resizeRafId = 0;
+    }
     gl.canvas.removeEventListener('webglcontextlost', onContextLost);
-    window.removeEventListener('resize', resize, false);
+    window.removeEventListener('resize', onWindowResize, false);
     window.removeEventListener('focus', resumeLoop);
     document.removeEventListener('visibilitychange', resumeLoop);
     clearTimeout(resizeTimeout);

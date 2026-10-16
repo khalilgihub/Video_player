@@ -358,6 +358,9 @@ function getWorkAreaForWindow(win) {
 
 function isWindowMaximized(win) {
   if (!win || win.isDestroyed()) return false;
+  if (win.__hybridMaximizeTransition) {
+    return !!win.__hybridFakeMaximized || win.isMaximized();
+  }
   if (win.__hybridFakeMaximized || win.isMaximized()) return true;
   try {
     const bounds = win.getBounds();
@@ -442,58 +445,186 @@ function suppressWindowsNonClientBorder(win, source = 'ipc') {
   }
 }
 
-function applyFakeMaximize(win) {
+let timeBeginPeriodFn = null;
+let timeEndPeriodFn = null;
+
+if (process.platform === 'win32') {
+  try {
+    const koffi = require('koffi');
+    const winmm = koffi.load('winmm.dll');
+    timeBeginPeriodFn = winmm.func('uint timeBeginPeriod(uint uPeriod)');
+    timeEndPeriodFn = winmm.func('uint timeEndPeriod(uint uPeriod)');
+    timeBeginPeriodFn(1);
+    if (app && typeof app.on === 'function') {
+      app.on('will-quit', () => {
+        try { timeEndPeriodFn(1); } catch {}
+      });
+    }
+  } catch {}
+}
+
+/**
+ * Quintic Smootherstep easing function (Ken Perlin).
+ * Zero velocity and zero acceleration at both endpoints (t=0 and t=1).
+ * Completely eliminates abrupt initial jerk and landing impact, delivering
+ * buttery smooth 120 FPS transitions without shaking or edge jitter.
+ */
+function easeInOutSmoother(t) {
+  const c = Math.max(0, Math.min(1, t));
+  return c * c * c * (c * (c * 6 - 15) + 10);
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function animateWindowBounds(win, startBounds, targetBounds) {
+  if (!win || win.isDestroyed()) return;
+  if (!startBounds || !targetBounds) return;
+  if (
+    startBounds.x === targetBounds.x &&
+    startBounds.y === targetBounds.y &&
+    startBounds.width === targetBounds.width &&
+    startBounds.height === targetBounds.height
+  ) {
+    return;
+  }
+
+  const isTest = process.env.NODE_ENV === 'test';
+  const duration = isTest ? 32 : 180;
+  const targetFrameInterval = isTest ? 4 : 8.33; // 120 FPS target (~8.33ms per frame)
+  const startTime = performance.now();
+  let lastApplied = null;
+
+  // Signal renderer to pause WebGL canvas allocations and hit-test pushes
+  try {
+    if (win.webContents && !win.webContents.isDestroyed()) {
+      win.webContents.send('window-bounds-animating', true);
+    }
+  } catch {}
+
+  try {
+    const startRight = startBounds.x + startBounds.width;
+    const startBottom = startBounds.y + startBounds.height;
+    const targetRight = targetBounds.x + targetBounds.width;
+    const targetBottom = targetBounds.y + targetBounds.height;
+
+    while (true) {
+      if (!win || win.isDestroyed()) break;
+      const now = performance.now();
+      const elapsed = now - startTime;
+      const progress = Math.min(1, Math.max(0, elapsed / duration));
+      const eased = easeInOutSmoother(progress);
+
+      // Monotonic edge interpolation eliminates subpixel border flutter/jitter
+      const x = Math.round(startBounds.x + (targetBounds.x - startBounds.x) * eased);
+      const y = Math.round(startBounds.y + (targetBounds.y - startBounds.y) * eased);
+      const right = Math.round(startRight + (targetRight - startRight) * eased);
+      const bottom = Math.round(startBottom + (targetBottom - startBottom) * eased);
+      const width = Math.max(100, right - x);
+      const height = Math.max(100, bottom - y);
+
+      if (
+        !lastApplied ||
+        lastApplied.x !== x ||
+        lastApplied.y !== y ||
+        lastApplied.width !== width ||
+        lastApplied.height !== height
+      ) {
+        win.setBounds({ x, y, width, height }, false);
+        lastApplied = { x, y, width, height };
+      }
+
+      if (progress >= 1) break;
+
+      const frameElapsed = performance.now() - now;
+      const waitTime = Math.max(1, Math.round(targetFrameInterval - frameElapsed));
+      await sleep(waitTime);
+    }
+  } finally {
+    if (win && !win.isDestroyed()) {
+      win.setBounds(targetBounds, false);
+      try {
+        if (win.webContents && !win.webContents.isDestroyed()) {
+          win.webContents.send('window-bounds-animating', false);
+        }
+      } catch {}
+    }
+  }
+}
+
+async function applyFakeMaximize(win, { animate = false } = {}) {
   if (!win || win.isDestroyed()) return false;
   logWindowIpcState(win, 'applyFakeMaximize:start');
 
-  if (win.isMaximized()) {
-    win.setResizable(true);
-    win.unmaximize();
-  }
   if (win.isMinimized()) {
     win.restore();
   }
 
+  const startBounds = win.getBounds();
   if (!win.__hybridFakeMaximized && !win.__hybridRestoreBounds) {
     win.__hybridRestoreBounds = typeof win.getNormalBounds === 'function'
       ? win.getNormalBounds()
-      : win.getBounds();
+      : startBounds;
   }
 
   const workArea = getWorkAreaForWindow(win);
-  win.setBounds(workArea, false);
-  win.__hybridFakeMaximized = true;
-  setResizableForFakeMaximize(win, true);
-  suppressWindowsNonClientBorder(win, 'applyFakeMaximize');
-  logWindowIpcState(win, 'applyFakeMaximize:end', { appliedBounds: workArea });
+
+  // Update visual state and UI buttons immediately for crisp tactile response
   emitWindowMaximizedState(win, true);
+
+  if (animate) {
+    await animateWindowBounds(win, startBounds, workArea);
+  }
+
+  if (win && !win.isDestroyed()) {
+    win.setBounds(workArea, false);
+    win.__hybridFakeMaximized = true;
+    setResizableForFakeMaximize(win, true);
+    suppressWindowsNonClientBorder(win, 'applyFakeMaximize');
+    logWindowIpcState(win, 'applyFakeMaximize:end', { appliedBounds: workArea });
+  }
   return true;
 }
 
-function restoreFromMaximized(win) {
+async function restoreFromMaximized(win, { animate = false } = {}) {
   if (!win || win.isDestroyed()) return false;
   logWindowIpcState(win, 'restoreFromMaximized:start');
 
   const wasFakeMaximized = !!win.__hybridFakeMaximized;
   const wasNativeMaximized = win.isMaximized();
-  const restoreBounds = normalizeWindowBounds(win.__hybridRestoreBounds);
+  const startBounds = win.getBounds();
 
-  setResizableForFakeMaximize(win, false);
-  win.setResizable(true);
-
-  if (wasNativeMaximized) {
-    win.unmaximize();
+  let restoreBounds = normalizeWindowBounds(win.__hybridRestoreBounds);
+  if (!restoreBounds) {
+    const display = screen.getDisplayMatching(startBounds);
+    const area = display?.workArea || screen.getPrimaryDisplay().workArea;
+    const width = 1280;
+    const height = 720;
+    const x = area.x + Math.round((area.width - width) / 2);
+    const y = area.y + Math.round((area.height - height) / 2);
+    restoreBounds = { x, y, width, height };
   }
 
-  if ((wasFakeMaximized || wasNativeMaximized) && restoreBounds) {
-    win.setBounds(restoreBounds, false);
-  }
-
+  // Update visual state and UI buttons immediately for crisp tactile response
+  emitWindowMaximizedState(win, false);
   win.__hybridFakeMaximized = false;
   win.__hybridRestoreBounds = null;
-  suppressWindowsNonClientBorder(win, 'restoreFromMaximized');
-  logWindowIpcState(win, 'restoreFromMaximized:end');
-  emitWindowMaximizedState(win, false);
+
+  if (animate) {
+    await animateWindowBounds(win, startBounds, restoreBounds);
+  }
+
+  if (win && !win.isDestroyed()) {
+    setResizableForFakeMaximize(win, false);
+    win.setResizable(true);
+
+    if (wasNativeMaximized) {
+      win.unmaximize();
+    }
+
+    win.setBounds(restoreBounds, false);
+    suppressWindowsNonClientBorder(win, 'restoreFromMaximized');
+    logWindowIpcState(win, 'restoreFromMaximized:end');
+  }
   return false;
 }
 
@@ -643,64 +774,90 @@ function endTitlebarDragSession(win) {
   return true;
 }
 
-function toggleFakeMaximize(win) {
-  if (isWindowMaximized(win)) {
-    return restoreFromMaximized(win);
+async function toggleFakeMaximize(win) {
+  if (!win || win.isDestroyed()) return false;
+  if (win.__hybridMaximizeTransition) {
+    return isWindowMaximized(win);
   }
-  return applyFakeMaximize(win);
+  win.__hybridMaximizeTransition = true;
+  try {
+    if (isWindowMaximized(win)) {
+      return await restoreFromMaximized(win, { animate: true });
+    }
+    return await applyFakeMaximize(win, { animate: true });
+  } finally {
+    if (win && !win.isDestroyed()) {
+      win.__hybridMaximizeTransition = false;
+    }
+  }
 }
 
-function toggleNativeMaximize(win) {
+async function toggleNativeMaximize(win) {
   if (!win || win.isDestroyed()) return false;
+  if (win.__hybridMaximizeTransition) {
+    return isWindowMaximized(win);
+  }
+  win.__hybridMaximizeTransition = true;
 
-  if (win.isMaximized()) {
-    win.unmaximize();
-    
-    // Explicitly set restore bounds to force the window out of maximized state
-    const bounds = win.getBounds();
-    const display = screen.getDisplayMatching(bounds);
-    const area = display?.workArea || screen.getPrimaryDisplay().workArea;
+  try {
+    if (win.isMaximized()) {
+      const startBounds = win.getBounds();
+      const display = screen.getDisplayMatching(startBounds);
+      const area = display?.workArea || screen.getPrimaryDisplay().workArea;
 
-    let targetBounds = null;
-    const savedRestore = normalizeWindowBounds(win.__hybridRestoreBounds);
-    if (savedRestore && (savedRestore.width < area.width || savedRestore.height < area.height)) {
-      targetBounds = savedRestore;
-    }
-    win.__hybridRestoreBounds = null;
+      let targetBounds = normalizeWindowBounds(win.__hybridRestoreBounds);
+      win.__hybridRestoreBounds = null;
 
-    if (!targetBounds) {
-      try {
-        const normal = typeof win.getNormalBounds === 'function' ? win.getNormalBounds() : null;
-        if (normal && normal.width > 0 && normal.height > 0) {
-          // Ensure the restored bounds are actually smaller than the maximized screen size
-          if (normal.width < area.width || normal.height < area.height) {
-            targetBounds = normal;
+      if (!targetBounds) {
+        try {
+          const normal = typeof win.getNormalBounds === 'function' ? win.getNormalBounds() : null;
+          if (normal && normal.width > 0 && normal.height > 0) {
+            if (normal.width < area.width || normal.height < area.height) {
+              targetBounds = normal;
+            }
           }
-        }
-      } catch (e) {
-        // Ignore
+        } catch {}
+      }
+
+      if (!targetBounds) {
+        const width = 1280;
+        const height = 720;
+        const x = area.x + Math.round((area.width - width) / 2);
+        const y = area.y + Math.round((area.height - height) / 2);
+        targetBounds = { x, y, width, height };
+      }
+
+      emitWindowMaximizedState(win, false);
+      await animateWindowBounds(win, startBounds, targetBounds);
+      if (win && !win.isDestroyed()) {
+        win.setResizable(true);
+        win.unmaximize();
+        win.setBounds(targetBounds, false);
+      }
+    } else {
+      if (!win.__hybridRestoreBounds) {
+        win.__hybridRestoreBounds = normalizeWindowBounds(win.getBounds());
+      }
+      const startBounds = win.getBounds();
+      const targetBounds = getWorkAreaForWindow(win);
+      emitWindowMaximizedState(win, true);
+      await animateWindowBounds(win, startBounds, targetBounds);
+      if (win && !win.isDestroyed()) {
+        win.maximize();
       }
     }
-
-    if (!targetBounds) {
-      const width = 1280;
-      const height = 720;
-      const x = area.x + Math.round((area.width - width) / 2);
-      const y = area.y + Math.round((area.height - height) / 2);
-      targetBounds = { x, y, width, height };
+    if (process.platform === 'win32') {
+      scheduleNativeDwmWindowStyles(win, [0, 80, 200, 350]);
     }
-
-    win.setBounds(targetBounds, false);
-  } else {
-    if (!win.__hybridRestoreBounds) {
-      win.__hybridRestoreBounds = normalizeWindowBounds(win.getBounds());
+    return win.isMaximized();
+  } finally {
+    if (win && !win.isDestroyed()) {
+      win.__hybridMaximizeTransition = false;
     }
-    win.maximize();
   }
-  return win.isMaximized();
 }
 
-function toggleWindowMaximize(win) {
+async function toggleWindowMaximize(win) {
   if (!win || win.isDestroyed()) return false;
   const isFs = typeof win.__hybridFullscreenState === 'boolean'
     ? win.__hybridFullscreenState
@@ -718,9 +875,9 @@ function toggleWindowMaximize(win) {
     return isWindowMaximized(win);
   }
   if (win.__hybridUseFakeMaximize) {
-    return toggleFakeMaximize(win);
+    return await toggleFakeMaximize(win);
   }
-  return toggleNativeMaximize(win);
+  return await toggleNativeMaximize(win);
 }
 
 function getDebugLogFilePath() {

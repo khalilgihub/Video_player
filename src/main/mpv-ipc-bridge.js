@@ -927,7 +927,7 @@ function setupMpvIpc(win, mpv) {
     playdbg('load-file command sent', { filePath: cleanFilePath, result });
     setTimeout(() => { void logPlaybackSnapshot('probe:1s', { filePath: cleanFilePath }); }, 1000);
     setTimeout(() => { void logPlaybackSnapshot('probe:3s', { filePath: cleanFilePath }); }, 3000);
-    return result;
+    return result !== false;
   });
 
   // ── Playback ───────────────────────────────────────────

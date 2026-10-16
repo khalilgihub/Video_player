@@ -328,7 +328,15 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     }
   };
 
-  const onResize = () => updateSize();
+  let resizeRafId = 0;
+  const onResize = () => {
+    if (window._isWindowBoundsAnimating) return;
+    if (resizeRafId) return;
+    resizeRafId = window.requestAnimationFrame(() => {
+      resizeRafId = 0;
+      updateSize();
+    });
+  };
 
   let isPaused = false;
   const renderLoop = () => {
@@ -436,6 +444,10 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     if (mouseMoveRafId) {
       window.cancelAnimationFrame(mouseMoveRafId);
       mouseMoveRafId = 0;
+    }
+    if (resizeRafId) {
+      window.cancelAnimationFrame(resizeRafId);
+      resizeRafId = 0;
     }
 
     renderer.domElement.removeEventListener('webglcontextlost', onContextLost);

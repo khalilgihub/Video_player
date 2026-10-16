@@ -15,7 +15,8 @@
   "asarUnpack": [
     "src/main/bin/*",
     "src/main/set-shortcut-appid.ps1",
-    "assets/icons/**/*"
+    "assets/icons/**/*",
+    "**/node_modules/koffi/**/*"
   ],
   "extraResources": [
     {

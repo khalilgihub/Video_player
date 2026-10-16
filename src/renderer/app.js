@@ -475,6 +475,16 @@ class HybridApp {
         applyFsTransition();
       });
 
+      window.hybridAPI.on('window-bounds-animating', (isAnimating) => {
+        window._isWindowBoundsAnimating = !!isAnimating;
+        if (isAnimating) {
+          document.body.classList.add('is-animating-bounds');
+        } else {
+          document.body.classList.remove('is-animating-bounds');
+          window.dispatchEvent(new Event('resize'));
+        }
+      });
+
       window.hybridAPI.on('window-is-maximized', (flag) => {
         const nextMax = !!flag;
         this._windowVisualState.isMaximized = nextMax;

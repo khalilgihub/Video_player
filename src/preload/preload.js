@@ -199,6 +199,7 @@ contextBridge.exposeInMainWorld('hybridAPI', {
       'menu-action', 'open-file-from-args', 'window-state-changed',
       'window-is-fullscreen', 'window-is-maximized',
       'window-fullscreen-transition-start',
+      'window-bounds-animating',
       'screenshot-ready',
       'mpv:property-change', 'mpv:event', 'keyboard-escape',
       'ytdlp:update-available', 'ytdlp:updated'

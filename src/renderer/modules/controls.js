@@ -451,6 +451,23 @@ class HybridControls {
       window.addEventListener('mouseup', onMouseUp, true);
     });
 
+    dragSurface.addEventListener('dblclick', async (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('.titlebar-controls, .titlebar-btn, button, input, select, textarea, a, [role="button"]')) {
+        return;
+      }
+      try {
+        const isFs = document.body.classList.contains('is-fullscreen');
+        if (isFs) {
+          await window.hybridAPI.window.fullscreen(false);
+        } else {
+          await window.hybridAPI.window.toggleMaximize();
+        }
+      } catch (error) {
+        console.error('[WINCTRL][renderer] titlebar dblclick toggle-maximize failed', error);
+      }
+    });
+
     window.addEventListener('blur', endDrag);
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState !== 'visible') {
@@ -482,6 +499,7 @@ class HybridControls {
     };
 
     const schedulePush = () => {
+      if (window._isWindowBoundsAnimating) return;
       if (this._hitTestSyncRaf != null) return;
       this._hitTestSyncRaf = window.requestAnimationFrame(() => {
         this._hitTestSyncRaf = null;

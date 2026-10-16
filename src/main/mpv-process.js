@@ -14,8 +14,9 @@ const fs = require('fs');
 const net = require('net');
 const crypto = require('crypto');
 const EventEmitter = require('events');
-const { resolveMpvBinary, resolveYtDlpBinary } = require('./binary-resolver');
+const { resolveMpvBinary, resolveYtDlpBinary, resolveLibMpv } = require('./binary-resolver');
 const { resolveScreenshotSubfolder } = require('./media-folder-resolver');
+const { LibmpvContext } = require('./libmpv-koffi');
 
 // Fullscreen/input trace logging.
 const FS_DEBUG = false;
@@ -49,6 +50,9 @@ class MpvProcess extends EventEmitter {
     this.process = null;
     /** @type {net.Socket|null} */
     this.socket = null;
+    /** @type {import('./libmpv-koffi').LibmpvContext|null} */
+    this._libmpv = null;
+    this.inProcess = false;
 
     // State
     this.ready = false;
@@ -67,9 +71,15 @@ class MpvProcess extends EventEmitter {
     this._inputConfDir = null;
   }
 
-  // ─── Resolve mpv binary ────────────────────────────────
+  // ─── Resolve mpv binaries ──────────────────────────────
   static findBinary() {
     return resolveMpvBinary(process.resourcesPath, process.execPath, __dirname, {
+      allowPathLookup: !app.isPackaged
+    });
+  }
+
+  static findLibMpv() {
+    return resolveLibMpv(process.resourcesPath, process.execPath, __dirname, {
       allowPathLookup: !app.isPackaged
     });
   }
@@ -90,7 +100,7 @@ class MpvProcess extends EventEmitter {
    * @param {string} [opts.hwdec]           e.g. 'auto-safe'
    */
   spawn(nativeHandle, opts = {}) {
-    if (this.process) return;
+    if (this.process || this._libmpv) return;
 
     let hwnd = null;
     if (opts.attachWindow !== false && nativeHandle) {
@@ -99,10 +109,10 @@ class MpvProcess extends EventEmitter {
       // (Some Electron/Windows combos expose non-zero upper bits that mpv rejects for --wid.)
       try {
         if (process.platform === 'win32') {
-          if (nativeHandle.length >= 4 && typeof nativeHandle.readUInt32LE === 'function') {
-            hwnd = String(nativeHandle.readUInt32LE(0));
-          } else if (nativeHandle.length >= 8 && typeof nativeHandle.readBigUInt64LE === 'function') {
+          if (nativeHandle.length >= 8 && typeof nativeHandle.readBigUInt64LE === 'function') {
             hwnd = nativeHandle.readBigUInt64LE(0).toString();
+          } else if (nativeHandle.length >= 4 && typeof nativeHandle.readUInt32LE === 'function') {
+            hwnd = String(nativeHandle.readUInt32LE(0));
           }
         } else {
           hwnd = parseInt(nativeHandle.toString('hex'), 16).toString();
@@ -113,10 +123,6 @@ class MpvProcess extends EventEmitter {
       }
     }
 
-    const mpvBin = opts.mpvPath || MpvProcess.findBinary();
-    if (!mpvBin) {
-      throw new Error('mpv binary not found');
-    }
     const ytDlpPath = opts.ytdlPath || MpvProcess.findYtDlpBinary();
     const cookiesCandidates = [
       opts.cookiesPath,
@@ -181,6 +187,149 @@ class MpvProcess extends EventEmitter {
     ].join('\n');
     try { fs.writeFileSync(inputConfPath, inputConfContent, { encoding: 'utf-8' }); } catch {}
     fsdbg('input.conf written', { inputConfPath });
+
+    // ── Attempt direct in-process libmpv via C-FFI (koffi) ──
+    const libmpvPath = opts.libmpvPath || MpvProcess.findLibMpv();
+    if (LibmpvContext.isAvailable() && libmpvPath && opts.forceProcess !== true) {
+      try {
+        fsdbg('Initializing libmpv-2.dll directly in-process via C-FFI (koffi)', { libmpvPath, hwnd });
+        this._libmpv = new LibmpvContext(libmpvPath);
+
+        if (opts.attachWindow !== false && hwnd) {
+          this._libmpv.setOptionString('wid', hwnd);
+          this._libmpv.setOptionString('vo', 'gpu');
+          this._libmpv.setOptionString('hwdec', opts.hwdec || (process.platform === 'win32' ? 'd3d11va' : 'auto-safe'));
+        } else if (opts.attachWindow === false) {
+          this._libmpv.setOptionString('force-window', 'no');
+          this._libmpv.setOptionString('mute', 'yes');
+          this._libmpv.setOptionString('pause', 'yes');
+          this._libmpv.setOptionString('audio', 'no');
+          this._libmpv.setOptionString('vo', 'null');
+        } else {
+          throw new Error('libmpv in-process failed: missing valid HWND for embedded --wid rendering');
+        }
+
+        this._libmpv.setOptionString('keepaspect-window', 'no');
+        this._libmpv.setOptionString('auto-window-resize', 'no');
+        this._libmpv.setOptionString('osc', 'no');
+        this._libmpv.setOptionString('osd-bar', 'no');
+        this._libmpv.setOptionString('osd-level', '0');
+        this._libmpv.setOptionString('idle', 'yes');
+        this._libmpv.setOptionString('keep-open', 'yes');
+        this._libmpv.setOptionString('msg-level', 'all=warn');
+        this._libmpv.setOptionString('ytdl', 'yes');
+        this._libmpv.setOptionString('sub-auto', 'fuzzy');
+        this._libmpv.setOptionString('sub-file-paths', 'subs:subtitles');
+        this._libmpv.setOptionString('sub-fix-timing', 'no');
+        this._libmpv.setOptionString('demuxer-mkv-subtitle-preroll', 'yes');
+        this._libmpv.setOptionString('sub-ass-use-video-data', 'all');
+        this._libmpv.setOptionString('sub-ass-override', 'scale');
+        this._libmpv.setOptionString('screenshot-directory', screenshotDir);
+        this._libmpv.setOptionString('screenshot-template', 'hybrid-player-%tY-%tm-%td-%tH-%tM-%tS');
+        this._libmpv.setOptionString('screenshot-format', this._screenshotFormat);
+        this._libmpv.setOptionString('screenshot-jpeg-quality', '92');
+        this._libmpv.setOptionString('screenshot-webp-quality', '92');
+        this._libmpv.setOptionString('screenshot-webp-compression', '0');
+        this._libmpv.setOptionString('screenshot-webp-lossless', 'no');
+        this._libmpv.setOptionString('cache', 'yes');
+        this._libmpv.setOptionString('demuxer-max-bytes', '150MiB');
+        this._libmpv.setOptionString('demuxer-max-back-bytes', '50MiB');
+        this._libmpv.setOptionString('input-default-bindings', 'no');
+        this._libmpv.setOptionString('input-conf', inputConfPath);
+        this._libmpv.setOptionString('cursor-autohide', 'no');
+        this._libmpv.setOptionString('hr-seek', 'yes');
+        this._libmpv.setOptionString('hr-seek-framedrop', 'yes');
+
+        if (ytDlpPath) {
+          const normalizedYtDlpPath = ytDlpPath.replace(/\\/g, '/');
+          this._libmpv.setOptionString('script-opts', `ytdl_hook-ytdl_path=${normalizedYtDlpPath}`);
+        }
+
+        const formatYtdlOptionValue = (val) => {
+          const str = String(val || '');
+          return str.includes(',') ? `[${str}]` : str;
+        };
+        const ytdlRawOptions = [];
+        if (opts.enableYtdlRawOptions === true) {
+          if (opts.ytdlUserAgent) {
+            ytdlRawOptions.push(`user-agent=${formatYtdlOptionValue(opts.ytdlUserAgent)}`);
+          }
+          if (cookiesPath && fs.existsSync(cookiesPath)) {
+            ytdlRawOptions.push(`cookies=${formatYtdlOptionValue(cookiesPath)}`);
+          }
+          if (ytdlRawOptions.length > 0) {
+            this._libmpv.setOptionString('ytdl-raw-options', ytdlRawOptions.join(','));
+          }
+        }
+
+        const initRes = this._libmpv.initialize();
+        if (initRes < 0) {
+          throw new Error(`mpv_initialize failed with error code ${initRes}`);
+        }
+
+        this.inProcess = true;
+        this.ready = true;
+        this.process = { pid: process.pid, inProcess: true, killed: false, kill: () => this.destroy() };
+
+        // Relay events from in-process context
+        this._libmpv.on('property-change', (name, value, id) => {
+          this.emit('property-change', name, value, id);
+        });
+        this._libmpv.on('mpv-event', (ev) => {
+          this.emit('mpv-event', ev);
+        });
+        this._libmpv.on('file-loaded', () => {
+          this.emit('file-loaded');
+        });
+        this._libmpv.on('end-file', (info) => {
+          this.emit('end-file', info);
+        });
+        this._libmpv.on('seek', () => {
+          this.emit('seek');
+        });
+        this._libmpv.on('playback-restart', () => {
+          this.emit('playback-restart');
+        });
+        this._libmpv.on('client-message', (args) => {
+          this.emit('client-message', args);
+        });
+        this._libmpv.on('log-message', (msg) => {
+          this.emit('log-message', msg);
+        });
+        this._libmpv.on('log', (text) => {
+          this.emit('log', text);
+        });
+        this._libmpv.on('exit', (code) => {
+          this.ready = false;
+          this.process = null;
+          this.emit('exit', code);
+        });
+        this._libmpv.on('error', (err) => {
+          this.emit('error', err);
+        });
+
+        if (this.observeDefaults) {
+          this._observeDefaults();
+        }
+
+        this.emit('ready');
+        fsdbg('libmpv initialized directly in-process via C-FFI (koffi). No external child process.');
+        return;
+      } catch (err) {
+        mpverr('In-process libmpv initialization failed; falling back to external mpv.exe process:', err?.message || err);
+        if (this._libmpv) {
+          try { this._libmpv.destroy(); } catch {}
+          this._libmpv = null;
+        }
+        this.inProcess = false;
+      }
+    }
+
+    // ── External mpv.exe fallback path ──
+    const mpvBin = opts.mpvPath || MpvProcess.findBinary();
+    if (!mpvBin) {
+      throw new Error('mpv binary not found');
+    }
 
     const args = [
       '--idle=yes',
@@ -454,6 +603,27 @@ class MpvProcess extends EventEmitter {
    * @returns {Promise<any>}
    */
   command(...args) {
+    if (this.inProcess && this._libmpv) {
+      if (args[0] === 'get_property') {
+        return this.getProperty(args[1]);
+      }
+      if (args[0] === 'set_property') {
+        return this.setProperty(args[1], args[2]);
+      }
+      if (args[0] === 'observe_property') {
+        return this.observeProperty(args[2]);
+      }
+      try {
+        const res = this._libmpv.command(...args);
+        if (res < 0) {
+          return Promise.reject(new Error(`mpv command failed: ${args[0]}`));
+        }
+        return Promise.resolve(null);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    }
+
     return new Promise((resolve, reject) => {
       const send = () => {
         if (!this.socket || !this.ready) {
@@ -501,11 +671,44 @@ class MpvProcess extends EventEmitter {
 
   /** Shorter helper for set_property */
   setProperty(name, value) {
+    if (this.inProcess && this._libmpv) {
+      try {
+        const res = this._libmpv.setPropertyString(name, value);
+        if (res < 0) {
+          return Promise.reject(new Error(`mpv set_property failed: ${name}=${value}`));
+        }
+        return Promise.resolve(true);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    }
     return this.command('set_property', name, value);
   }
 
   /** Shorter helper for get_property */
   getProperty(name) {
+    if (this.inProcess && this._libmpv) {
+      try {
+        const raw = this._libmpv.getPropertyString(name);
+        if (raw === null || raw === undefined) return Promise.resolve(null);
+        if (raw === 'yes') return Promise.resolve(true);
+        if (raw === 'no') return Promise.resolve(false);
+        const trimmed = String(raw).trim();
+        if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+            (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+          try {
+            return Promise.resolve(JSON.parse(trimmed));
+          } catch {}
+        }
+        const num = Number(trimmed);
+        if (!isNaN(num) && trimmed !== '' && !trimmed.includes(':')) {
+          return Promise.resolve(num);
+        }
+        return Promise.resolve(raw);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    }
     return this.command('get_property', name);
   }
 
@@ -513,6 +716,14 @@ class MpvProcess extends EventEmitter {
   async observeProperty(name) {
     const id = this._nextObsId++;
     this._observedProps.set(id, name);
+    if (this.inProcess && this._libmpv) {
+      try {
+        this._libmpv.observeProperty(id, name, 1);
+        return Promise.resolve(null);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    }
     return this.command('observe_property', id, name);
   }
 
@@ -520,7 +731,7 @@ class MpvProcess extends EventEmitter {
 
   loadFile(filePath) {
     this.filePath = filePath;
-    return this.command('loadfile', filePath, 'replace');
+    return this.command('loadfile', filePath, 'replace').then(() => true);
   }
 
   play()  { return this.setProperty('pause', false); }
@@ -781,21 +992,30 @@ class MpvProcess extends EventEmitter {
 
   // ─── Lifecycle ─────────────────────────────────────────
   destroy() {
-    if (this.socket) {
-      try { this.command('quit').catch(() => {}); } catch {}
-      try { this.socket.end(); } catch {}
-      this.socket = null;
-    }
-    if (this.process) {
-      const pid = this.process.pid;
-      if (process.platform === 'win32' && pid) {
-        try {
-          require('child_process').execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
-        } catch {}
-      } else {
-        try { this.process.kill('SIGTERM'); } catch {}
-      }
+    if (this.inProcess && this._libmpv) {
+      try {
+        this._libmpv.destroy();
+      } catch {}
+      this._libmpv = null;
+      this.inProcess = false;
       this.process = null;
+    } else {
+      if (this.socket) {
+        try { this.command('quit').catch(() => {}); } catch {}
+        try { this.socket.end(); } catch {}
+        this.socket = null;
+      }
+      if (this.process && !this.process.inProcess) {
+        const pid = this.process.pid;
+        if (process.platform === 'win32' && pid) {
+          try {
+            require('child_process').execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
+          } catch {}
+        } else {
+          try { this.process.kill('SIGTERM'); } catch {}
+        }
+        this.process = null;
+      }
     }
     if (this._inputConfDir) {
       fs.rm(this._inputConfDir, { recursive: true, force: true }, () => {});

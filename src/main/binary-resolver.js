@@ -115,6 +115,42 @@ function resolveMpvBinary(resourcesPath, execPath, appDir, options = {}) {
   return null;
 }
 
+function resolveLibMpv(resourcesPath, execPath, appDir, options = {}) {
+  const allowPathLookup = options.allowPathLookup !== false;
+  const candidates = process.platform === 'win32'
+    ? [
+        path.join(resourcesPath || path.join(appDir, '../../'), 'mpv', 'libmpv-2.dll'),
+        path.join(resourcesPath || path.join(appDir, '../../'), 'mpv', 'mpv-2.dll'),
+        path.join(path.dirname(execPath), 'mpv', 'libmpv-2.dll'),
+        path.join(path.dirname(execPath), 'mpv', 'mpv-2.dll'),
+        path.join(appDir, '../../mpv/libmpv-2.dll'),
+        path.join(appDir, '../../mpv/mpv-2.dll'),
+        path.join(appDir, '../mpv/libmpv-2.dll'),
+        path.join(appDir, '../mpv/mpv-2.dll'),
+        path.join(__dirname, '../../mpv/libmpv-2.dll'),
+      ]
+    : [
+        path.join(resourcesPath || path.join(appDir, '../../'), 'mpv', 'libmpv.so'),
+        path.join(path.dirname(execPath), 'mpv', 'libmpv.so'),
+        path.join(appDir, '../../mpv/libmpv.so'),
+      ];
+
+  for (const candidate of candidates) {
+    const resolved = candidate ? path.resolve(candidate) : '';
+    if (resolved && isUsableFile(resolved)) {
+      return resolved;
+    }
+  }
+
+  if (allowPathLookup) {
+    const names = process.platform === 'win32' ? ['libmpv-2.dll', 'mpv-2.dll'] : ['libmpv.so', 'libmpv.dylib'];
+    const inPath = findBinaryInPath(names);
+    if (inPath) return inPath;
+  }
+
+  return null;
+}
+
 function resolveBundledBinaryPath(binaryName, isPackaged, resourcesPath, appDir) {
   if (isPackaged) {
     return path.join(resourcesPath, 'mpv', binaryName);
@@ -126,5 +162,6 @@ module.exports = {
   resolveYtDlpBinary,
   resolveFfmpegBinary,
   resolveMpvBinary,
+  resolveLibMpv,
   resolveBundledBinaryPath
 };

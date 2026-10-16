@@ -15,6 +15,7 @@ const {
   resolveBundledBinaryPath: resolveBundledBinaryPathFromResolver,
   resolveFfmpegBinary: resolveFfmpegBinaryFromResolver,
   resolveMpvBinary,
+  resolveLibMpv,
   resolveYtDlpBinary,
 } = require('./binary-resolver');
 const {
@@ -821,6 +822,7 @@ function getFakeMaximizedBounds(win) {
 function convertNativeMaximizeToFake(win, source = 'native-maximize') {
   if (!win || win.isDestroyed()) return false;
   if (win.__hybridConvertingNativeMaximize) return false;
+  if (win.__hybridMaximizeTransition) return false;
 
   win.__hybridConvertingNativeMaximize = true;
   try {
@@ -1506,17 +1508,21 @@ function createMainWindow() {
     const resolvedMpvPath = resolveMpvBinary(process.resourcesPath, process.execPath, __dirname, {
       allowPathLookup: !app.isPackaged
     });
+    const resolvedLibMpvPath = resolveLibMpv(process.resourcesPath, process.execPath, __dirname, {
+      allowPathLookup: !app.isPackaged
+    });
     const resolvedYtdlpPath = resolveYtDlpBinary(process.resourcesPath, process.execPath, __dirname, {
       allowPathLookup: !app.isPackaged
     });
     try {
-      if (!resolvedMpvPath) {
-        throw new Error('mpv binary not found');
+      if (!resolvedMpvPath && !resolvedLibMpvPath) {
+        throw new Error('mpv binary or libmpv library not found');
       }
       maindbg('spawning mpv', {
         handleBytes: nativeHandle?.length || 0,
         handleHex: Buffer.isBuffer(nativeHandle) ? nativeHandle.toString('hex') : null,
         mpvPath: resolvedMpvPath,
+        libmpvPath: resolvedLibMpvPath,
       });
       const currentDb = loadDatabase();
       const defaultScreenshotDir = path.join(app.getPath('userData'), 'screenshots');
@@ -1528,6 +1534,7 @@ function createMainWindow() {
 
       mpvProcess.spawn(nativeHandle, {
         mpvPath: resolvedMpvPath,
+        libmpvPath: resolvedLibMpvPath,
         ytdlPath: resolvedYtdlpPath,
         hwdec: process.platform === 'win32' ? 'd3d11va' : 'auto-safe',
         screenshotDir: effectiveScreenshotDir,
@@ -1536,7 +1543,7 @@ function createMainWindow() {
         autoOrganizeScreenshots: currentDb?.preferences?.autoOrganizeScreenshots !== false,
         enableYtdlRawOptions: true
       });
-      maindbg('mpv process spawned and IPC bridge ready');
+      maindbg('mpv engine ready (in-process or IPC bridge)');
     } catch (err) {
       console.error('Failed to spawn mpv:', err);
       mainWindow.webContents.send('mpv:event', 'error', {

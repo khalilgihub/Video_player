@@ -450,7 +450,16 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
   window.addEventListener('focus', resumeLoop);
   document.addEventListener('visibilitychange', resumeLoop);
 
-  window.addEventListener('resize', resize);
+  let resizeRafId = 0;
+  const onWindowResize = () => {
+    if (window._isWindowBoundsAnimating) return;
+    if (resizeRafId) return;
+    resizeRafId = window.requestAnimationFrame(() => {
+      resizeRafId = 0;
+      resize();
+    });
+  };
+  window.addEventListener('resize', onWindowResize);
   resize();
 
   let resizeTimeout = 0;
@@ -515,8 +524,12 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
       mouseMoveRafId = 0;
     }
 
+    if (resizeRafId) {
+      cancelAnimationFrame(resizeRafId);
+      resizeRafId = 0;
+    }
     gl.canvas.removeEventListener('webglcontextlost', onContextLost);
-    window.removeEventListener('resize', resize);
+    window.removeEventListener('resize', onWindowResize);
     window.removeEventListener('focus', resumeLoop);
     document.removeEventListener('visibilitychange', resumeLoop);
     clearTimeout(resizeTimeout);
