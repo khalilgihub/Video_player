@@ -475,6 +475,14 @@ class HybridApp {
         applyFsTransition();
       });
 
+      window.hybridAPI.on('window-maximize-transition-start', () => {
+        document.body.classList.add('max-transition');
+      });
+
+      window.hybridAPI.on('window-maximize-transition-end', () => {
+        document.body.classList.remove('max-transition');
+      });
+
       window.hybridAPI.on('window-bounds-animating', (isAnimating) => {
         window._isWindowBoundsAnimating = !!isAnimating;
         if (isAnimating) {

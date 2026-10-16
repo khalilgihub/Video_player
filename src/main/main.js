@@ -538,7 +538,7 @@ const FULLSCREEN_RESTORE_DELAY_MS = 140;
 const ENABLE_WINDOW_BOUNDS_CLAMP = false;
 // Transparent compositor is required so that mpv --wid rendering shows through
 // the Chromium layer. Without this the video appears black.
-const USE_WINDOWS_TRANSPARENT_COMPOSITOR = true;
+const USE_WINDOWS_TRANSPARENT_COMPOSITOR = false;
 const WM_NCCALCSIZE = 0x0083;
 const WM_NCHITTEST = 0x0084;
 const WM_NCPAINT = 0x0085;

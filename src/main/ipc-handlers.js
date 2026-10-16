@@ -480,6 +480,13 @@ async function applyFakeMaximize(win) {
 
   const workArea = getWorkAreaForWindow(win);
 
+  // Signal renderer to hold black backdrop during transition
+  try {
+    if (win.webContents && !win.webContents.isDestroyed()) {
+      win.webContents.send('window-maximize-transition-start');
+    }
+  } catch {}
+
   // Update visual state and UI buttons immediately for crisp tactile response
   emitWindowMaximizedState(win, true);
   win.setBounds(workArea, false);
@@ -487,6 +494,15 @@ async function applyFakeMaximize(win) {
   setResizableForFakeMaximize(win, true);
   suppressWindowsNonClientBorder(win, 'applyFakeMaximize');
   logWindowIpcState(win, 'applyFakeMaximize:end', { appliedBounds: workArea });
+
+  setTimeout(() => {
+    try {
+      if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
+        win.webContents.send('window-maximize-transition-end');
+      }
+    } catch {}
+  }, 140);
+
   return true;
 }
 
@@ -509,6 +525,13 @@ async function restoreFromMaximized(win) {
     restoreBounds = { x, y, width, height };
   }
 
+  // Signal renderer to hold black backdrop during transition
+  try {
+    if (win.webContents && !win.webContents.isDestroyed()) {
+      win.webContents.send('window-maximize-transition-start');
+    }
+  } catch {}
+
   // Update visual state and UI buttons immediately for crisp tactile response
   emitWindowMaximizedState(win, false);
   win.__hybridFakeMaximized = false;
@@ -520,10 +543,19 @@ async function restoreFromMaximized(win) {
   if (wasNativeMaximized) {
     win.unmaximize();
   }
-
   win.setBounds(restoreBounds, false);
+
   suppressWindowsNonClientBorder(win, 'restoreFromMaximized');
   logWindowIpcState(win, 'restoreFromMaximized:end');
+
+  setTimeout(() => {
+    try {
+      if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
+        win.webContents.send('window-maximize-transition-end');
+      }
+    } catch {}
+  }, 140);
+
   return false;
 }
 
@@ -699,6 +731,12 @@ async function toggleNativeMaximize(win) {
   win.__hybridMaximizeTransition = true;
 
   try {
+    if (win.webContents && !win.webContents.isDestroyed()) {
+      win.webContents.send('window-maximize-transition-start');
+    }
+  } catch {}
+
+  try {
     if (win.isMaximized()) {
       const startBounds = win.getBounds();
       const display = screen.getDisplayMatching(startBounds);
@@ -729,7 +767,9 @@ async function toggleNativeMaximize(win) {
       emitWindowMaximizedState(win, false);
       if (win && !win.isDestroyed()) {
         win.setResizable(true);
-        win.unmaximize();
+        if (win.isMaximized()) {
+          win.unmaximize();
+        }
         win.setBounds(targetBounds, false);
       }
     } else {
@@ -741,14 +781,18 @@ async function toggleNativeMaximize(win) {
         win.maximize();
       }
     }
-    if (process.platform === 'win32') {
-      scheduleNativeDwmWindowStyles(win, [0, 80, 200, 350]);
-    }
     return win.isMaximized();
   } finally {
-    if (win && !win.isDestroyed()) {
-      win.__hybridMaximizeTransition = false;
-    }
+    setTimeout(() => {
+      if (win && !win.isDestroyed()) {
+        win.__hybridMaximizeTransition = false;
+        try {
+          if (win.webContents && !win.webContents.isDestroyed()) {
+            win.webContents.send('window-maximize-transition-end');
+          }
+        } catch {}
+      }
+    }, 140);
   }
 }
 

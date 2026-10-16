@@ -339,10 +339,15 @@ class HybridControls {
           await window.hybridAPI.window.fullscreen(false);
           controlsdbg('[WINCTRL][renderer] exit-fullscreen from titlebar success');
         } else {
+          document.body.classList.add('max-transition');
           const maximized = await window.hybridAPI.window.toggleMaximize();
           controlsdbg('[WINCTRL][renderer] toggle-maximize invoke success', { maximized });
+          setTimeout(() => {
+            document.body.classList.remove('max-transition');
+          }, 200);
         }
       } catch (error) {
+        document.body.classList.remove('max-transition');
         console.error('[WINCTRL][renderer] toggle-maximize invoke failed', error);
       }
     });
@@ -461,9 +466,14 @@ class HybridControls {
         if (isFs) {
           await window.hybridAPI.window.fullscreen(false);
         } else {
+          document.body.classList.add('max-transition');
           await window.hybridAPI.window.toggleMaximize();
+          setTimeout(() => {
+            document.body.classList.remove('max-transition');
+          }, 200);
         }
       } catch (error) {
+        document.body.classList.remove('max-transition');
         console.error('[WINCTRL][renderer] titlebar dblclick toggle-maximize failed', error);
       }
     });

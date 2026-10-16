@@ -101,6 +101,15 @@ body {
   box-shadow: none;
 }
 
+/* When idle on welcome screen, cold-starting, or during maximize/restore transitions,
+   enforce solid black so that expanding/restoring window frames NEVER leak
+   the Windows desktop wallpaper! */
+body.app-cold-start,
+body.welcome-active,
+body.max-transition {
+  background-color: #000000 !important;
+}
+
 .hidden {
   display: none !important;
 }
