@@ -463,95 +463,7 @@ if (process.platform === 'win32') {
   } catch {}
 }
 
-/**
- * Quintic Smootherstep easing function (Ken Perlin).
- * Zero velocity and zero acceleration at both endpoints (t=0 and t=1).
- * Completely eliminates abrupt initial jerk and landing impact, delivering
- * buttery smooth 120 FPS transitions without shaking or edge jitter.
- */
-function easeInOutSmoother(t) {
-  const c = Math.max(0, Math.min(1, t));
-  return c * c * c * (c * (c * 6 - 15) + 10);
-}
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function animateWindowBounds(win, startBounds, targetBounds) {
-  if (!win || win.isDestroyed()) return;
-  if (!startBounds || !targetBounds) return;
-  if (
-    startBounds.x === targetBounds.x &&
-    startBounds.y === targetBounds.y &&
-    startBounds.width === targetBounds.width &&
-    startBounds.height === targetBounds.height
-  ) {
-    return;
-  }
-
-  const isTest = process.env.NODE_ENV === 'test';
-  const duration = isTest ? 32 : 180;
-  const targetFrameInterval = isTest ? 4 : 8.33; // 120 FPS target (~8.33ms per frame)
-  const startTime = performance.now();
-  let lastApplied = null;
-
-  // Signal renderer to pause WebGL canvas allocations and hit-test pushes
-  try {
-    if (win.webContents && !win.webContents.isDestroyed()) {
-      win.webContents.send('window-bounds-animating', true);
-    }
-  } catch {}
-
-  try {
-    const startRight = startBounds.x + startBounds.width;
-    const startBottom = startBounds.y + startBounds.height;
-    const targetRight = targetBounds.x + targetBounds.width;
-    const targetBottom = targetBounds.y + targetBounds.height;
-
-    while (true) {
-      if (!win || win.isDestroyed()) break;
-      const now = performance.now();
-      const elapsed = now - startTime;
-      const progress = Math.min(1, Math.max(0, elapsed / duration));
-      const eased = easeInOutSmoother(progress);
-
-      // Monotonic edge interpolation eliminates subpixel border flutter/jitter
-      const x = Math.round(startBounds.x + (targetBounds.x - startBounds.x) * eased);
-      const y = Math.round(startBounds.y + (targetBounds.y - startBounds.y) * eased);
-      const right = Math.round(startRight + (targetRight - startRight) * eased);
-      const bottom = Math.round(startBottom + (targetBottom - startBottom) * eased);
-      const width = Math.max(100, right - x);
-      const height = Math.max(100, bottom - y);
-
-      if (
-        !lastApplied ||
-        lastApplied.x !== x ||
-        lastApplied.y !== y ||
-        lastApplied.width !== width ||
-        lastApplied.height !== height
-      ) {
-        win.setBounds({ x, y, width, height }, false);
-        lastApplied = { x, y, width, height };
-      }
-
-      if (progress >= 1) break;
-
-      const frameElapsed = performance.now() - now;
-      const waitTime = Math.max(1, Math.round(targetFrameInterval - frameElapsed));
-      await sleep(waitTime);
-    }
-  } finally {
-    if (win && !win.isDestroyed()) {
-      win.setBounds(targetBounds, false);
-      try {
-        if (win.webContents && !win.webContents.isDestroyed()) {
-          win.webContents.send('window-bounds-animating', false);
-        }
-      } catch {}
-    }
-  }
-}
-
-async function applyFakeMaximize(win, { animate = false } = {}) {
+async function applyFakeMaximize(win) {
   if (!win || win.isDestroyed()) return false;
   logWindowIpcState(win, 'applyFakeMaximize:start');
 
@@ -570,22 +482,15 @@ async function applyFakeMaximize(win, { animate = false } = {}) {
 
   // Update visual state and UI buttons immediately for crisp tactile response
   emitWindowMaximizedState(win, true);
-
-  if (animate) {
-    await animateWindowBounds(win, startBounds, workArea);
-  }
-
-  if (win && !win.isDestroyed()) {
-    win.setBounds(workArea, false);
-    win.__hybridFakeMaximized = true;
-    setResizableForFakeMaximize(win, true);
-    suppressWindowsNonClientBorder(win, 'applyFakeMaximize');
-    logWindowIpcState(win, 'applyFakeMaximize:end', { appliedBounds: workArea });
-  }
+  win.setBounds(workArea, false);
+  win.__hybridFakeMaximized = true;
+  setResizableForFakeMaximize(win, true);
+  suppressWindowsNonClientBorder(win, 'applyFakeMaximize');
+  logWindowIpcState(win, 'applyFakeMaximize:end', { appliedBounds: workArea });
   return true;
 }
 
-async function restoreFromMaximized(win, { animate = false } = {}) {
+async function restoreFromMaximized(win) {
   if (!win || win.isDestroyed()) return false;
   logWindowIpcState(win, 'restoreFromMaximized:start');
 
@@ -609,22 +514,16 @@ async function restoreFromMaximized(win, { animate = false } = {}) {
   win.__hybridFakeMaximized = false;
   win.__hybridRestoreBounds = null;
 
-  if (animate) {
-    await animateWindowBounds(win, startBounds, restoreBounds);
+  setResizableForFakeMaximize(win, false);
+  win.setResizable(true);
+
+  if (wasNativeMaximized) {
+    win.unmaximize();
   }
 
-  if (win && !win.isDestroyed()) {
-    setResizableForFakeMaximize(win, false);
-    win.setResizable(true);
-
-    if (wasNativeMaximized) {
-      win.unmaximize();
-    }
-
-    win.setBounds(restoreBounds, false);
-    suppressWindowsNonClientBorder(win, 'restoreFromMaximized');
-    logWindowIpcState(win, 'restoreFromMaximized:end');
-  }
+  win.setBounds(restoreBounds, false);
+  suppressWindowsNonClientBorder(win, 'restoreFromMaximized');
+  logWindowIpcState(win, 'restoreFromMaximized:end');
   return false;
 }
 
@@ -782,9 +681,9 @@ async function toggleFakeMaximize(win) {
   win.__hybridMaximizeTransition = true;
   try {
     if (isWindowMaximized(win)) {
-      return await restoreFromMaximized(win, { animate: true });
+      return await restoreFromMaximized(win);
     }
-    return await applyFakeMaximize(win, { animate: true });
+    return await applyFakeMaximize(win);
   } finally {
     if (win && !win.isDestroyed()) {
       win.__hybridMaximizeTransition = false;
@@ -828,7 +727,6 @@ async function toggleNativeMaximize(win) {
       }
 
       emitWindowMaximizedState(win, false);
-      await animateWindowBounds(win, startBounds, targetBounds);
       if (win && !win.isDestroyed()) {
         win.setResizable(true);
         win.unmaximize();
@@ -838,10 +736,7 @@ async function toggleNativeMaximize(win) {
       if (!win.__hybridRestoreBounds) {
         win.__hybridRestoreBounds = normalizeWindowBounds(win.getBounds());
       }
-      const startBounds = win.getBounds();
-      const targetBounds = getWorkAreaForWindow(win);
       emitWindowMaximizedState(win, true);
-      await animateWindowBounds(win, startBounds, targetBounds);
       if (win && !win.isDestroyed()) {
         win.maximize();
       }
