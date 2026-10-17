@@ -94,8 +94,8 @@ body {
   font-size: 14px;
   line-height: 1.5;
   color: var(--text-primary);
-  /* Keep Chromium transparent so embedded mpv (--wid) remains visible. */
-  background-color: transparent;
+  /* DirectX bridge architecture uses opaque background */
+  background-color: #0c0d12;
   user-select: none;
   -webkit-font-smoothing: antialiased;
   box-shadow: none;
@@ -339,6 +339,17 @@ body.app-unfocused .welcome-bg-settings {
   min-width: 0;
 }
 
+#videoCanvas,
+.video-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  z-index: 1;
+  pointer-events: auto;
+}
+
 .network-loading-spinner {
   position: absolute;
   left: 50%;
@@ -386,11 +397,17 @@ body.app-unfocused .welcome-bg-settings {
   filter: drop-shadow(0 0 10px var(--accent-dim));
 }
 
-/* Keep window controls clickable in fullscreen. */
+/* Keep window controls clickable in fullscreen when visible, but allow auto-hide. */
 body.is-fullscreen .titlebar {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
+}
+
+body.is-fullscreen .titlebar.hidden {
+  opacity: 0 !important;
+  transform: translateY(-100%) !important;
+  pointer-events: none !important;
 }
 
 body.is-fullscreen .titlebar-controls {
@@ -402,6 +419,12 @@ body.is-maximized .titlebar {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
+}
+
+body.is-maximized .titlebar.hidden {
+  opacity: 0 !important;
+  transform: translateY(-100%) !important;
+  pointer-events: none !important;
 }
 
 body.is-fullscreen .video-container,
@@ -1441,14 +1464,8 @@ body[data-welcome-background='none'] .welcome-screen {
 }
 
 body.has-native-window-controls .welcome-bg-settings,
-body.is-fullscreen .welcome-bg-settings,
-body.fs-transition .welcome-bg-settings {
+body.is-fullscreen .welcome-bg-settings {
   display: none;
-}
-
-body.fs-transition .titlebar {
-  transform: none;
-  opacity: 1;
 }
 
 /* Trim expensive glass effects at lower welcome quality levels. */

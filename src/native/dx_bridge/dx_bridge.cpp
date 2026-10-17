@@ -1,0 +1,906 @@
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <d3d11_1.h>
+#include <dxgi1_2.h>
+#include <GL/gl.h>
+#include <node_api.h>
+
+#include <mpv/client.h>
+#include <mpv/render.h>
+#include <mpv/render_gl.h>
+
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <vector>
+#include <iostream>
+#include <string>
+
+// ── Modern OpenGL Definitions ────────────────────────────────
+#define GL_FRAMEBUFFER                    0x8D40
+#define GL_COLOR_ATTACHMENT0              0x8CE0
+#define GL_FRAMEBUFFER_COMPLETE           0x8CD5
+#define GL_TEXTURE_2D                     0x0DE1
+#define GL_RGBA8                          0x8058
+#define GL_RGBA                           0x1908
+#define GL_UNSIGNED_BYTE                  0x1401
+#define GL_TEXTURE_MIN_FILTER             0x2801
+#define GL_TEXTURE_MAG_FILTER             0x2800
+#define GL_TEXTURE_WRAP_S                 0x2802
+#define GL_TEXTURE_WRAP_T                 0x2803
+#define GL_CLAMP_TO_EDGE                  0x812F
+#define GL_LINEAR                         0x2601
+
+#define WGL_CONTEXT_MAJOR_VERSION_ARB     0x2091
+#define WGL_CONTEXT_MINOR_VERSION_ARB     0x2092
+#define WGL_CONTEXT_PROFILE_MASK_ARB      0x9126
+#define WGL_CONTEXT_CORE_PROFILE_BIT_ARB  0x00000001
+#define WGL_ACCESS_READ_ONLY_NV           0x00000000
+#define WGL_ACCESS_READ_WRITE_NV          0x00000001
+#define WGL_ACCESS_WRITE_DISCARD_NV       0x00000002
+
+typedef HGLRC(WINAPI* PFNWGLCREATECONTEXTATTRIBSARBPROC)(HDC hDC, HGLRC hShareContext, const int* attribList);
+typedef HANDLE(WINAPI* PFNWGLDXOPENDEVICENVPROC)(void* dxDevice);
+typedef BOOL(WINAPI* PFNWGLDXCLOSEDEVICENVPROC)(HANDLE hDevice);
+typedef HANDLE(WINAPI* PFNWGLDXREGISTEROBJECTNVPROC)(HANDLE hDevice, void* dxObject, GLuint name, GLenum type, GLenum access);
+typedef BOOL(WINAPI* PFNWGLDXUNREGISTEROBJECTNVPROC)(HANDLE hDevice, HANDLE hObject);
+typedef BOOL(WINAPI* PFNWGLDXLOCKOBJECTSNVPROC)(HANDLE hDevice, GLint count, HANDLE* hObjects);
+typedef BOOL(WINAPI* PFNWGLDXUNLOCKOBJECTSNVPROC)(HANDLE hDevice, GLint count, HANDLE* hObjects);
+
+typedef void(APIENTRY* PFNGLGENFRAMEBUFFERSPROC)(GLsizei n, GLuint* framebuffers);
+typedef void(APIENTRY* PFNGLBINDFRAMEBUFFERPROC)(GLenum target, GLuint framebuffer);
+typedef void(APIENTRY* PFNGLFRAMEBUFFERTEXTURE2DPROC)(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level);
+typedef GLenum(APIENTRY* PFNGLCHECKFRAMEBUFFERSTATUSPROC)(GLenum target);
+typedef void(APIENTRY* PFNGLDELETEFRAMEBUFFERSPROC)(GLsizei n, const GLuint* framebuffers);
+
+static PFNWGLCREATECONTEXTATTRIBSARBPROC wglCreateContextAttribsARB = nullptr;
+static PFNWGLDXOPENDEVICENVPROC wglDXOpenDeviceNV = nullptr;
+static PFNWGLDXCLOSEDEVICENVPROC wglDXCloseDeviceNV = nullptr;
+static PFNWGLDXREGISTEROBJECTNVPROC wglDXRegisterObjectNV = nullptr;
+static PFNWGLDXUNREGISTEROBJECTNVPROC wglDXUnregisterObjectNV = nullptr;
+static PFNWGLDXLOCKOBJECTSNVPROC wglDXLockObjectsNV = nullptr;
+static PFNWGLDXUNLOCKOBJECTSNVPROC wglDXUnlockObjectsNV = nullptr;
+
+static PFNGLGENFRAMEBUFFERSPROC glGenFramebuffers = nullptr;
+static PFNGLBINDFRAMEBUFFERPROC glBindFramebuffer = nullptr;
+static PFNGLFRAMEBUFFERTEXTURE2DPROC glFramebufferTexture2D = nullptr;
+static PFNGLCHECKFRAMEBUFFERSTATUSPROC glCheckFramebufferStatus = nullptr;
+static PFNGLDELETEFRAMEBUFFERSPROC glDeleteFramebuffers = nullptr;
+
+// ── libmpv Dynamic Render Functions ─────────────────────────
+typedef int (*pfn_mpv_render_context_create)(mpv_render_context **res, mpv_handle *mpv, mpv_render_param *params);
+typedef void (*pfn_mpv_render_context_set_update_callback)(mpv_render_context *ctx, mpv_render_update_fn callback, void *callback_ctx);
+typedef uint64_t (*pfn_mpv_render_context_update)(mpv_render_context *ctx);
+typedef int (*pfn_mpv_render_context_render)(mpv_render_context *ctx, mpv_render_param *params);
+typedef void (*pfn_mpv_render_context_free)(mpv_render_context *ctx);
+
+static HMODULE g_hLibMpv = nullptr;
+static pfn_mpv_render_context_create fn_mpv_render_context_create = nullptr;
+static pfn_mpv_render_context_set_update_callback fn_mpv_render_context_set_update_callback = nullptr;
+static pfn_mpv_render_context_update fn_mpv_render_context_update = nullptr;
+static pfn_mpv_render_context_render fn_mpv_render_context_render = nullptr;
+static pfn_mpv_render_context_free fn_mpv_render_context_free = nullptr;
+
+static bool load_libmpv_symbols() {
+    if (!g_hLibMpv) {
+        g_hLibMpv = GetModuleHandleA("libmpv-2.dll");
+        if (!g_hLibMpv) {
+            g_hLibMpv = LoadLibraryA("libmpv-2.dll");
+        }
+        if (!g_hLibMpv) {
+            g_hLibMpv = LoadLibraryA("mpv/libmpv-2.dll");
+        }
+    }
+    if (!g_hLibMpv) return false;
+
+    fn_mpv_render_context_create = (pfn_mpv_render_context_create)GetProcAddress(g_hLibMpv, "mpv_render_context_create");
+    fn_mpv_render_context_set_update_callback = (pfn_mpv_render_context_set_update_callback)GetProcAddress(g_hLibMpv, "mpv_render_context_set_update_callback");
+    fn_mpv_render_context_update = (pfn_mpv_render_context_update)GetProcAddress(g_hLibMpv, "mpv_render_context_update");
+    fn_mpv_render_context_render = (pfn_mpv_render_context_render)GetProcAddress(g_hLibMpv, "mpv_render_context_render");
+    fn_mpv_render_context_free = (pfn_mpv_render_context_free)GetProcAddress(g_hLibMpv, "mpv_render_context_free");
+
+    return fn_mpv_render_context_create && fn_mpv_render_context_update && fn_mpv_render_context_render && fn_mpv_render_context_free;
+}
+
+static void* get_gl_proc_address(void* ctx, const char* name) {
+    void* p = (void*)wglGetProcAddress(name);
+    if (!p || p == (void*)0x1 || p == (void*)0x2 || p == (void*)0x3 || p == (void*)-1) {
+        static HMODULE hOpenGL = LoadLibraryA("opengl32.dll");
+        p = (void*)GetProcAddress(hOpenGL, name);
+    }
+    return p;
+}
+
+// ── Multi-Buffered DirectX-OpenGL Texture Bridge ─────────────
+constexpr int NUM_BUFFERS = 3;
+
+struct BufferEntry {
+    ID3D11Texture2D* d3d_render_texture = nullptr;
+    ID3D11Texture2D* d3d_shared_texture = nullptr;
+    IDXGIResource1* dxgi_resource1 = nullptr;
+    HANDLE nt_handle = nullptr;
+    GLuint gl_texture = 0;
+    GLuint gl_fbo = 0;
+    HANDLE gl_registered_obj = nullptr;
+    std::atomic<bool> in_use{false};
+};
+
+struct FramePayload {
+    int buffer_index;
+    int width;
+    int height;
+};
+
+class DxBridge {
+public:
+    HWND dummy_hwnd = nullptr;
+    HDC dummy_hdc = nullptr;
+    HGLRC dummy_hglrc = nullptr;
+
+    ID3D11Device* d3d_device = nullptr;
+    ID3D11DeviceContext* d3d_context = nullptr;
+    HANDLE gl_hDevice = nullptr;
+
+    mpv_handle* mpv_ctx = nullptr;
+    mpv_render_context* mpv_gl_ctx = nullptr;
+
+    BufferEntry buffers[NUM_BUFFERS];
+    int current_width = 1280;
+    int current_height = 720;
+    int flip_y = 1;
+
+    std::atomic<int> pending_resize_width{0};
+    std::atomic<int> pending_resize_height{0};
+
+    std::thread render_thread;
+    std::atomic<bool> running{false};
+    HANDLE hWakeEvent = nullptr;
+    std::mutex resize_mutex;
+    std::condition_variable cv_buffer_freed;
+    std::mutex buffer_mutex;
+
+    napi_threadsafe_function tsfn = nullptr;
+
+    DxBridge() {
+        hWakeEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    }
+
+    ~DxBridge() {
+        destroy();
+        if (hWakeEvent) {
+            CloseHandle(hWakeEvent);
+            hWakeEvent = nullptr;
+        }
+    }
+
+    bool initGL() {
+        WNDCLASSA wc = {};
+        wc.lpfnWndProc = DefWindowProcA;
+        wc.hInstance = GetModuleHandle(nullptr);
+        wc.lpszClassName = "DxBridgeGLDummy";
+        RegisterClassA(&wc);
+
+        dummy_hwnd = CreateWindowExA(
+            0, "DxBridgeGLDummy", "Dummy",
+            WS_POPUP, 0, 0, 1, 1,
+            nullptr, nullptr, wc.hInstance, nullptr
+        );
+        if (!dummy_hwnd) return false;
+
+        dummy_hdc = GetDC(dummy_hwnd);
+
+        PIXELFORMATDESCRIPTOR pfd = {};
+        pfd.nSize = sizeof(pfd);
+        pfd.nVersion = 1;
+        pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+        pfd.iPixelType = PFD_TYPE_RGBA;
+        pfd.cColorBits = 32;
+        pfd.cDepthBits = 24;
+        pfd.cStencilBits = 8;
+        pfd.iLayerType = PFD_MAIN_PLANE;
+
+        int format = ChoosePixelFormat(dummy_hdc, &pfd);
+        if (!format) return false;
+        SetPixelFormat(dummy_hdc, format, &pfd);
+
+        HGLRC tempContext = wglCreateContext(dummy_hdc);
+        if (!tempContext) return false;
+        wglMakeCurrent(dummy_hdc, tempContext);
+
+        wglCreateContextAttribsARB = (PFNWGLCREATECONTEXTATTRIBSARBPROC)wglGetProcAddress("wglCreateContextAttribsARB");
+        if (wglCreateContextAttribsARB) {
+            int attribs[] = {
+                WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
+                WGL_CONTEXT_MINOR_VERSION_ARB, 3,
+                WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+                0
+            };
+            HGLRC coreContext = wglCreateContextAttribsARB(dummy_hdc, nullptr, attribs);
+            if (coreContext) {
+                wglMakeCurrent(nullptr, nullptr);
+                wglDeleteContext(tempContext);
+                tempContext = coreContext;
+                wglMakeCurrent(dummy_hdc, tempContext);
+            }
+        }
+        dummy_hglrc = tempContext;
+
+        wglMakeCurrent(dummy_hdc, dummy_hglrc);
+        const char* glVendor = (const char*)glGetString(GL_VENDOR);
+        const char* glRenderer = (const char*)glGetString(GL_RENDERER);
+        printf("[dx_bridge] OpenGL Vendor: %s, Renderer: %s\n", glVendor ? glVendor : "null", glRenderer ? glRenderer : "null");
+
+        wglDXOpenDeviceNV = (PFNWGLDXOPENDEVICENVPROC)wglGetProcAddress("wglDXOpenDeviceNV");
+        wglDXCloseDeviceNV = (PFNWGLDXCLOSEDEVICENVPROC)wglGetProcAddress("wglDXCloseDeviceNV");
+        wglDXRegisterObjectNV = (PFNWGLDXREGISTEROBJECTNVPROC)wglGetProcAddress("wglDXRegisterObjectNV");
+        wglDXUnregisterObjectNV = (PFNWGLDXUNREGISTEROBJECTNVPROC)wglGetProcAddress("wglDXUnregisterObjectNV");
+        wglDXLockObjectsNV = (PFNWGLDXLOCKOBJECTSNVPROC)wglGetProcAddress("wglDXLockObjectsNV");
+        wglDXUnlockObjectsNV = (PFNWGLDXUNLOCKOBJECTSNVPROC)wglGetProcAddress("wglDXUnlockObjectsNV");
+
+        glGenFramebuffers = (PFNGLGENFRAMEBUFFERSPROC)wglGetProcAddress("glGenFramebuffers");
+        glBindFramebuffer = (PFNGLBINDFRAMEBUFFERPROC)wglGetProcAddress("glBindFramebuffer");
+        glFramebufferTexture2D = (PFNGLFRAMEBUFFERTEXTURE2DPROC)wglGetProcAddress("glFramebufferTexture2D");
+        glCheckFramebufferStatus = (PFNGLCHECKFRAMEBUFFERSTATUSPROC)wglGetProcAddress("glCheckFramebufferStatus");
+        glDeleteFramebuffers = (PFNGLDELETEFRAMEBUFFERSPROC)wglGetProcAddress("glDeleteFramebuffers");
+
+        wglMakeCurrent(nullptr, nullptr);
+        return (wglDXOpenDeviceNV && wglDXRegisterObjectNV && wglDXLockObjectsNV && wglDXUnlockObjectsNV);
+    }
+
+    bool initD3D11() {
+        D3D_FEATURE_LEVEL featureLevels[] = {
+            D3D_FEATURE_LEVEL_11_1,
+            D3D_FEATURE_LEVEL_11_0,
+            D3D_FEATURE_LEVEL_10_1,
+            D3D_FEATURE_LEVEL_10_0
+        };
+        D3D_FEATURE_LEVEL createdFeatureLevel;
+        UINT createDeviceFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+
+        wglMakeCurrent(dummy_hdc, dummy_hglrc);
+        const char* glVendor = (const char*)glGetString(GL_VENDOR);
+
+        IDXGIFactory1* pFactory = nullptr;
+        CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&pFactory);
+        IDXGIAdapter1* pSelectedAdapter = nullptr;
+        if (pFactory) {
+            IDXGIAdapter1* pAdapter = nullptr;
+            for (UINT i = 0; pFactory->EnumAdapters1(i, &pAdapter) != DXGI_ERROR_NOT_FOUND; ++i) {
+                DXGI_ADAPTER_DESC1 desc;
+                pAdapter->GetDesc1(&desc);
+                char descStr[128] = {};
+                WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, descStr, sizeof(descStr), nullptr, nullptr);
+                printf("[dx_bridge] DXGI Adapter %u: %s (VendorID 0x%04X, LUID %08lX-%08lX)\n",
+                    i, descStr, desc.VendorId, desc.AdapterLuid.HighPart, desc.AdapterLuid.LowPart);
+
+                if (!pSelectedAdapter) {
+                    if (glVendor && strstr(glVendor, "Intel") && desc.VendorId == 0x8086) {
+                        pSelectedAdapter = pAdapter;
+                        pAdapter->AddRef();
+                        printf("[dx_bridge] Matched OpenGL Intel GPU with DXGI Adapter %u!\n", i);
+                    } else if (glVendor && strstr(glVendor, "NVIDIA") && desc.VendorId == 0x10DE) {
+                        pSelectedAdapter = pAdapter;
+                        pAdapter->AddRef();
+                        printf("[dx_bridge] Matched OpenGL NVIDIA GPU with DXGI Adapter %u!\n", i);
+                    }
+                }
+                pAdapter->Release();
+            }
+            pFactory->Release();
+        }
+
+        D3D_DRIVER_TYPE driverType = pSelectedAdapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE;
+        HRESULT hr = D3D11CreateDevice(
+            pSelectedAdapter,
+            driverType,
+            nullptr,
+            createDeviceFlags,
+            featureLevels,
+            ARRAYSIZE(featureLevels),
+            D3D11_SDK_VERSION,
+            &d3d_device,
+            &createdFeatureLevel,
+            &d3d_context
+        );
+        if (FAILED(hr)) {
+            hr = D3D11CreateDevice(
+                pSelectedAdapter,
+                driverType,
+                nullptr,
+                createDeviceFlags,
+                featureLevels + 1,
+                ARRAYSIZE(featureLevels) - 1,
+                D3D11_SDK_VERSION,
+                &d3d_device,
+                &createdFeatureLevel,
+                &d3d_context
+            );
+        }
+        if (pSelectedAdapter) {
+            pSelectedAdapter->Release();
+            pSelectedAdapter = nullptr;
+        }
+        if (FAILED(hr)) return false;
+
+        gl_hDevice = wglDXOpenDeviceNV(d3d_device);
+        wglMakeCurrent(nullptr, nullptr);
+
+        return (gl_hDevice != nullptr);
+    }
+
+    bool allocateBuffers(int width, int height) {
+        current_width = (width > 0) ? width : 1280;
+        current_height = (height > 0) ? height : 720;
+
+        for (int i = 0; i < NUM_BUFFERS; i++) {
+            cleanupBuffer(buffers[i]);
+
+            // 1. Pure D3D11 Render Target for OpenGL / WGL Interop
+            D3D11_TEXTURE2D_DESC renderDesc = {};
+            renderDesc.Width = current_width;
+            renderDesc.Height = current_height;
+            renderDesc.MipLevels = 1;
+            renderDesc.ArraySize = 1;
+            renderDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            renderDesc.SampleDesc.Count = 1;
+            renderDesc.SampleDesc.Quality = 0;
+            renderDesc.Usage = D3D11_USAGE_DEFAULT;
+            renderDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+            renderDesc.CPUAccessFlags = 0;
+            renderDesc.MiscFlags = 0;
+
+            HRESULT hr = d3d_device->CreateTexture2D(&renderDesc, nullptr, &buffers[i].d3d_render_texture);
+            if (FAILED(hr)) {
+                printf("[dx_bridge] CreateTexture2D render failed: 0x%08X\n", hr);
+                return false;
+            }
+
+            // 2. Shared NT Texture for Electron sharedTexture
+            D3D11_TEXTURE2D_DESC sharedDesc = renderDesc;
+            sharedDesc.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
+
+            hr = d3d_device->CreateTexture2D(&sharedDesc, nullptr, &buffers[i].d3d_shared_texture);
+            if (FAILED(hr)) {
+                printf("[dx_bridge] CreateTexture2D shared failed: 0x%08X\n", hr);
+                return false;
+            }
+
+            hr = buffers[i].d3d_shared_texture->QueryInterface(__uuidof(IDXGIResource1), (void**)&buffers[i].dxgi_resource1);
+            if (FAILED(hr)) {
+                printf("[dx_bridge] QueryInterface IDXGIResource1 failed: 0x%08X\n", hr);
+                return false;
+            }
+
+            hr = buffers[i].dxgi_resource1->CreateSharedHandle(
+                nullptr,
+                DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
+                nullptr,
+                &buffers[i].nt_handle
+            );
+            if (FAILED(hr)) {
+                printf("[dx_bridge] CreateSharedHandle failed: 0x%08X\n", hr);
+                return false;
+            }
+
+            // 3. Register render texture with WGL
+            glGenTextures(1, &buffers[i].gl_texture);
+            glBindTexture(GL_TEXTURE_2D, buffers[i].gl_texture);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glBindTexture(GL_TEXTURE_2D, 0);
+
+            buffers[i].gl_registered_obj = wglDXRegisterObjectNV(
+                gl_hDevice,
+                buffers[i].d3d_render_texture,
+                buffers[i].gl_texture,
+                GL_TEXTURE_2D,
+                WGL_ACCESS_READ_WRITE_NV
+            );
+            if (!buffers[i].gl_registered_obj) {
+                printf("[dx_bridge] wglDXRegisterObjectNV failed: GetLastError = %lu\n", GetLastError());
+                return false;
+            }
+
+            glGenFramebuffers(1, &buffers[i].gl_fbo);
+            glBindFramebuffer(GL_FRAMEBUFFER, buffers[i].gl_fbo);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, buffers[i].gl_texture, 0);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+            buffers[i].in_use.store(false);
+        }
+
+        return true;
+    }
+
+    void cleanupBuffer(BufferEntry& b) {
+        if (b.gl_registered_obj && gl_hDevice && wglDXUnregisterObjectNV) {
+            wglDXUnregisterObjectNV(gl_hDevice, b.gl_registered_obj);
+            b.gl_registered_obj = nullptr;
+        }
+        if (b.gl_fbo && glDeleteFramebuffers) {
+            glDeleteFramebuffers(1, &b.gl_fbo);
+            b.gl_fbo = 0;
+        }
+        if (b.gl_texture) {
+            glDeleteTextures(1, &b.gl_texture);
+            b.gl_texture = 0;
+        }
+        if (b.nt_handle) {
+            CloseHandle(b.nt_handle);
+            b.nt_handle = nullptr;
+        }
+        if (b.dxgi_resource1) {
+            b.dxgi_resource1->Release();
+            b.dxgi_resource1 = nullptr;
+        }
+        if (b.d3d_shared_texture) {
+            b.d3d_shared_texture->Release();
+            b.d3d_shared_texture = nullptr;
+        }
+        if (b.d3d_render_texture) {
+            b.d3d_render_texture->Release();
+            b.d3d_render_texture = nullptr;
+        }
+        b.in_use.store(false);
+    }
+
+    bool initMpvRender(mpv_handle* handle) {
+        if (!load_libmpv_symbols()) return false;
+        mpv_ctx = handle;
+
+        wglMakeCurrent(dummy_hdc, dummy_hglrc);
+
+        mpv_opengl_init_params gl_init_params = {
+            get_gl_proc_address,
+            nullptr
+        };
+        int advanced_control = 1;
+        mpv_render_param render_params[] = {
+            { MPV_RENDER_PARAM_API_TYPE, (void*)MPV_RENDER_API_TYPE_OPENGL },
+            { MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl_init_params },
+            { MPV_RENDER_PARAM_ADVANCED_CONTROL, &advanced_control },
+            { (mpv_render_param_type)0 }
+        };
+
+        int err = fn_mpv_render_context_create(&mpv_gl_ctx, mpv_ctx, render_params);
+        if (err < 0) {
+            mpv_render_param fallback_params[] = {
+                { MPV_RENDER_PARAM_API_TYPE, (void*)MPV_RENDER_API_TYPE_OPENGL },
+                { MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl_init_params },
+                { (mpv_render_param_type)0 }
+            };
+            err = fn_mpv_render_context_create(&mpv_gl_ctx, mpv_ctx, fallback_params);
+        }
+
+        if (err < 0 || !mpv_gl_ctx) {
+            wglMakeCurrent(nullptr, nullptr);
+            return false;
+        }
+
+        fn_mpv_render_context_set_update_callback(mpv_gl_ctx, onMpvUpdate, this);
+        wglMakeCurrent(nullptr, nullptr);
+
+        return true;
+    }
+
+    static void onMpvUpdate(void* ctx) {
+        DxBridge* bridge = static_cast<DxBridge*>(ctx);
+        if (bridge && bridge->hWakeEvent) {
+            SetEvent(bridge->hWakeEvent);
+        }
+    }
+
+    void startRenderLoop() {
+        running.store(true);
+        render_thread = std::thread(&DxBridge::renderLoop, this);
+    }
+
+    void renderLoop() {
+        wglMakeCurrent(dummy_hdc, dummy_hglrc);
+
+        while (running.load()) {
+            DWORD waitRes = WaitForSingleObject(hWakeEvent, 16);
+            if (!running.load()) break;
+
+            int req_w = pending_resize_width.exchange(0);
+            int req_h = pending_resize_height.exchange(0);
+            if (req_w > 0 && req_h > 0 && (req_w != current_width || req_h != current_height)) {
+                allocateBuffers(req_w, req_h);
+            }
+
+            if (!mpv_gl_ctx) continue;
+
+            uint64_t update_flags = fn_mpv_render_context_update(mpv_gl_ctx);
+            if (update_flags & MPV_RENDER_UPDATE_FRAME) {
+                int buf_idx = -1;
+                for (int i = 0; i < NUM_BUFFERS; i++) {
+                    if (!buffers[i].in_use.load()) {
+                        buf_idx = i;
+                        break;
+                    }
+                }
+
+                if (buf_idx < 0) {
+                    // Wait briefly if all buffers are in flight
+                    std::unique_lock<std::mutex> bufLock(buffer_mutex);
+                    cv_buffer_freed.wait_for(bufLock, std::chrono::milliseconds(12), [this, &buf_idx]() {
+                        for (int i = 0; i < NUM_BUFFERS; i++) {
+                            if (!buffers[i].in_use.load()) {
+                                buf_idx = i;
+                                return true;
+                            }
+                        }
+                        return false;
+                    });
+                }
+
+                if (buf_idx >= 0 && buffers[buf_idx].gl_registered_obj) {
+                    auto& buf = buffers[buf_idx];
+
+                    BOOL locked = wglDXLockObjectsNV(gl_hDevice, 1, &buf.gl_registered_obj);
+                    if (locked) {
+                        mpv_opengl_fbo fbo = {
+                            (int)buf.gl_fbo,
+                            current_width,
+                            current_height,
+                            GL_RGBA8
+                        };
+                        int flip = flip_y;
+                        mpv_render_param params[] = {
+                            { MPV_RENDER_PARAM_OPENGL_FBO, &fbo },
+                            { MPV_RENDER_PARAM_FLIP_Y, &flip },
+                            { (mpv_render_param_type)0 }
+                        };
+
+                        fn_mpv_render_context_render(mpv_gl_ctx, params);
+                        wglDXUnlockObjectsNV(gl_hDevice, 1, &buf.gl_registered_obj);
+
+                        if (d3d_context && buf.d3d_shared_texture && buf.d3d_render_texture) {
+                            d3d_context->CopyResource(buf.d3d_shared_texture, buf.d3d_render_texture);
+                            d3d_context->Flush();
+                        }
+
+                        buf.in_use.store(true);
+
+                        if (tsfn) {
+                            FramePayload* p = new FramePayload{ buf_idx, current_width, current_height };
+                            napi_status s = napi_call_threadsafe_function(tsfn, p, napi_tsfn_nonblocking);
+                            if (s != napi_ok) {
+                                buf.in_use.store(false);
+                                delete p;
+                            }
+                        } else {
+                            buf.in_use.store(false);
+                        }
+                    }
+                }
+            }
+        }
+
+        wglMakeCurrent(nullptr, nullptr);
+    }
+
+    void releaseBuffer(int index) {
+        if (index >= 0 && index < NUM_BUFFERS) {
+            buffers[index].in_use.store(false);
+            {
+                std::lock_guard<std::mutex> lock(buffer_mutex);
+                cv_buffer_freed.notify_one();
+            }
+            if (hWakeEvent) {
+                SetEvent(hWakeEvent);
+            }
+        }
+    }
+
+    bool resize(int width, int height) {
+        if (width <= 0 || height <= 0) return false;
+        if (width == current_width && height == current_height) return true;
+
+        pending_resize_width.store(width);
+        pending_resize_height.store(height);
+        if (hWakeEvent) {
+            SetEvent(hWakeEvent);
+        }
+        return true;
+    }
+
+    void destroy() {
+        if (mpv_gl_ctx && fn_mpv_render_context_set_update_callback) {
+            fn_mpv_render_context_set_update_callback(mpv_gl_ctx, nullptr, nullptr);
+        }
+        running.store(false);
+        if (hWakeEvent) {
+            SetEvent(hWakeEvent);
+        }
+        {
+            std::lock_guard<std::mutex> lock(buffer_mutex);
+            cv_buffer_freed.notify_all();
+        }
+        if (render_thread.joinable()) {
+            render_thread.join();
+        }
+
+        wglMakeCurrent(dummy_hdc, dummy_hglrc);
+
+        if (mpv_gl_ctx && fn_mpv_render_context_free) {
+            fn_mpv_render_context_free(mpv_gl_ctx);
+            mpv_gl_ctx = nullptr;
+        }
+
+        for (int i = 0; i < NUM_BUFFERS; i++) {
+            cleanupBuffer(buffers[i]);
+        }
+
+        if (gl_hDevice && wglDXCloseDeviceNV) {
+            wglDXCloseDeviceNV(gl_hDevice);
+            gl_hDevice = nullptr;
+        }
+
+        wglMakeCurrent(nullptr, nullptr);
+
+        if (dummy_hglrc) {
+            wglDeleteContext(dummy_hglrc);
+            dummy_hglrc = nullptr;
+        }
+        if (dummy_hdc && dummy_hwnd) {
+            ReleaseDC(dummy_hwnd, dummy_hdc);
+            dummy_hdc = nullptr;
+        }
+        if (dummy_hwnd) {
+            DestroyWindow(dummy_hwnd);
+            dummy_hwnd = nullptr;
+        }
+
+        if (d3d_context) {
+            d3d_context->Release();
+            d3d_context = nullptr;
+        }
+        if (d3d_device) {
+            d3d_device->Release();
+            d3d_device = nullptr;
+        }
+
+        if (tsfn) {
+            napi_release_threadsafe_function(tsfn, napi_tsfn_abort);
+            tsfn = nullptr;
+        }
+    }
+};
+
+static DxBridge* g_bridge = nullptr;
+
+static void call_js_frame_cb(napi_env env, napi_value js_cb, void* context, void* data) {
+    if (!env || !js_cb || !data) return;
+    FramePayload* p = static_cast<FramePayload*>(data);
+
+    napi_value args[3];
+    napi_create_int32(env, p->buffer_index, &args[0]);
+    napi_create_int32(env, p->width, &args[1]);
+    napi_create_int32(env, p->height, &args[2]);
+
+    napi_value undefined, result;
+    napi_get_undefined(env, &undefined);
+    napi_call_function(env, undefined, js_cb, 3, args, &result);
+
+    delete p;
+}
+
+// ── Node-API Exported Functions ──────────────────────────────
+
+static napi_value InitBridge(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+
+    if (argc < 1) {
+        napi_throw_error(env, nullptr, "init requires an options object");
+        return nullptr;
+    }
+
+    napi_value opt = argv[0];
+    napi_value prop;
+
+    // mpvHandle
+    uint64_t mpvPtr = 0;
+    bool lossless = true;
+    if (napi_get_named_property(env, opt, "mpvHandle", &prop) == napi_ok) {
+        napi_valuetype vt;
+        napi_typeof(env, prop, &vt);
+        if (vt == napi_bigint) {
+            napi_get_value_bigint_uint64(env, prop, &mpvPtr, &lossless);
+        } else if (vt == napi_number) {
+            double d = 0;
+            napi_get_value_double(env, prop, &d);
+            mpvPtr = (uint64_t)d;
+        }
+    }
+    if (!mpvPtr) {
+        napi_throw_error(env, nullptr, "Valid mpvHandle address required");
+        return nullptr;
+    }
+
+    // width & height
+    int width = 1280;
+    int height = 720;
+    if (napi_get_named_property(env, opt, "width", &prop) == napi_ok) {
+        napi_get_value_int32(env, prop, &width);
+    }
+    if (napi_get_named_property(env, opt, "height", &prop) == napi_ok) {
+        napi_get_value_int32(env, prop, &height);
+    }
+
+    // flipY
+    int flip_y = 0;
+    if (napi_get_named_property(env, opt, "flipY", &prop) == napi_ok) {
+        napi_get_value_int32(env, prop, &flip_y);
+    }
+
+    // onFrame callback
+    napi_value onFrameCb = nullptr;
+    if (napi_get_named_property(env, opt, "onFrame", &onFrameCb) != napi_ok) {
+        napi_throw_error(env, nullptr, "onFrame callback required");
+        return nullptr;
+    }
+
+    if (g_bridge) {
+        delete g_bridge;
+        g_bridge = nullptr;
+    }
+
+    g_bridge = new DxBridge();
+    g_bridge->flip_y = flip_y;
+
+    napi_value resName;
+    napi_create_string_utf8(env, "DxBridgeFrameCallback", NAPI_AUTO_LENGTH, &resName);
+    napi_status s = napi_create_threadsafe_function(
+        env,
+        onFrameCb,
+        nullptr,
+        resName,
+        0,
+        1,
+        nullptr,
+        nullptr,
+        nullptr,
+        call_js_frame_cb,
+        &g_bridge->tsfn
+    );
+    if (s != napi_ok) {
+        delete g_bridge;
+        g_bridge = nullptr;
+        napi_throw_error(env, nullptr, "Failed to create threadsafe frame callback");
+        return nullptr;
+    }
+
+    if (!g_bridge->initGL()) {
+        delete g_bridge;
+        g_bridge = nullptr;
+        napi_throw_error(env, nullptr, "Failed to initialize WGL/OpenGL context or WGL_NV_DX_interop not supported");
+        return nullptr;
+    }
+
+    if (!g_bridge->initD3D11()) {
+        delete g_bridge;
+        g_bridge = nullptr;
+        napi_throw_error(env, nullptr, "Failed to initialize D3D11 device or open device in WGL");
+        return nullptr;
+    }
+
+    wglMakeCurrent(g_bridge->dummy_hdc, g_bridge->dummy_hglrc);
+    bool allocOk = g_bridge->allocateBuffers(width, height);
+    wglMakeCurrent(nullptr, nullptr);
+
+    if (!allocOk) {
+        delete g_bridge;
+        g_bridge = nullptr;
+        napi_throw_error(env, nullptr, "Failed to allocate D3D11 shared NT textures and WGL FBOs");
+        return nullptr;
+    }
+
+    if (!g_bridge->initMpvRender((mpv_handle*)mpvPtr)) {
+        delete g_bridge;
+        g_bridge = nullptr;
+        napi_throw_error(env, nullptr, "Failed to initialize mpv_render_context with OpenGL backend");
+        return nullptr;
+    }
+
+    g_bridge->startRenderLoop();
+
+    napi_value retVal;
+    napi_get_boolean(env, true, &retVal);
+    return retVal;
+}
+
+static napi_value GetNtHandle(napi_env env, napi_callback_info info) {
+    if (!g_bridge) {
+        napi_throw_error(env, nullptr, "Bridge not initialized");
+        return nullptr;
+    }
+
+    size_t argc = 1;
+    napi_value argv[1];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+
+    int index = 0;
+    if (argc >= 1) {
+        napi_get_value_int32(env, argv[0], &index);
+    }
+    if (index < 0 || index >= NUM_BUFFERS) {
+        napi_throw_error(env, nullptr, "Buffer index out of range");
+        return nullptr;
+    }
+
+    HANDLE h = g_bridge->buffers[index].nt_handle;
+    void* data = nullptr;
+    napi_value buffer;
+    napi_create_buffer(env, sizeof(HANDLE), &data, &buffer);
+    memcpy(data, &h, sizeof(HANDLE));
+
+    return buffer;
+}
+
+static napi_value ReleaseBuffer(napi_env env, napi_callback_info info) {
+    if (!g_bridge) return nullptr;
+
+    size_t argc = 1;
+    napi_value argv[1];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+
+    if (argc >= 1) {
+        int index = 0;
+        napi_get_value_int32(env, argv[0], &index);
+        g_bridge->releaseBuffer(index);
+    }
+
+    napi_value ret;
+    napi_get_boolean(env, true, &ret);
+    return ret;
+}
+
+static napi_value Resize(napi_env env, napi_callback_info info) {
+    if (!g_bridge) return nullptr;
+
+    size_t argc = 2;
+    napi_value argv[2];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+
+    if (argc >= 2) {
+        int w = 0, h = 0;
+        napi_get_value_int32(env, argv[0], &w);
+        napi_get_value_int32(env, argv[1], &h);
+        bool ok = g_bridge->resize(w, h);
+        napi_value ret;
+        napi_get_boolean(env, ok, &ret);
+        return ret;
+    }
+
+    napi_value ret;
+    napi_get_boolean(env, false, &ret);
+    return ret;
+}
+
+static napi_value Destroy(napi_env env, napi_callback_info info) {
+    if (g_bridge) {
+        delete g_bridge;
+        g_bridge = nullptr;
+    }
+    napi_value ret;
+    napi_get_boolean(env, true, &ret);
+    return ret;
+}
+
+NAPI_MODULE_INIT() {
+    napi_property_descriptor desc[] = {
+        { "init", nullptr, InitBridge, nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "getNtHandle", nullptr, GetNtHandle, nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "releaseBuffer", nullptr, ReleaseBuffer, nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "resize", nullptr, Resize, nullptr, nullptr, nullptr, napi_default, nullptr },
+        { "destroy", nullptr, Destroy, nullptr, nullptr, nullptr, napi_default, nullptr }
+    };
+    napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
+    return exports;
+}

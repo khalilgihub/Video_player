@@ -16,7 +16,8 @@ const crypto = require('crypto');
 const EventEmitter = require('events');
 const { resolveMpvBinary, resolveYtDlpBinary, resolveLibMpv } = require('./binary-resolver');
 const { resolveScreenshotSubfolder } = require('./media-folder-resolver');
-const { LibmpvContext } = require('./libmpv-koffi');
+const { LibmpvContext, koffi } = require('./libmpv-koffi');
+const { dxBridgeManager } = require('./dx-bridge-wrapper');
 
 // Fullscreen/input trace logging.
 const FS_DEBUG = false;
@@ -45,6 +46,7 @@ function makePipeName(prefix = 'hybrid-mpv-ipc') {
 class MpvProcess extends EventEmitter {
   constructor(options = {}) {
     super();
+    this.setMaxListeners(50);
     this.options = options;
     /** @type {import('child_process').ChildProcess|null} */
     this.process = null;
@@ -195,7 +197,12 @@ class MpvProcess extends EventEmitter {
         fsdbg('Initializing libmpv-2.dll directly in-process via C-FFI (koffi)', { libmpvPath, hwnd });
         this._libmpv = new LibmpvContext(libmpvPath);
 
-        if (opts.attachWindow !== false && hwnd) {
+        const useDxBridge = dxBridgeManager.isSupported() && opts.attachWindow !== false;
+
+        if (useDxBridge) {
+          this._libmpv.setOptionString('vo', 'libmpv');
+          this._libmpv.setOptionString('hwdec', 'd3d11va');
+        } else if (opts.attachWindow !== false && hwnd) {
           this._libmpv.setOptionString('wid', hwnd);
           this._libmpv.setOptionString('vo', 'gpu');
           this._libmpv.setOptionString('hwdec', opts.hwdec || (process.platform === 'win32' ? 'd3d11va' : 'auto-safe'));
@@ -267,12 +274,24 @@ class MpvProcess extends EventEmitter {
           throw new Error(`mpv_initialize failed with error code ${initRes}`);
         }
 
+        if (useDxBridge) {
+          const ptr = this._libmpv.getHandleAddress ? this._libmpv.getHandleAddress() : (koffi ? koffi.address(this._libmpv.handle) : 0n);
+          dxBridgeManager.init(ptr, 1280, 720);
+        }
+
         this.inProcess = true;
         this.ready = true;
         this.process = { pid: process.pid, inProcess: true, killed: false, kill: () => this.destroy() };
 
         // Relay events from in-process context
         this._libmpv.on('property-change', (name, value, id) => {
+          if (name === 'video-params' && value && typeof value === 'object') {
+            const w = value.w || value.width;
+            const h = value.h || value.height;
+            if (w && h && dxBridgeManager.isSupported()) {
+              dxBridgeManager.resize(w, h);
+            }
+          }
           this.emit('property-change', name, value, id);
         });
         this._libmpv.on('mpv-event', (ev) => {
@@ -992,6 +1011,9 @@ class MpvProcess extends EventEmitter {
 
   // ─── Lifecycle ─────────────────────────────────────────
   destroy() {
+    try {
+      dxBridgeManager.destroy();
+    } catch {}
     if (this.inProcess && this._libmpv) {
       try {
         this._libmpv.destroy();

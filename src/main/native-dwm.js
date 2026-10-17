@@ -44,6 +44,8 @@ function resolveDwmHelperBinary() {
  */
 function applyNativeDwmWindowStyles(win) {
   if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
+  // Fullscreen windows must remain pure borderless popups and must never have WS_CAPTION applied.
+  if (win.isFullScreen() || win.__hybridFullscreenState) return;
 
   const handleBuffer = win.getNativeWindowHandle();
   if (!handleBuffer || !Buffer.isBuffer(handleBuffer)) return;
@@ -98,11 +100,10 @@ function applyNativeDwmWindowStyles(win) {
       'Add-Type -TypeDefinition $signature',
       `$hwnd = [IntPtr]::new(${hwndDecimal})`,
       '$WS_CAPTION = 0x00C00000L',
-      '$WS_THICKFRAME = 0x00040000L',
       '$WS_MINIMIZEBOX = 0x00020000L',
       '$WS_MAXIMIZEBOX = 0x00010000L',
       '$curStyle = [Win32Dwm]::GetWindowLongPtr($hwnd, -16).ToInt64()',
-      '$newStyle = $curStyle -bor ($WS_CAPTION -bor $WS_THICKFRAME -bor $WS_MINIMIZEBOX -bor $WS_MAXIMIZEBOX)',
+      '$newStyle = $curStyle -bor 0x00040000L -bor ($WS_CAPTION -bor $WS_MINIMIZEBOX -bor $WS_MAXIMIZEBOX)',
       '[Win32Dwm]::SetWindowLongPtr($hwnd, -16, [IntPtr]::new($newStyle))',
       '$blackBrush = [Win32Dwm]::GetStockObject(4)',
       '[Win32Dwm]::SetClassLongPtr($hwnd, -10, $blackBrush)',

@@ -42,8 +42,10 @@ public class Program {
         long WS_MAXIMIZEBOX = 0x00010000L;
 
         long curStyle = GetWindowLongPtr(hwnd, -16).ToInt64();
-        // Preserve WS_THICKFRAME with WS_CAPTION and WS_MINIMIZEBOX to enable hardware DWM Aero-zoom animations.
-        long newStyle = curStyle | (WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
+        // Preserve WS_THICKFRAME so Windows DWM treats the window as resizable, enabling smooth
+        // Aero-zoom maximize/restore animations and true 100% monitor coverage in fullscreen.
+        // Custom non-client hit testing locks borders during maximize and fullscreen.
+        long newStyle = curStyle | WS_THICKFRAME | WS_CAPTION | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
         SetWindowLongPtr(hwnd, -16, new IntPtr(newStyle));
 
         // Set class background brush to BLACK_BRUSH

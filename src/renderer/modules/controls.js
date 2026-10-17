@@ -104,13 +104,24 @@ class HybridControls {
       return Boolean(
         target &&
         typeof target.closest === 'function' &&
-        target.closest('.controls-bar, .titlebar-actions, .modal, .modal-overlay, #welcomeScreen .welcome-content, #welcomeScreen button, #welcomeScreen a')
+        target.closest(
+          '.controls-wrapper, .controls-bar, .progress-bar-container, .titlebar-actions, .titlebar-controls, .modal, .modal-overlay, #welcomeScreen .welcome-content, #welcomeScreen button, #welcomeScreen a, .sidebar-playlist, button, input, select, textarea'
+        )
       );
     };
 
     const handleFullscreenDblClick = (e, source = 'unknown') => {
-      if (shouldIgnoreFullscreenDblClick(e.target)) return;
-      if (window.HybridApp?.settingsModule?.isDoubleClickFullscreenEnabled?.() === false) return;
+      const ignored = shouldIgnoreFullscreenDblClick(e.target);
+      const enabled = window.HybridApp?.settingsModule?.isDoubleClickFullscreenEnabled?.() !== false;
+      window.hybridAPI?.window?.logFullscreen?.('renderer:dblclick:event', {
+        source,
+        targetTag: e.target?.tagName,
+        targetClass: e.target?.className,
+        ignored,
+        enabled,
+      });
+      if (ignored) return;
+      if (!enabled) return;
       e.preventDefault();
       controlsdbg(`[FSDBG][renderer-controls] ${source} dblclick`);
       this.toggleFullscreen();
@@ -123,6 +134,7 @@ class HybridControls {
     });
 
     // Click video container to toggle play (mpv renders natively, not a <video> element)
+    const videoCanvas = document.getElementById('videoCanvas');
     const mpvContainer = document.getElementById('mpvContainer');
     const videoContainer = document.getElementById('videoContainer');
     let clickTimeout = null;
@@ -183,12 +195,31 @@ class HybridControls {
       clickTimeout = setTimeout(() => {
         this.player.togglePlay();
         clickTimeout = null;
-      }, 160);
+      }, 250);
     };
 
+    if (videoCanvas) {
+      videoCanvas.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleVideoClick(e);
+      });
+      videoCanvas.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        if (clickTimeout) {
+          clearTimeout(clickTimeout);
+          clickTimeout = null;
+        }
+        handleFullscreenDblClick(e, 'videoCanvas');
+      });
+    }
+
     if (mpvContainer) {
-      mpvContainer.addEventListener('click', handleVideoClick);
+      mpvContainer.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleVideoClick(e);
+      });
       mpvContainer.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
         if (clickTimeout) {
           clearTimeout(clickTimeout);
           clickTimeout = null;
@@ -199,15 +230,31 @@ class HybridControls {
 
     if (videoContainer) {
       videoContainer.addEventListener('click', (e) => {
-        if (e.target !== mpvContainer && !mpvContainer?.contains(e.target)) {
+        if (
+          e.target !== mpvContainer &&
+          !mpvContainer?.contains(e.target) &&
+          e.target !== videoCanvas &&
+          !videoCanvas?.contains(e.target)
+        ) {
           handleVideoClick(e);
         }
+      });
+      videoContainer.addEventListener('dblclick', (e) => {
+        if (e.target === mpvContainer || e.target === videoCanvas) {
+          return;
+        }
+        if (clickTimeout) {
+          clearTimeout(clickTimeout);
+          clickTimeout = null;
+        }
+        handleFullscreenDblClick(e, 'videoContainer');
       });
     }
 
     // Welcome overlay covers mpv surface; bind dblclick here too.
     const welcomeScreen = document.getElementById('welcomeScreen');
     welcomeScreen?.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
       if (clickTimeout) {
         clearTimeout(clickTimeout);
         clickTimeout = null;
@@ -1230,13 +1277,38 @@ class HybridControls {
   }
 
   async toggleFullscreen() {
+    if (this._isTogglingFullscreen) {
+      controlsdbg('[FSDBG][renderer-controls] toggleFullscreen skipped (already toggling)');
+      return;
+    }
+    this._isTogglingFullscreen = true;
     controlsdbg('[FSDBG][renderer-controls] toggleFullscreen start');
-    const current = await window.hybridAPI.window.isFullScreen();
-    const isFs = await window.hybridAPI.window.fullscreen(!current);
-    controlsdbg('[FSDBG][renderer-controls] toggleFullscreen done', { from: current, to: isFs });
-    this.iconFsEnter.style.display = isFs ? 'none' : 'block';
-    this.iconFsExit.style.display  = isFs ? 'block' : 'none';
-    document.getElementById('btnFullscreen')?.setAttribute('aria-label', isFs ? 'Exit fullscreen' : 'Fullscreen');
+    window.hybridAPI?.window?.logFullscreen?.('renderer:toggleFullscreen:start');
+    try {
+      const current = await window.hybridAPI.window.isFullScreen();
+      window.hybridAPI?.window?.logFullscreen?.('renderer:toggleFullscreen:current', { current });
+      const isFs = await window.hybridAPI.window.fullscreen(!current);
+      window.hybridAPI?.window?.logFullscreen?.('renderer:toggleFullscreen:done', { from: current, to: isFs });
+      controlsdbg('[FSDBG][renderer-controls] toggleFullscreen done', { from: current, to: isFs });
+      this.iconFsEnter.style.display = isFs ? 'none' : 'block';
+      this.iconFsExit.style.display  = isFs ? 'block' : 'none';
+      document.getElementById('btnFullscreen')?.setAttribute('aria-label', isFs ? 'Exit fullscreen' : 'Fullscreen');
+      if (window.HybridApp?._windowVisualState) {
+        window.HybridApp._windowVisualState.isFullscreen = isFs;
+        if (isFs) window.HybridApp._windowVisualState.isMaximized = false;
+        document.body.classList.toggle('is-fullscreen', isFs);
+        document.body.classList.toggle('is-maximized', !isFs && !!window.HybridApp._windowVisualState.isMaximized);
+      }
+      window.HybridToast?.show(isFs ? 'Fullscreen (F / Esc)' : 'Windowed (F)', { duration: 1500 });
+      return isFs;
+    } catch (err) {
+      window.hybridAPI?.window?.logFullscreen?.('renderer:toggleFullscreen:error', { error: String(err) });
+      console.error('[FSDBG][renderer-controls] toggleFullscreen failed', err);
+    } finally {
+      setTimeout(() => {
+        this._isTogglingFullscreen = false;
+      }, 200);
+    }
   }
 
   get playlist() {

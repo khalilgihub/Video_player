@@ -358,6 +358,7 @@ function getWorkAreaForWindow(win) {
 
 function isWindowMaximized(win) {
   if (!win || win.isDestroyed()) return false;
+  if (win.isFullScreen() || win.__hybridFullscreenState) return false;
   if (win.__hybridMaximizeTransition) {
     return !!win.__hybridFakeMaximized || win.isMaximized();
   }
@@ -382,6 +383,7 @@ function isWindowMaximized(win) {
 
 function emitWindowMaximizedState(win, maximized) {
   if (!win || win.isDestroyed()) return;
+  if (win.isFullScreen() || win.__hybridFullscreenState) return;
   win.webContents.send('window-is-maximized', !!maximized);
   win.webContents.send('window-state-changed', maximized ? 'maximized' : 'normal');
 }
@@ -802,15 +804,12 @@ async function toggleWindowMaximize(win) {
     ? win.__hybridFullscreenState
     : win.isFullScreen();
   if (isFs || win.isFullScreen()) {
+    if (typeof win.__hybridSetTrackedFullscreen === 'function') {
+      win.__hybridSetTrackedFullscreen(win, false, 'ipc-toggle-maximize-exit-fs');
+      return isWindowMaximized(win);
+    }
     win.__hybridFullscreenState = false;
-    win.__hybridFullscreenTransitionUntil = Date.now() + 400;
-    if (win.webContents && !win.webContents.isDestroyed()) {
-      win.webContents.send('window-fullscreen-transition-start', false);
-    }
     win.setFullScreen(false);
-    if (process.platform === 'win32') {
-      scheduleNativeDwmWindowStyles(win, [0, 80, 200, 350]);
-    }
     return isWindowMaximized(win);
   }
   if (win.__hybridUseFakeMaximize) {
@@ -922,7 +921,7 @@ function logWindowIpcState(win, source, extra = {}) {
   });
 }
 
-function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
+function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
   win.__hybridFakeMaximized = false;
   win.__hybridRestoreBounds = null;
   win.__hybridPrevResizable = null;
@@ -950,6 +949,9 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
   });
   ipcMain.handle('window:fullscreen', (_, state) => {
     logWindowIpcState(win, 'window:fullscreen:request', { requestedState: state });
+    if (typeof options.setTrackedFullscreen === 'function') {
+      return options.setTrackedFullscreen(win, state, 'ipc-window-fullscreen');
+    }
     const now = Date.now();
     const lockUntil = win.__hybridFullscreenTransitionUntil || 0;
     const current = typeof win.__hybridFullscreenState === 'boolean'
@@ -971,9 +973,12 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase) {
     win.__hybridFullscreenState = !!target;
     if (win.webContents && !win.webContents.isDestroyed()) {
       win.webContents.send('window-fullscreen-transition-start', !!target);
+      win.webContents.send('window-is-fullscreen', !!target);
+      win.webContents.send('window-is-maximized', false);
+      win.webContents.send('window-state-changed', target ? 'fullscreen' : (isWindowMaximized(win) ? 'maximized' : 'normal'));
     }
     win.setFullScreen(target);
-    if (process.platform === 'win32') {
+    if (process.platform === 'win32' && !target) {
       scheduleNativeDwmWindowStyles(win, [0, 80, 200, 350]);
     }
     logWindowIpcState(win, 'window:fullscreen:applied', { target });

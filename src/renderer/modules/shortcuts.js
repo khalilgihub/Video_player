@@ -504,6 +504,10 @@ class HybridShortcuts {
     if (this.shortcuts[combo]) {
       return this.shortcuts[combo];
     }
+    // Allow Shift+KeyF as an intuitive alias for toggle-fullscreen if not overridden
+    if (combo === 'Shift+KeyF' && this.shortcuts['KeyF'] === 'toggle-fullscreen') {
+      return 'toggle-fullscreen';
+    }
     // Fallback for unmodified key lookup in case external code modified this.shortcuts[e.code]
     if (!e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && e.code && this.shortcuts[e.code]) {
       return this.shortcuts[e.code];
@@ -571,12 +575,12 @@ class HybridShortcuts {
       }
 
       if (code === 'KeyF' || code === 'Escape' || action === 'toggle-fullscreen' || action === 'exit-fullscreen') {
-        console.log('[FSDBG][renderer-shortcuts] keydown', {
+        console.log('[FSDBG][renderer-shortcuts] keydown ' + JSON.stringify({
           code,
           key: e.key,
           action,
           modalOpen: !!document.querySelector('.modal-overlay:not([hidden])')
-        });
+        }));
       }
       
       if (!action) return;
@@ -846,10 +850,12 @@ class HybridShortcuts {
         break;
       
       case 'toggle-fullscreen':
+        window.hybridAPI?.window?.logFullscreen?.('renderer:shortcut:toggle-fullscreen');
         this.controls.toggleFullscreen();
         break;
       
       case 'exit-fullscreen':
+        window.hybridAPI?.window?.logFullscreen?.('renderer:shortcut:exit-fullscreen');
         window.hybridAPI.window.fullscreen(false);
         break;
       

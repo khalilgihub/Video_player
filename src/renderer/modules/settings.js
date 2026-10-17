@@ -1632,9 +1632,7 @@ class HybridSettings {
             volSlider.value = Math.round(Math.max(0, Math.min(1, normalizedVol)) * 100);
             volSlider.dispatchEvent(new Event('input'));
           } finally {
-            setTimeout(() => {
-              if (controls) controls._isApplyingSavedVolume = false;
-            }, 250);
+            if (controls) controls._isApplyingSavedVolume = false;
           }
         }
       }

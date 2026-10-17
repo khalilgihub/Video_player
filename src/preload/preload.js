@@ -4,7 +4,7 @@
  * Exposes hybridAPI with mpv control methods alongside original utilities.
  */
 
-const { contextBridge, ipcRenderer, webUtils } = require('electron');
+const { contextBridge, ipcRenderer, webUtils, sharedTexture } = require('electron');
 
 contextBridge.exposeInMainWorld('hybridAPI', {
   app: {
@@ -28,6 +28,9 @@ contextBridge.exposeInMainWorld('hybridAPI', {
     isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
     setUiLocked: (state) => ipcRenderer.invoke('window:set-ui-locked', state),
     setPreventExitFullscreen: (state) => ipcRenderer.invoke('window:set-prevent-exit-fullscreen', state),
+    setEditingFocus: (state) => ipcRenderer.send('window:set-editing-focus', !!state),
+    logFullscreen: (event, details) => ipcRenderer.send('window:log-fullscreen', { event, details }),
+    getFullscreenLogPath: () => ipcRenderer.invoke('window:get-fullscreen-log-path'),
     onStateChanged: (cb) => {
       const listener = (_, state) => cb(state);
       ipcRenderer.on('window-state-changed', listener);
@@ -217,4 +220,36 @@ contextBridge.exposeInMainWorld('hybridAPI', {
 
 ipcRenderer.on('keyboard-escape', () => {
   document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true, cancelable: true }));
+});
+
+contextBridge.exposeInMainWorld('hybridTextures', {
+  onFrame: (cb) => {
+    if (sharedTexture && typeof sharedTexture.setSharedTextureReceiver === 'function') {
+      sharedTexture.setSharedTextureReceiver(async ({ importedSharedTexture }) => {
+        let frame = null;
+        try {
+          frame = importedSharedTexture.getVideoFrame();
+          if (frame && typeof cb === 'function') {
+            try {
+              cb(frame);
+            } catch (cbErr) {
+              console.error('[hybridTextures] Error in onFrame callback:', cbErr);
+            }
+          }
+        } catch (err) {
+          console.error('[hybridTextures] Error handling frame:', err);
+        } finally {
+          if (frame) {
+            try { frame.close(); } catch (_) {}
+          }
+          try { importedSharedTexture.release(); } catch (_) {}
+        }
+      });
+      return true;
+    }
+    return false;
+  },
+  notifyReady: () => {
+    ipcRenderer.send('shared-texture:ready');
+  }
 });

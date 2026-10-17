@@ -16,7 +16,8 @@
     "src/main/bin/*",
     "src/main/set-shortcut-appid.ps1",
     "assets/icons/**/*",
-    "**/node_modules/koffi/**/*"
+    "**/node_modules/koffi/**/*",
+    "**/*.node"
   ],
   "extraResources": [
     {

@@ -40,7 +40,7 @@ function playdbg(...args) {
  * @param {import('electron').BrowserWindow} win
  * @param {import('./mpv-process').MpvProcess} mpv
  */
-function setupMpvIpc(win, mpv) {
+function setupMpvIpc(win, mpv, options = {}) {
   const getTrackedFullscreen = () => {
     if (!win || win.isDestroyed()) return false;
     if (typeof win.__hybridFullscreenState === 'boolean') {
@@ -51,31 +51,13 @@ function setupMpvIpc(win, mpv) {
 
   const setTrackedFullscreen = (state) => {
     if (!win || win.isDestroyed()) return;
-    const now = Date.now();
-    const lockUntil = win.__hybridFullscreenTransitionUntil || 0;
-    if (now < lockUntil) {
-      fsdbg('setTrackedFullscreen skipped in mpv-ipc-bridge (transition lock)', { desired: state });
-      return;
+    if (typeof options?.setTrackedFullscreen === 'function') {
+      return options.setTrackedFullscreen(win, state, 'mpv-ipc-bridge');
     }
-    const desired = !!state;
-    if (desired && !getTrackedFullscreen() && !win.isFullScreen()) {
-      win.__hybridPreFullscreenMaximized = win.isMaximized() || !!win.__hybridFakeMaximized;
-      const b = win.getBounds();
-      if (b && b.width > 0 && b.height > 0) {
-        win.__hybridPreFullscreenBounds = {
-          x: Math.round(b.x),
-          y: Math.round(b.y),
-          width: Math.round(b.width),
-          height: Math.round(b.height),
-        };
-      }
+    if (typeof win.__hybridSetTrackedFullscreen === 'function') {
+      return win.__hybridSetTrackedFullscreen(win, state, 'mpv-ipc-bridge');
     }
-    win.__hybridFullscreenTransitionUntil = now + 400;
-    win.__hybridFullscreenState = desired;
-    if (win.webContents && !win.webContents.isDestroyed()) {
-      win.webContents.send('window-fullscreen-transition-start', desired);
-    }
-    win.setFullScreen(desired);
+    win.setFullScreen(!!state);
   };
   const getUiLocked = () => {
     if (!win || win.isDestroyed()) return false;
@@ -1106,16 +1088,31 @@ function setupMpvIpc(win, mpv) {
     }
     const cleanTarget = path.resolve(targetPath.trim());
     const tempBase = app.getPath('temp');
+    const baseDir = typeof mpv.getScreenshotDir === 'function' ? mpv.getScreenshotDir() : mpv._screenshotDir;
+    if (baseDir && isSubPath(baseDir, cleanTarget)) {
+      return true;
+    }
     const candidateDirs = [
-      typeof mpv.getScreenshotDir === 'function' ? mpv.getScreenshotDir() : mpv._screenshotDir,
-      typeof mpv.getEffectiveScreenshotDir === 'function' ? await mpv.getEffectiveScreenshotDir() : null,
       path.join(tempBase, `hybrid-player-thumbs-${process.pid}`),
       path.join(tempBase, 'hybrid-player-thumbs'),
       path.join(tempBase, 'hybrid-player-paused-frames'),
       path.join(tempBase, 'hybrid_screenshot_undo'),
-    ].filter(Boolean);
-
-    return candidateDirs.some((dir) => isSubPath(dir, cleanTarget));
+    ];
+    if (candidateDirs.some((dir) => isSubPath(dir, cleanTarget))) {
+      return true;
+    }
+    if (typeof mpv.getEffectiveScreenshotDir === 'function') {
+      try {
+        const effectiveDir = await Promise.race([
+          mpv.getEffectiveScreenshotDir(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 500))
+        ]);
+        if (effectiveDir && isSubPath(effectiveDir, cleanTarget)) {
+          return true;
+        }
+      } catch {}
+    }
+    return false;
   };
 
   ipcMain.handle('mpv:delete-screenshot', async (_, filePath) => {

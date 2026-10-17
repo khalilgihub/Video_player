@@ -303,6 +303,7 @@ class HybridApp {
       this.thumbnailModule = new HybridThumbnails(this.player);
       this.gestureModule = new HybridGestures(this.player, this.controlsModule);
       this.player.onError = (data) => this._handlePlaybackError(data);
+      this._setupSharedTextureVideo();
       
       // Load saved EQ
       await this.equalizerModule.loadSavedSettings();
@@ -334,6 +335,34 @@ class HybridApp {
         document.body.classList.toggle('app-unfocused', !(isVisible && isFocused));
       };
 
+      const isTargetEditable = (target) => {
+        return Boolean(
+          target &&
+          typeof target.closest === 'function' &&
+          (target.tagName === 'INPUT' ||
+           target.tagName === 'TEXTAREA' ||
+           target.tagName === 'SELECT' ||
+           target.isContentEditable ||
+           target.closest('input, select, textarea, [contenteditable="true"]'))
+        );
+      };
+
+      document.addEventListener('focusin', (e) => {
+        if (isTargetEditable(e.target)) {
+          window.hybridAPI?.window?.setEditingFocus?.(true);
+        }
+      }, true);
+
+      document.addEventListener('focusout', (e) => {
+        if (isTargetEditable(e.target)) {
+          setTimeout(() => {
+            if (!isTargetEditable(document.activeElement)) {
+              window.hybridAPI?.window?.setEditingFocus?.(false);
+            }
+          }, 0);
+        }
+      }, true);
+
       const releaseColdStartState = () => {
         const body = document.body;
         if (!body.classList.contains('app-cold-start')) {
@@ -352,6 +381,13 @@ class HybridApp {
       const applyWindowVisualClasses = () => {
         const isFs = !!this._windowVisualState.isFullscreen;
         const isMax = !isFs && !!this._windowVisualState.isMaximized;
+
+        const bodyIsFs = document.body.classList.contains('is-fullscreen');
+        const bodyIsMax = document.body.classList.contains('is-maximized');
+        if (bodyIsFs === isFs && bodyIsMax === isMax) {
+          return;
+        }
+
         document.body.classList.toggle('is-fullscreen', isFs);
         document.body.classList.toggle('is-maximized', isMax);
 
@@ -397,14 +433,7 @@ class HybridApp {
         this.cursorManager?.setFullscreen(isFs);
       };
 
-      const applyFsTransition = () => {
-        document.body.classList.add('fs-transition');
-        if (this._fsTransitionTimer) clearTimeout(this._fsTransitionTimer);
-        this._fsTransitionTimer = setTimeout(() => {
-          document.body.classList.remove('fs-transition');
-          this._fsTransitionTimer = null;
-        }, 500);
-      };
+      const applyFsTransition = () => {};
 
       const DWM_RENDERER_DIAG = false;
 
@@ -495,6 +524,7 @@ class HybridApp {
 
       window.hybridAPI.on('window-is-maximized', (flag) => {
         const nextMax = !!flag;
+        if (nextMax && this._windowVisualState.isFullscreen) return;
         this._windowVisualState.isMaximized = nextMax;
         if (nextMax) this._windowVisualState.isFullscreen = false;
         applyWindowVisualClasses();
@@ -518,6 +548,14 @@ class HybridApp {
           this._windowVisualState.isMaximized = false;
         }
 
+        window.hybridAPI?.window?.logFullscreen?.('renderer:onStateChanged', {
+          state,
+          wasFullscreen,
+          nowFullscreen,
+          visualFullscreen: this._windowVisualState.isFullscreen,
+          visualMaximized: this._windowVisualState.isMaximized,
+        });
+
         applyWindowVisualClasses();
         logDwmRendererSnapshot('ipc-window-state-changed', { state });
 
@@ -529,7 +567,7 @@ class HybridApp {
       });
       if (typeof window.hybridAPI?.window?.isMaximized === 'function') {
         window.hybridAPI.window.isMaximized().then((isMax) => {
-          if (isMax) {
+          if (isMax && !this._windowVisualState.isFullscreen) {
             this._windowVisualState.isMaximized = true;
             this._windowVisualState.isFullscreen = false;
             applyWindowVisualClasses();
@@ -707,6 +745,30 @@ class HybridApp {
     } catch (err) {
       document.body.classList.remove('app-cold-start');
       console.error('Failed to initialize:', err);
+    }
+  }
+
+  _setupSharedTextureVideo() {
+    const canvas = document.getElementById('videoCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+
+    if (window.hybridTextures && typeof window.hybridTextures.onFrame === 'function') {
+      window.hybridTextures.onFrame((frame) => {
+        if (!frame) return;
+        const w = frame.displayWidth || frame.codedWidth;
+        const h = frame.displayHeight || frame.codedHeight;
+        if (w > 0 && h > 0 && (canvas.width !== w || canvas.height !== h)) {
+          canvas.width = w;
+          canvas.height = h;
+        }
+        if (ctx) {
+          ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+        }
+      });
+      if (typeof window.hybridTextures.notifyReady === 'function') {
+        window.hybridTextures.notifyReady();
+      }
     }
   }
 

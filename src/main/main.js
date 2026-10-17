@@ -24,6 +24,12 @@ const {
 } = require('./native-dwm');
 const { setupWindowsShellIntegration } = require('./windows-shell-integration');
 const { setupYtDlpUpdaterIpc, startYtDlpBackgroundCheck } = require('./ytdlp-updater');
+const { dxBridgeManager } = require('./dx-bridge-wrapper');
+const {
+  initFullscreenLogger,
+  logFs,
+  getLogPaths,
+} = require('./fullscreen-logger');
 
 const YT_DEBUG = false;
 function ytdbg(...args) {
@@ -534,10 +540,9 @@ let mainWindow = null;
 let mpvProcess = null;
 const WINDOWED_WIDTH = 1280;
 const WINDOWED_HEIGHT = 720;
-const FULLSCREEN_RESTORE_DELAY_MS = 140;
 const ENABLE_WINDOW_BOUNDS_CLAMP = false;
-// Transparent compositor is required so that mpv --wid rendering shows through
-// the Chromium layer. Without this the video appears black.
+// DirectX Texture Bridge architecture paints frames directly via Chromium sharedTexture,
+// allowing transparent: false for full hardware GPU Aero-zoom animations.
 const USE_WINDOWS_TRANSPARENT_COMPOSITOR = false;
 const WM_NCCALCSIZE = 0x0083;
 const WM_NCHITTEST = 0x0084;
@@ -556,10 +561,14 @@ const HTBOTTOMRIGHT = 17;
 const RESIZE_BORDER_DIP = 8;
 
 // Fullscreen/input trace logging.
-const FS_DEBUG = false;
+const FS_DEBUG = true;
 function fsdbg(...args) {
   if (!FS_DEBUG) return;
   console.log('[FSDBG][main]', ...args);
+  try {
+    const msg = args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+    logFs('main:trace', msg);
+  } catch (_) {}
 }
 
 // DWM seam diagnostics for the white top-strip issue on transparent windows.
@@ -667,29 +676,64 @@ function setTrackedFullscreen(win, target, source = 'unknown') {
   const now = Date.now();
   const current = getTrackedFullscreen(win);
 
+  logFs('setTrackedFullscreen:enter', {
+    source,
+    desired,
+    current,
+    nativeFs: win.isFullScreen(),
+    isMaximized: win.isMaximized(),
+    bounds: win.getBounds(),
+    isResizable: typeof win.isResizable === 'function' ? win.isResizable() : null,
+  });
+
   // Guard repeated toggles while Windows is transitioning fullscreen.
   const lockUntil = win.__hybridFullscreenTransitionUntil || 0;
   if (source.includes('toggle') && now < lockUntil) {
+    logFs('setTrackedFullscreen:skipped_locked', { source, desired, current, lockUntil, now });
     fsdbg('setTrackedFullscreen skipped (transition lock)', { source, desired, current });
     return current;
   }
 
-  if (current === desired) {
+  if (current === desired && win.isFullScreen() === desired) {
+    // If already in desired fullscreen state, ensure bounds cover display rather than no-op
+    if (desired) {
+      const display = screen.getDisplayMatching(win.getBounds());
+      const fullBounds = display?.bounds;
+      const curBounds = win.getBounds();
+      if (fullBounds && (curBounds.height < fullBounds.height || curBounds.width < fullBounds.width)) {
+        win.setBounds(fullBounds, false);
+        logFs('setTrackedFullscreen:corrected_bounds', { curBounds, fullBounds });
+        return true;
+      }
+    }
+    logFs('setTrackedFullscreen:no_op', { source, desired });
     fsdbg('setTrackedFullscreen no-op', { source, desired });
     return current;
   }
 
   if (desired) {
     capturePreFullscreenBounds(win, source);
+    if (win.__hybridFakeMaximized) {
+      win.__hybridFakeMaximized = false;
+    }
   }
 
-  win.__hybridFullscreenTransitionUntil = now + 400;
+  win.__hybridFullscreenTransitionUntil = now + 150;
   win.__hybridFullscreenState = desired;
+  logFs('setTrackedFullscreen:applying', { source, from: current, to: desired });
   fsdbg('setTrackedFullscreen apply', { source, from: current, to: desired });
   if (win.webContents && !win.webContents.isDestroyed()) {
     win.webContents.send('window-fullscreen-transition-start', desired);
   }
   win.setFullScreen(desired);
+
+  emitWindowVisualState(win, `setTrackedFullscreen:${source}`);
+  logFs('setTrackedFullscreen:done', {
+    source,
+    desired,
+    actualFs: win.isFullScreen(),
+    bounds: win.getBounds()
+  });
   return desired;
 }
 
@@ -710,12 +754,22 @@ function capturePreFullscreenBounds(win, source = 'unknown') {
   if (!win || win.isDestroyed()) return;
   if (getTrackedFullscreen(win) || win.isFullScreen()) return;
 
-  win.__hybridPreFullscreenMaximized = isWindowMaximizedOrFullscreen(win);
+  const isMax = win.isMaximized() || !!win.__hybridFakeMaximized;
+  win.__hybridPreFullscreenMaximized = isMax;
 
-  const bounds = normalizeBounds(win.getBounds());
-  if (!bounds) return;
-  win.__hybridPreFullscreenBounds = bounds;
-  fsdbg('captured pre-fullscreen bounds', { source, bounds, maximized: win.__hybridPreFullscreenMaximized });
+  try {
+    const normalBounds = typeof win.getNormalBounds === 'function' ? win.getNormalBounds() : win.getBounds();
+    const bounds = normalizeBounds(isMax ? normalBounds : win.getBounds());
+    if (bounds) {
+      win.__hybridPreFullscreenBounds = bounds;
+    }
+    fsdbg('captured pre-fullscreen bounds', { source, bounds, maximized: isMax });
+  } catch {
+    const bounds = normalizeBounds(win.getBounds());
+    if (bounds) {
+      win.__hybridPreFullscreenBounds = bounds;
+    }
+  }
 }
 
 function restorePreFullscreenBounds(win, source = 'unknown', wasMaximizedHint = false) {
@@ -726,40 +780,19 @@ function restorePreFullscreenBounds(win, source = 'unknown', wasMaximizedHint = 
 
   if (wasMaximized) {
     win.__hybridPreFullscreenBounds = null;
-
-    // Temporarily set resizable to true so maximize works
-    win.setResizable(true);
-
     if (win.__hybridUseFakeMaximize) {
       applyFakeMaximize(win);
     } else if (!win.isMaximized()) {
       win.maximize();
-    }
-    setTimeout(() => {
-      if (!win || win.isDestroyed()) return;
-      if (win.isMaximized()) {
-        win.setResizable(false);
-      }
-    }, 80);
-    if (process.platform === 'win32') {
-      scheduleNativeDwmWindowStyles(win, [0, 80, 200, 350]);
     }
     fsdbg('restored pre-fullscreen state to maximized', { source });
     return true;
   }
 
   const targetBounds = normalizeBounds(win.__hybridPreFullscreenBounds);
-  if (targetBounds) {
-    // Temporarily set resizable to true so unmaximizing works
-    win.setResizable(true);
-    if (win.isMaximized()) {
-      win.unmaximize();
-    }
+  win.__hybridPreFullscreenBounds = null;
+  if (targetBounds && !win.isMaximized()) {
     win.setBounds(targetBounds, false);
-    win.__hybridPreFullscreenBounds = null;
-    if (process.platform === 'win32') {
-      scheduleNativeDwmWindowStyles(win, [0, 80, 200, 350]);
-    }
     fsdbg('restored pre-fullscreen bounds', { source, bounds: targetBounds });
     return true;
   }
@@ -1073,10 +1106,11 @@ function saveDatabase(db, { immediate = false } = {}) {
 function emitWindowVisualState(win, source = 'unknown') {
   if (!win || win.isDestroyed()) return;
   const isFullscreen = getTrackedFullscreen(win) || win.isFullScreen();
-  const isMaximized = !isFullscreen && (win.isMaximized() || !!win.__hybridFakeMaximized);
+  const isMaximized = !isFullscreen && (win.isMaximized() || !!win.__hybridFakeMaximized || !!win.__hybridPreFullscreenMaximized);
   fsdbg('emitWindowVisualState', { source, isFullscreen, isMaximized });
   win.webContents.send('window-is-fullscreen', isFullscreen);
   win.webContents.send('window-is-maximized', isMaximized);
+  win.webContents.send('window-state-changed', isFullscreen ? 'fullscreen' : (isMaximized ? 'maximized' : 'normal'));
 }
 
 function getNativeWindowHandleDecimal(win) {
@@ -1304,22 +1338,8 @@ function setupWindowsNcActivateHook(win) {
 }
 
 function setResizableWhileFullscreen(win, fullscreen) {
-  if (!win || win.isDestroyed()) return;
-  const baseResizable = typeof win.__hybridBaseResizable === 'boolean'
-    ? win.__hybridBaseResizable
-    : true;
-  if (fullscreen) {
-    if (typeof win.__hybridPrevFullscreenResizable !== 'boolean') {
-      win.__hybridPrevFullscreenResizable = win.isResizable();
-    }
-    if (win.isResizable()) {
-      win.setResizable(false);
-    }
-    return;
-  }
-
-  win.setResizable(baseResizable);
-  win.__hybridPrevFullscreenResizable = null;
+  // No-op: WM_NCHITTEST hook (resolveNcHitTest) locks borders during fullscreen
+  // and maximize by returning HTCLIENT, preserving WS_THICKFRAME to avoid Win32 frame recreation glitches.
 }
 
 function createMainWindow() {
@@ -1337,8 +1357,8 @@ function createMainWindow() {
     frame: false,
     transparent: useTransparentOnWindows,
     fullscreenable: true,
-    backgroundColor: useTransparentOnWindows ? '#00000000' : '#000000',
-    hasShadow: false,
+    backgroundColor: useTransparentOnWindows ? '#00000000' : '#0c0d12',
+    hasShadow: true,
     roundedCorners: false,
     titleBarStyle: 'hidden',
     titleBarOverlay: false,
@@ -1367,9 +1387,11 @@ function createMainWindow() {
     mainWindow.setIcon(iconTarget);
   } catch (_) {}
   hardenWebContents(mainWindow);
+  dxBridgeManager.setTargetWindow(mainWindow);
   mainWindow.__hybridFullscreenState = false;
   mainWindow.__hybridUiLocked = false;
   mainWindow.__hybridPreventExitFullscreen = false;
+  mainWindow.__hybridEditingFocused = false;
   mainWindow.__hybridFakeMaximized = false;
   mainWindow.__hybridRestoreBounds = null;
   mainWindow.__hybridPrevResizable = null;
@@ -1410,8 +1432,11 @@ function createMainWindow() {
     },
   });
 
+  mainWindow.__hybridSetTrackedFullscreen = (targetWin, targetState, source) => setTrackedFullscreen(targetWin, targetState, source);
   mpvProcess = new MpvProcess();
-  setupMpvIpc(mainWindow, mpvProcess);
+  setupMpvIpc(mainWindow, mpvProcess, {
+    setTrackedFullscreen: (targetWin, targetState, source) => setTrackedFullscreen(targetWin, targetState, source)
+  });
   mpvProcess.on('stderr-log', (line) => {
     const msg = String(line || '').trim();
     if (!msg) return;
@@ -1461,12 +1486,41 @@ function createMainWindow() {
       return;
     }
 
-    if (key === 'f11') {
+    const isFKey = (key === 'f' || input.code === 'KeyF') && !input.control && !input.meta && !input.alt;
+    if (key === 'f11' || isFKey) {
+      logFs('before-input-event:f_or_f11_pressed', {
+        key: input.key,
+        code: input.code,
+        isAutoRepeat: input.isAutoRepeat,
+        editingFocused: !!mainWindow.__hybridEditingFocused,
+        currentFs: getTrackedFullscreen(mainWindow),
+      });
+      if (isFKey && (input.isAutoRepeat || mainWindow.__hybridEditingFocused)) {
+        logFs('before-input-event:f_ignored', {
+          autoRepeat: input.isAutoRepeat,
+          editingFocused: !!mainWindow.__hybridEditingFocused,
+        });
+        return;
+      }
       event.preventDefault();
       const next = !getTrackedFullscreen(mainWindow);
-      fsdbg('before-input-event toggle fullscreen', { from: getTrackedFullscreen(mainWindow), to: next });
-      setTrackedFullscreen(mainWindow, next, 'before-input-toggle');
+      logFs('before-input-event:toggling_fullscreen', { from: getTrackedFullscreen(mainWindow), to: next, key });
+      fsdbg('before-input-event toggle fullscreen', { from: getTrackedFullscreen(mainWindow), to: next, key });
+      setTrackedFullscreen(mainWindow, next, isFKey ? 'before-input-toggle-f' : 'before-input-toggle');
       return;
+    }
+
+    if (key === 'escape' && !input.control && !input.meta && !input.alt) {
+      if (mainWindow.__hybridPreventExitFullscreen) {
+        logFs('before-input-event:escape_prevented_by_ui');
+        return;
+      }
+      if (getTrackedFullscreen(mainWindow)) {
+        logFs('before-input-event:escape_exit_fullscreen');
+        event.preventDefault();
+        setTrackedFullscreen(mainWindow, false, 'before-input-escape');
+        return;
+      }
     }
   });
 
@@ -1570,7 +1624,13 @@ function createMainWindow() {
 
   // Track window state for renderer
   mainWindow.on('maximize', () => {
+    if (getTrackedFullscreen(mainWindow) || mainWindow.isFullScreen()) {
+      logFs('event:maximize:ignored_in_fullscreen');
+      fsdbg('window maximize ignored while in fullscreen');
+      return;
+    }
     scheduleWindowsBorderSuppression(mainWindow, 'maximize');
+    logFs('event:maximize', { bounds: mainWindow.getBounds() });
     fsdbg('window maximize');
     logWindowDwmSnapshot(mainWindow, 'maximize');
     // Only intercept maximize when using transparent-window compositor mode on Windows.
@@ -1580,97 +1640,69 @@ function createMainWindow() {
     }
     mainWindow.__hybridFakeMaximized = false;
 
-    // Explicitly disable resizability when natively maximized (deferred)
-    if (typeof mainWindow.__hybridPrevResizable !== 'boolean') {
-      mainWindow.__hybridPrevResizable = mainWindow.isResizable();
-    }
-    setTimeout(() => {
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      if (mainWindow.isMaximized() && mainWindow.isResizable()) {
-        mainWindow.setResizable(false);
-      }
-    }, 50);
-
     emitWindowVisualState(mainWindow, 'maximize');
-    mainWindow.webContents.send('window-state-changed', 'maximized');
   });
   mainWindow.on('unmaximize', () => {
-    scheduleWindowsBorderSuppression(mainWindow, 'unmaximize');
-    if (mainWindow.__hybridUseFakeMaximize) {
-      mainWindow.setResizable(true);
-      mainWindow.__hybridPrevResizable = null;
-    } else {
-      // Restore resizability for the windowed (restored) mode (deferred)
-      setTimeout(() => {
-        if (!mainWindow || mainWindow.isDestroyed()) return;
-        mainWindow.setResizable(true);
-        mainWindow.__hybridPrevResizable = null;
-      }, 50);
+    if (getTrackedFullscreen(mainWindow) || mainWindow.isFullScreen()) {
+      logFs('event:unmaximize:ignored_in_fullscreen');
+      fsdbg('window unmaximize ignored while in fullscreen');
+      return;
     }
+    mainWindow.__hybridPreFullscreenMaximized = false;
+    scheduleWindowsBorderSuppression(mainWindow, 'unmaximize');
     mainWindow.__hybridFakeMaximized = false;
+    logFs('event:unmaximize', { bounds: mainWindow.getBounds() });
     fsdbg('window unmaximize');
     logWindowDwmSnapshot(mainWindow, 'unmaximize');
     if (ENABLE_WINDOW_BOUNDS_CLAMP) {
       clampWindowToVisibleArea(mainWindow);
     }
     emitWindowVisualState(mainWindow, 'unmaximize');
-    mainWindow.webContents.send('window-state-changed', 'normal');
   });
   mainWindow.on('restore', () => {
+    if (getTrackedFullscreen(mainWindow) || mainWindow.isFullScreen()) {
+      logFs('event:restore:ignored_in_fullscreen');
+      fsdbg('window restore ignored while in fullscreen');
+      return;
+    }
     scheduleWindowsBorderSuppression(mainWindow, 'restore');
+    logFs('event:restore', { bounds: mainWindow.getBounds() });
     fsdbg('window restore');
     logWindowDwmSnapshot(mainWindow, 'restore');
     emitWindowVisualState(mainWindow, 'restore');
-    mainWindow.webContents.send('window-state-changed', mainWindow.__hybridFakeMaximized ? 'maximized' : 'normal');
   });
   mainWindow.on('enter-full-screen', () => {
-    setResizableWhileFullscreen(mainWindow, true);
     mainWindow.__hybridFullscreenState = true;
-    if (process.platform === 'win32') {
-      scheduleNativeDwmWindowStyles(mainWindow, [0, 80, 200, 350]);
-    }
+    logFs('event:enter-full-screen', { bounds: mainWindow.getBounds(), isFullScreen: mainWindow.isFullScreen() });
     fsdbg('window enter-full-screen');
     logWindowDwmSnapshot(mainWindow, 'enter-full-screen');
     emitWindowVisualState(mainWindow, 'enter-full-screen');
-    mainWindow.webContents.send('window-state-changed', 'fullscreen');
   });
   mainWindow.on('leave-full-screen', () => {
     const wasMaximized = !!mainWindow.__hybridPreFullscreenMaximized;
-    if (!wasMaximized) {
-      setResizableWhileFullscreen(mainWindow, false);
-    }
     mainWindow.__hybridFullscreenState = false;
+    logFs('event:leave-full-screen', { wasMaximized, bounds: mainWindow.getBounds(), isFullScreen: mainWindow.isFullScreen() });
+
+    if (wasMaximized) {
+      setTimeout(() => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        if (!getTrackedFullscreen(mainWindow) && !mainWindow.isMaximized()) {
+          mainWindow.maximize();
+        }
+        mainWindow.__hybridPreFullscreenMaximized = false;
+      }, 50);
+    } else {
+      mainWindow.__hybridPreFullscreenMaximized = false;
+    }
 
     if (process.platform === 'win32') {
       scheduleWindowsBorderSuppression(mainWindow, 'leave-full-screen');
-      scheduleNativeDwmWindowStyles(mainWindow, [0, 80, 200, 350]);
+      scheduleNativeDwmWindowStyles(mainWindow, [50]);
     }
 
-    let windowedRestoreApplied = false;
-    // Let Windows settle the transition first, then restore windowed bounds.
-    const restoreWindowed = () => {
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      if (getTrackedFullscreen(mainWindow) || mainWindow.isFullScreen()) return;
-      if (windowedRestoreApplied) return;
-      const restoredFromSnapshot = restorePreFullscreenBounds(mainWindow, 'leave-full-screen', wasMaximized);
-      if (!restoredFromSnapshot) {
-        applyWindowedSize(mainWindow);
-      }
-      windowedRestoreApplied = true;
-      if (ENABLE_WINDOW_BOUNDS_CLAMP && !wasMaximized) {
-        clampWindowToVisibleArea(mainWindow);
-      }
-      if (process.platform === 'win32') {
-        scheduleWindowsBorderSuppression(mainWindow, 'leave-full-screen-settled');
-        scheduleNativeDwmWindowStyles(mainWindow, [0, 80, 200, 350]);
-      }
-    };
-    setTimeout(restoreWindowed, FULLSCREEN_RESTORE_DELAY_MS);
-    setTimeout(restoreWindowed, FULLSCREEN_RESTORE_DELAY_MS + 180);
     fsdbg('window leave-full-screen');
     logWindowDwmSnapshot(mainWindow, 'leave-full-screen');
     emitWindowVisualState(mainWindow, 'leave-full-screen');
-    mainWindow.webContents.send('window-state-changed', wasMaximized ? 'maximized' : 'normal');
   });
   mainWindow.on('focus', () => {
     if (process.platform === 'win32' && mainWindow.__hybridUseFakeMaximize) {
@@ -1696,6 +1728,11 @@ function createMainWindow() {
   });
   mainWindow.on('resize', () => {
     logWindowDwmSnapshotThrottled(mainWindow, 'resize');
+  });
+
+  mainWindow.on('closed', () => {
+    dxBridgeManager.destroy();
+    mainWindow = null;
   });
 
   return mainWindow;
@@ -1943,9 +1980,37 @@ app.whenReady().then(() => {
   setupGlobalShortcuts();
   Menu.setApplicationMenu(null);
   registerSystemDialogHandlers(win);
-  setupIpcHandlers(ipcMain, win, db, saveDatabase);
+  setupIpcHandlers(ipcMain, win, db, saveDatabase, {
+    setTrackedFullscreen: (targetWin, targetState, source) => setTrackedFullscreen(targetWin, targetState, source),
+  });
   setupYtDlpUpdaterIpc(win);
   startYtDlpBackgroundCheck(win);
+
+  initFullscreenLogger(__dirname);
+  logFs('app:ready', {
+    platform: process.platform,
+    version: process.versions.electron,
+    argv: process.argv,
+    logPaths: getLogPaths()
+  });
+
+  ipcMain.on('window:log-fullscreen', (_, payload) => {
+    logFs(payload?.event || 'renderer:log', payload?.details || {});
+  });
+
+  ipcMain.handle('window:get-fullscreen-log-path', () => {
+    return getLogPaths();
+  });
+
+  ipcMain.on('window:set-editing-focus', (_, state) => {
+    if (win && !win.isDestroyed()) {
+      win.__hybridEditingFocused = !!state;
+    }
+  });
+
+  ipcMain.on('shared-texture:ready', () => {
+    dxBridgeManager.setRendererReady(true);
+  });
 
   const initialFilePath = process.argv
     .map((arg) => resolveExistingLocalFile(arg, MEDIA_EXTENSIONS))
@@ -1965,6 +2030,7 @@ app.whenReady().then(() => {
 });
 
 app.on('will-quit', () => {
+  dxBridgeManager.destroy();
   if (pendingDb) {
     saveDatabase(pendingDb, { immediate: true });
   }

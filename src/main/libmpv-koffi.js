@@ -113,6 +113,11 @@ class LibmpvContext extends EventEmitter {
     this.destroyed = false;
   }
 
+  getHandleAddress() {
+    if (!this.handle || !koffi) return 0n;
+    return BigInt(koffi.address(this.handle));
+  }
+
   static isAvailable() {
     return !!koffi;
   }
@@ -314,4 +319,5 @@ class LibmpvContext extends EventEmitter {
 module.exports = {
   LibmpvContext,
   bindLibMpv,
+  koffi,
 };

@@ -293,7 +293,8 @@
 
     <!-- ─── Video Container ─── -->
     <div class="video-container" id="videoContainer">
-      <!-- mpv renders directly into this container via --wid -->
+      <canvas id="videoCanvas" class="video-canvas"></canvas>
+      <!-- mpv renders directly into this container via --wid or shared texture bridge -->
       <div id="mpvContainer" class="mpv-container"></div>
       <div id="video-curtain" class="video-curtain" aria-hidden="true"></div>
       <div id="networkLoadingSpinner" class="network-loading-spinner hidden" aria-hidden="true">
