@@ -36,6 +36,12 @@ function playdbg(...args) {
   console.log('[PLAYDBG][mpv-bridge]', ...args);
 }
 
+const SCREENSHOT_DEBUG = false;
+function screenshotdbg(...args) {
+  if (!SCREENSHOT_DEBUG) return;
+  console.log('[SCREENSHOT][main]', ...args);
+}
+
 /**
  * @param {import('electron').BrowserWindow} win
  * @param {import('./mpv-process').MpvProcess} mpv
@@ -1077,7 +1083,7 @@ function setupMpvIpc(win, mpv, options = {}) {
   const isSubPath = (parentDir, childPath) => {
     if (!parentDir || !childPath) return false;
     const rel = path.relative(path.resolve(parentDir), path.resolve(childPath));
-    return !rel.startsWith('..') && !path.isAbsolute(rel);
+    return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
   };
 
   const isAllowedScreenshotPath = async (targetPath) => {
@@ -1134,9 +1140,12 @@ function setupMpvIpc(win, mpv, options = {}) {
       // Create thumbnail base64 data for visual in-card deletion animation
       let previewDataUrl = '';
       try {
-        const mimeType = getImageMimeType(cleanPath);
-        const buffer = fs.readFileSync(cleanPath);
-        previewDataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
+        const stat = fs.statSync(cleanPath);
+        if (stat.size <= MAX_INLINE_PREVIEW_BYTES) {
+          const mimeType = getImageMimeType(cleanPath);
+          const buffer = fs.readFileSync(cleanPath);
+          previewDataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
+        }
       } catch (_) {}
 
       // Move file to session undo staging folder so it can be restored on 'Z'
@@ -1157,7 +1166,7 @@ function setupMpvIpc(win, mpv, options = {}) {
         stagedAt: Date.now(),
       });
 
-      console.log('[SCREENSHOT][main] Staged screenshot for undo:', cleanPath, '->', tempPath);
+      screenshotdbg('Staged screenshot for undo:', cleanPath, '->', tempPath);
       return {
         success: true,
         filePath: cleanPath,
@@ -1215,12 +1224,15 @@ function setupMpvIpc(win, mpv, options = {}) {
 
       let previewDataUrl = '';
       try {
-        const mimeType = getImageMimeType(originalPath);
-        const buffer = fs.readFileSync(originalPath);
-        previewDataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
+        const stat = fs.statSync(originalPath);
+        if (stat.size <= MAX_INLINE_PREVIEW_BYTES) {
+          const mimeType = getImageMimeType(originalPath);
+          const buffer = fs.readFileSync(originalPath);
+          previewDataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
+        }
       } catch (_) {}
 
-      console.log('[SCREENSHOT][main] Restored screenshot:', originalPath);
+      screenshotdbg('Restored screenshot:', originalPath);
       return {
         success: true,
         filePath: originalPath,

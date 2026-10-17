@@ -715,7 +715,7 @@ class HybridSettings {
         if (versionEl) versionEl.textContent = 'Not found';
         if (statusEl) {
           statusEl.textContent = 'Executable missing';
-          statusEl.style.color = '#ef4444';
+          statusEl.style.color = 'var(--ytdlp-error)';
         }
         if (btnUpdate) {
           btnUpdate.style.display = 'none';
@@ -731,7 +731,7 @@ class HybridSettings {
         if (this._ytdlpUpdateInfo?.available) {
           if (statusEl) {
             statusEl.textContent = `Update available: v${this._ytdlpUpdateInfo.latestVersion}`;
-            statusEl.style.color = '#00f2fe';
+            statusEl.style.color = 'var(--ytdlp-info)';
           }
           if (btnUpdate) {
             btnUpdate.style.display = '';
@@ -753,7 +753,7 @@ class HybridSettings {
 
       if (statusEl) {
         statusEl.textContent = 'Checking latest release...';
-        statusEl.style.color = '#facc15';
+        statusEl.style.color = 'var(--ytdlp-pending)';
       }
       const checkResult = await window.hybridAPI?.ytdlp?.checkForUpdate?.();
 
@@ -761,7 +761,7 @@ class HybridSettings {
         this._ytdlpUpdateInfo = checkResult;
         if (statusEl) {
           statusEl.textContent = `Update available: v${checkResult.latestVersion}`;
-          statusEl.style.color = '#00f2fe';
+          statusEl.style.color = 'var(--ytdlp-info)';
         }
         if (btnUpdate) {
           btnUpdate.style.display = '';
@@ -775,7 +775,7 @@ class HybridSettings {
         this._ytdlpUpdateInfo = null;
         if (statusEl) {
           statusEl.textContent = 'Up to date';
-          statusEl.style.color = '#4ade80';
+          statusEl.style.color = 'var(--ytdlp-ok)';
         }
         if (btnUpdate) {
           btnUpdate.style.display = 'none';
@@ -789,7 +789,7 @@ class HybridSettings {
     } catch (err) {
       if (statusEl) {
         statusEl.textContent = 'Check failed';
-        statusEl.style.color = '#ef4444';
+        statusEl.style.color = 'var(--ytdlp-error)';
       }
       if (userTriggered) {
         window.HybridToast?.show('Failed to check for yt-dlp updates');
@@ -813,7 +813,7 @@ class HybridSettings {
     }
     if (statusEl) {
       statusEl.textContent = 'Downloading and applying update...';
-      statusEl.style.color = '#facc15';
+      statusEl.style.color = 'var(--ytdlp-pending)';
     }
     if (!fromNotification) {
       window.HybridToast?.show('Updating yt-dlp in background...');
@@ -827,7 +827,7 @@ class HybridSettings {
         if (versionEl) versionEl.textContent = newVer;
         if (statusEl) {
           statusEl.textContent = 'Up to date';
-          statusEl.style.color = '#4ade80';
+          statusEl.style.color = 'var(--ytdlp-ok)';
         }
         if (btnUpdate) {
           btnUpdate.style.display = 'none';
@@ -840,7 +840,7 @@ class HybridSettings {
       } else {
         if (statusEl) {
           statusEl.textContent = 'Update failed';
-          statusEl.style.color = '#ef4444';
+          statusEl.style.color = 'var(--ytdlp-error)';
         }
         if (btnUpdate) {
           btnUpdate.style.display = '';
@@ -855,7 +855,7 @@ class HybridSettings {
     } catch (err) {
       if (statusEl) {
         statusEl.textContent = 'Update failed';
-        statusEl.style.color = '#ef4444';
+        statusEl.style.color = 'var(--ytdlp-error)';
       }
       if (btnUpdate) {
         btnUpdate.style.display = '';
@@ -876,7 +876,7 @@ class HybridSettings {
 
     if (statusEl) {
       statusEl.textContent = `Update available: v${info.latestVersion}`;
-      statusEl.style.color = '#00f2fe';
+      statusEl.style.color = 'var(--ytdlp-info)';
     }
     if (btnUpdate) {
       btnUpdate.style.display = '';
@@ -1460,40 +1460,6 @@ class HybridSettings {
       if (sel.id === 'welcomeBackgroundSelect' || sel.hidden) return;
       this._createCustomSelect(sel);
     });
-  }
-
-  _syncCustomBackgroundSelect(value) {
-    const trigger = document.querySelector('#welcomeBackgroundSelectContainer .custom-select-trigger');
-    const triggerVal = trigger?.querySelector('.custom-select-value');
-    if (!triggerVal) return;
-
-    const nativeSelect = document.getElementById('welcomeBackgroundSelect');
-    if (!nativeSelect) return;
-
-    const opt = Array.from(nativeSelect.options).find(o => o.value === value);
-    if (opt) {
-      triggerVal.textContent = opt.textContent;
-    }
-
-    // Synchronize active checkmark indicator in dropdown options
-    const dropdown = document.querySelector('#welcomeBackgroundSelectContainer .custom-select-dropdown');
-    if (dropdown) {
-      dropdown.querySelectorAll('.custom-select-option').forEach(optionEl => {
-        const isMatched = (optionEl.dataset.value === value);
-        optionEl.classList.toggle('active', isMatched);
-        optionEl.setAttribute('aria-selected', String(isMatched));
-
-        let checkIcon = optionEl.querySelector('.custom-select-option-check');
-        if (isMatched && !checkIcon) {
-          checkIcon = document.createElement('span');
-          checkIcon.className = 'custom-select-option-check';
-          checkIcon.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-          optionEl.appendChild(checkIcon);
-        } else if (!isMatched && checkIcon) {
-          checkIcon.remove();
-        }
-      });
-    }
   }
 
   async _applyBgOpts(bg, { persist = true } = {}) {
@@ -2155,7 +2121,6 @@ class HybridSettings {
       subtitleEl.textContent = subtitleMap[value] || subtitleMap.dither;
     }
 
-    this._syncCustomBackgroundSelect(value);
     this._syncAccordionGallery(value);
 
     this._emitWelcomeSettings({

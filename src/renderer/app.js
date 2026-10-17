@@ -751,7 +751,9 @@ class HybridApp {
   _setupSharedTextureVideo() {
     const canvas = document.getElementById('videoCanvas');
     if (!canvas) return;
-    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    canvas.style.display = 'none';
+    canvas.style.visibility = 'hidden';
+    const ctx = canvas.getContext('2d', { alpha: false });
 
     if (window.hybridTextures && typeof window.hybridTextures.onFrame === 'function') {
       window.hybridTextures.onFrame((frame) => {
@@ -764,6 +766,12 @@ class HybridApp {
         }
         if (ctx) {
           ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+        }
+        if (canvas.style.display !== 'block') {
+          canvas.style.display = 'block';
+        }
+        if (canvas.style.visibility !== 'visible') {
+          canvas.style.visibility = 'visible';
         }
       });
       if (typeof window.hybridTextures.notifyReady === 'function') {

@@ -24,3 +24,4 @@ _inspect_installer/
 *.mkv
 assets/*.mkv
 src/native/dx_bridge/build/
+audit-evidence/

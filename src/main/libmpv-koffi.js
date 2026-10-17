@@ -72,7 +72,8 @@ function bindLibMpv(dllPath) {
     command_string: lib.func('int mpv_command_string(mpv_handle *ctx, const char *args)'),
     set_option_string: lib.func('int mpv_set_option_string(mpv_handle *ctx, const char *name, const char *data)'),
     set_property_string: lib.func('int mpv_set_property_string(mpv_handle *ctx, const char *name, const char *data)'),
-    get_property_string: lib.func('char *mpv_get_property_string(mpv_handle *ctx, const char *name)'),
+    get_property_string: lib.func('void *mpv_get_property_string(mpv_handle *ctx, const char *name)'),
+    free: lib.func('void mpv_free(void *data)'),
     observe_property: lib.func('int mpv_observe_property(mpv_handle *ctx, uint64_t reply_userdata, const char *name, int format)'),
     unobserve_property: lib.func('int mpv_unobserve_property(mpv_handle *ctx, uint64_t registered_reply_userdata)'),
     wait_event: lib.func('void *mpv_wait_event(mpv_handle *ctx, double timeout)'),
@@ -161,7 +162,16 @@ class LibmpvContext extends EventEmitter {
 
   getPropertyString(name) {
     if (this.destroyed || !this.handle) return null;
-    return this.funcs.get_property_string(this.handle, String(name));
+    const strPtr = this.funcs.get_property_string(this.handle, String(name));
+    if (!strPtr) return null;
+    try {
+      if (typeof koffi.decode?.string === 'function') {
+        return koffi.decode.string(strPtr);
+      }
+      return koffi.decode(strPtr, 'char', -1);
+    } finally {
+      this.funcs.free(strPtr);
+    }
   }
 
   observeProperty(id, name, format = 1) {

@@ -60,6 +60,15 @@ class CursorManager {
       this._isMouseDown = false;
     }, { passive: true });
 
+    // Focusing/leaving a form field should reveal the cursor immediately and
+    // re-arm (or release) the idle timer afterwards.
+    window.addEventListener('focusin', () => {
+      this._showCursor();
+    }, { passive: true });
+    window.addEventListener('focusout', () => {
+      this.resume();
+    }, { passive: true });
+
     this._setupModalObserver();
   }
 
@@ -155,6 +164,11 @@ class CursorManager {
       this._resetTimer();
       return;
     }
+    // Never hide the cursor while the user is typing in a form field.
+    if (this._isEditableFocused()) {
+      this._resetTimer();
+      return;
+    }
     this.container.classList.add('cursor-hidden');
     if (this._isFullscreen) {
       document.body.classList.add('force-hide-cursor');
@@ -163,6 +177,16 @@ class CursorManager {
 
   _isModalOpen() {
     return !!document.querySelector('.modal-overlay:not([hidden])');
+  }
+
+  _isEditableFocused() {
+    const el = document.activeElement;
+    return !!el && (
+      el.tagName === 'INPUT' ||
+      el.tagName === 'SELECT' ||
+      el.tagName === 'TEXTAREA' ||
+      el.isContentEditable
+    );
   }
 }
 

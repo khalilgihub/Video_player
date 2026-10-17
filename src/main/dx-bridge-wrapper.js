@@ -72,26 +72,31 @@ class DxBridgeManager {
 
   init(mpvHandlePtr, width = 1280, height = 720) {
     if (this.initialized) return true;
-    this.addon = getNativeAddon();
+    try {
+      this.addon = getNativeAddon();
 
-    const ptr = typeof mpvHandlePtr === 'bigint' ? mpvHandlePtr : BigInt(mpvHandlePtr);
-    this.currentWidth = width;
-    this.currentHeight = height;
+      const ptr = typeof mpvHandlePtr === 'bigint' ? mpvHandlePtr : BigInt(mpvHandlePtr);
+      this.currentWidth = width;
+      this.currentHeight = height;
 
-    const ok = this.addon.init({
-      mpvHandle: ptr,
-      width,
-      height,
-      flipY: 0,
-      onFrame: (bufferIndex, w, h) => {
-        this.onFrameReady(bufferIndex, w, h);
+      const ok = this.addon.init({
+        mpvHandle: ptr,
+        width,
+        height,
+        flipY: 0,
+        onFrame: (bufferIndex, w, h) => {
+          this.onFrameReady(bufferIndex, w, h);
+        }
+      });
+
+      if (ok) {
+        this.initialized = true;
       }
-    });
-
-    if (ok) {
-      this.initialized = true;
+      return !!ok;
+    } catch (e) {
+      console.warn('[DxBridgeManager] init failed:', e?.message || e);
+      return false;
     }
-    return ok;
   }
 
   async onFrameReady(bufferIndex, width, height) {
@@ -105,14 +110,17 @@ class DxBridgeManager {
       return;
     }
 
+    let imported = null;
+    let releasedManually = false;
     try {
       const ntHandleBuffer = this.addon.getNtHandle(bufferIndex);
       if (!ntHandleBuffer || ntHandleBuffer.length < 8) {
-        this.addon.releaseBuffer(bufferIndex);
+        releasedManually = true;
+        if (this.addon) this.addon.releaseBuffer(bufferIndex);
         return;
       }
 
-      const imported = sharedTexture.importSharedTexture({
+      imported = sharedTexture.importSharedTexture({
         textureInfo: {
           handle: { ntHandle: ntHandleBuffer },
           codedSize: { width, height },
@@ -133,11 +141,15 @@ class DxBridgeManager {
           importedSharedTexture: imported
         });
       }
-      imported.release();
     } catch (err) {
       console.error('[DxBridgeManager] onFrameReady error:', err?.message || err);
-      if (this.addon) {
-        this.addon.releaseBuffer(bufferIndex);
+    } finally {
+      if (imported) {
+        imported.release();
+      } else if (!releasedManually) {
+        if (this.addon) {
+          this.addon.releaseBuffer(bufferIndex);
+        }
       }
     }
   }

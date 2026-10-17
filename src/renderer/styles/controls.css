@@ -241,7 +241,10 @@ body.playlist-open .controls-right #btnShuffle {
 @media (max-width: 1150px) {
   body.playlist-open .controls-right #bgSettingsToggle,
   body.playlist-open .controls-right #btnLock,
-  body.playlist-open .controls-right #btnABLoop {
+  body.playlist-open .controls-right #btnABLoop,
+  body.playlist-open .controls-right #btnEqualizer,
+  body.playlist-open .controls-right #btnAudioTrack,
+  body.playlist-open .controls-right #btnSubtitles {
     display: none;
   }
 }
@@ -633,11 +636,8 @@ body.playlist-open .controls-right #btnShuffle {
     margin-left: 2px;
   }
   body.playlist-open .volume-value,
-  body.playlist-open #btnSkipBack,
-  body.playlist-open #btnSkipForward,
-  body.playlist-open .controls-right #btnRecordClip,
   body.playlist-open .controls-right #btnScreenshot,
-  body.playlist-open .controls-right #btnPiP {
+  body.playlist-open .controls-right #btnSpeed {
     display: none;
   }
   body.playlist-open .time-display {
@@ -687,6 +687,13 @@ body.playlist-open .controls-right #btnShuffle {
     font-size: 11px;
     margin-left: 4px;
     gap: 2px;
+  }
+  /* With the queue open, the 320px sidebar squeezes the bar to ~290px on
+     640px-wide windows; drop prev/next (still reachable via P / N and the
+     queue itself) so the remaining controls never overlap. */
+  body.playlist-open .controls-left #btnPrev,
+  body.playlist-open .controls-left #btnNext {
+    display: none;
   }
 }
 

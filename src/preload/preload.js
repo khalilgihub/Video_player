@@ -219,7 +219,14 @@ contextBridge.exposeInMainWorld('hybridAPI', {
 });
 
 ipcRenderer.on('keyboard-escape', () => {
-  document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true, cancelable: true }));
+  // Dispatch on the focused element so synthetic Escape follows the same
+  // input-guard path as a real key press (e.g. typing in a search field must
+  // swallow the shortcut). Falling back to body keeps normal behavior when
+  // nothing in particular is focused.
+  const target = document.activeElement && document.activeElement !== document.documentElement
+    ? document.activeElement
+    : document.body;
+  target.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true, cancelable: true }));
 });
 
 contextBridge.exposeInMainWorld('hybridTextures', {

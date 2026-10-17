@@ -225,7 +225,23 @@ function formatFfmpegTimestamp(seconds) {
   return safeSeconds.toFixed(3);
 }
 
-function createClipOutputPath(filePath) {
+async function getEffectiveCapturesDir() {
+  if (mpvProcess && typeof mpvProcess.getEffectiveScreenshotDir === 'function') {
+    try {
+      const dir = await mpvProcess.getEffectiveScreenshotDir();
+      if (dir && typeof dir === 'string') return dir;
+    } catch (_) {}
+  }
+  if (mpvProcess && typeof mpvProcess.getScreenshotDir === 'function') {
+    const dir = mpvProcess.getScreenshotDir();
+    if (dir && typeof dir === 'string') return dir;
+  }
+  return (app && typeof app.getPath === 'function')
+    ? path.join(app.getPath('userData'), 'screenshots')
+    : path.join(__dirname, '../../screenshots');
+}
+
+function createClipOutputPath(filePath, outputDir = null) {
   const parsed = path.parse(filePath);
   const now = new Date();
   const pad = (value) => String(value).padStart(2, '0');
@@ -239,12 +255,19 @@ function createClipOutputPath(filePath) {
     pad(now.getSeconds()),
   ].join('');
 
-  let candidate = path.join(parsed.dir, `${parsed.name}-clip-${stamp}${parsed.ext}`);
+  const destDir = outputDir || parsed.dir;
+  if (!fs.existsSync(destDir)) {
+    try {
+      fs.mkdirSync(destDir, { recursive: true });
+    } catch (_) {}
+  }
+
+  let candidate = path.join(destDir, `${parsed.name}-clip-${stamp}${parsed.ext}`);
   let counter = 1;
 
   while (fs.existsSync(candidate)) {
     counter += 1;
-    candidate = path.join(parsed.dir, `${parsed.name}-clip-${stamp}-${counter}${parsed.ext}`);
+    candidate = path.join(destDir, `${parsed.name}-clip-${stamp}-${counter}${parsed.ext}`);
   }
 
   return candidate;
@@ -290,7 +313,8 @@ async function clipMediaSegment({ filePath, startTime, duration }) {
   }
   const safeStartTime = Math.max(0, numericStartTime);
   const safeDuration = Math.max(0, numericDuration);
-  const outputPath = createClipOutputPath(targetPath);
+  const capturesDir = await getEffectiveCapturesDir();
+  const outputPath = createClipOutputPath(targetPath, capturesDir);
   const ffmpegArgs = [
     '-hide_banner',
     '-loglevel', 'error',
@@ -1345,9 +1369,18 @@ function setResizableWhileFullscreen(win, fullscreen) {
 function createMainWindow() {
   const isWindows = process.platform === 'win32';
   const useTransparentOnWindows = isWindows && USE_WINDOWS_TRANSPARENT_COMPOSITOR;
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const workArea = primaryDisplay ? primaryDisplay.workArea : null;
+  const initialWidth = workArea?.width ? workArea.width : WINDOWED_WIDTH;
+  const initialHeight = workArea?.height ? workArea.height : WINDOWED_HEIGHT;
+  const initialX = workArea?.x ?? 0;
+  const initialY = workArea?.y ?? 0;
+
   mainWindow = new BrowserWindow({
-    width: WINDOWED_WIDTH,
-    height: WINDOWED_HEIGHT,
+    x: initialX,
+    y: initialY,
+    width: initialWidth,
+    height: initialHeight,
     minWidth: 640,
     minHeight: 360,
     // Keep native maximize/resize path: fake-maximize + border suppression can break
@@ -1407,7 +1440,6 @@ function createMainWindow() {
     setupWindowsEraseBkgndHook(mainWindow);
     setupWindowsNcActivateHook(mainWindow);
     setupWindowsNcHitTestHook(mainWindow);
-    scheduleNativeDwmWindowStyles(mainWindow, [0, 80, 200]);
   }
   if (mainWindow.__hybridUseFakeMaximize) {
     scheduleWindowsBorderSuppression(mainWindow, 'createMainWindow');

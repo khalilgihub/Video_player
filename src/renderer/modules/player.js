@@ -8,6 +8,12 @@
  * their call-sites.
  */
 
+const SCREENSHOT_DEBUG = false;
+function screenshotdbg(...args) {
+  if (!SCREENSHOT_DEBUG) return;
+  console.log('[SCREENSHOT][renderer]', ...args);
+}
+
 class HybridPlayer {
   constructor() {
     this.videoContainer = document.getElementById('videoContainer');
@@ -767,12 +773,12 @@ class HybridPlayer {
 
   // ── Screenshot ─────────────────────────────────────────
   async takeScreenshot(format = null) {
-    console.log('[SCREENSHOT][renderer] takeScreenshot invoked', { format });
+    screenshotdbg('takeScreenshot invoked', { format });
     try {
       const payload = typeof format === 'string' && format
         ? await window.hybridAPI?.mpv?.screenshot('video', { format })
         : await window.hybridAPI?.mpv?.screenshot('video');
-      console.log('[SCREENSHOT][renderer] mpv.screenshot returned payload:', payload);
+      screenshotdbg('mpv.screenshot returned payload:', payload);
       this._recordSingleScreenshot(payload);
     } catch (err) {
       console.error('[SCREENSHOT][renderer] Screenshot failed:', err);
@@ -950,6 +956,7 @@ class HybridPlayer {
   async stopBurstCapture() {
     if (!this._isBurstCapturing) return;
     this._isBurstCapturing = false;
+    const stoppedSessionId = this._burstSessionId;
 
     if (this._burstCaptureTimer) {
       clearInterval(this._burstCaptureTimer);
@@ -966,6 +973,12 @@ class HybridPlayer {
       } catch (_) {}
     }
 
+    // A new burst may have been started while we were awaiting the in-flight
+    // frame. If so, this stop is stale: leave the new session untouched.
+    if (this._isBurstCapturing || this._burstSessionId !== stoppedSessionId) {
+      return;
+    }
+
     const total = this._burstFrameCount;
     if (total === 0) {
       // 0-frame quick tap fallback: cleanly hide indicator and take a single screenshot
@@ -978,7 +991,7 @@ class HybridPlayer {
 
     const unit = total === 1 ? 'frame' : 'frames';
     window.HybridApp?.controlsModule?.setRecordingState(false, `✓ Saved ${total} ${unit}`);
-    await window.hybridAPI?.mpv?.finalizeBurstSession(this._burstSessionId, total);
+    await window.hybridAPI?.mpv?.finalizeBurstSession(stoppedSessionId, total);
   }
 
   _showScreenshotPreview(payload) {
@@ -1008,7 +1021,7 @@ class HybridPlayer {
       || (cleanedBase64 ? `data:${mimeType};base64,${cleanedBase64}` : '')
       || previewUrl;
 
-    console.log('[SCREENSHOT][renderer] _showScreenshotPreview invoked:', {
+    screenshotdbg('_showScreenshotPreview invoked:', {
       filePath,
       hasDataUrl: !!previewDataUrl,
       dataUrlLength: previewDataUrl?.length || 0,
@@ -1059,7 +1072,7 @@ class HybridPlayer {
     const image = preview.querySelector('img');
     if (image) {
       image.onload = () => {
-        console.log('[SCREENSHOT][renderer] Screenshot preview image loaded successfully in DOM');
+        screenshotdbg('Screenshot preview image loaded successfully in DOM');
       };
       let retriedPreviewUrl = false;
       image.onerror = (err) => {

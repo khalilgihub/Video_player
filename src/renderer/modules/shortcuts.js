@@ -10,6 +10,12 @@
  * - Input Safety: Ignores hotkeys when typing in text inputs, textareas, or select dropdowns.
  */
 
+const FS_DEBUG = false;
+function fsdbg(...args) {
+  if (!FS_DEBUG) return;
+  console.log('[FSDBG][renderer-shortcuts]', ...args);
+}
+
 const SHORTCUT_CATALOG = Object.freeze([
   // Screenshots & Recording
   { id: 'screenshot', action: 'screenshot', label: 'Take Screenshot (Hold for Burst)', category: 'Screenshots & Recording', defaultCombo: 'KeyS' },
@@ -575,7 +581,7 @@ class HybridShortcuts {
       }
 
       if (code === 'KeyF' || code === 'Escape' || action === 'toggle-fullscreen' || action === 'exit-fullscreen') {
-        console.log('[FSDBG][renderer-shortcuts] keydown ' + JSON.stringify({
+        fsdbg('keydown ' + JSON.stringify({
           code,
           key: e.key,
           action,
@@ -634,13 +640,31 @@ class HybridShortcuts {
 
       e.preventDefault();
       if (action === 'toggle-fullscreen' || action === 'exit-fullscreen') {
-        console.log('[FSDBG][renderer-shortcuts] execute action', action);
+        fsdbg('execute action', action);
       }
       this._executeAction(action, e);
     });
 
     document.addEventListener('keyup', (e) => {
       if (window.__hybridRecordingShortcut) return;
+      // Mirror the keydown guard: a key released while focus sits in an input
+      // must not fire actions (e.g. typing "s" in the playlist search must not
+      // take a screenshot). Also drop any pending hold-to-burst state.
+      if (
+        e.target.tagName === 'INPUT' ||
+        e.target.tagName === 'SELECT' ||
+        e.target.tagName === 'TEXTAREA' ||
+        e.target.isContentEditable ||
+        e.target.closest?.('input, select, textarea, [contenteditable="true"]')
+      ) {
+        if (this._keySHoldTimer) {
+          clearTimeout(this._keySHoldTimer);
+          this._keySHoldTimer = null;
+        }
+        this._keySPressed = false;
+        this._activeScreenshotCode = null;
+        return;
+      }
       const releaseAction = this._resolveActionForEvent(e);
       if (
         (this._keySPressed && e.code && e.code === this._activeScreenshotCode) ||

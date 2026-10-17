@@ -60,6 +60,12 @@
   --brand-logo-size-lg: 64px;
   --brand-corner-radius: 14px;
   --brand-glow-strength: 0.28;
+
+  /* yt-dlp status semantics (overridden per theme below) */
+  --ytdlp-info: #00f2fe;
+  --ytdlp-ok: #4ade80;
+  --ytdlp-pending: #facc15;
+  --ytdlp-error: #ef4444;
 }
 
 /* ─── Dark Theme (Default) ─── */
@@ -192,6 +198,12 @@
   --brand-text-mid: #425470;
   --brand-card-bg: #f3f7fd;
   --brand-card-top: #dde7f7;
+
+  /* yt-dlp status on light surfaces (>=4.5:1 on #f5f5fa) */
+  --ytdlp-info: #0369a1;
+  --ytdlp-ok: #15803d;
+  --ytdlp-pending: #854d0e;
+  --ytdlp-error: #b91c1c;
 }
 
 /* Light theme titlebar text fix — keep light over dark welcome screen & video canvas */

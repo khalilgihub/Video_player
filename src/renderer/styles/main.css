@@ -350,6 +350,12 @@ body.app-unfocused .welcome-bg-settings {
   pointer-events: auto;
 }
 
+body.welcome-active #videoCanvas,
+body.app-cold-start #videoCanvas {
+  display: none !important;
+  visibility: hidden !important;
+}
+
 .network-loading-spinner {
   position: absolute;
   left: 50%;
@@ -591,34 +597,56 @@ body.force-hide-cursor * {
   margin-left: 1px;
 }
 
-/* ─── Apple Dynamic Island Burst & Recording Indicator ─── */
+/* ─── Apple Dynamic Island Burst & Recording Indicator (Design 2: Liquid Dynamic Island) ─── */
 .recording-indicator {
   position: absolute;
-  top: 52px;
+  top: 48px;
   left: 50%;
   transform: translateX(-50%);
   display: inline-grid;
   grid-template-areas: "slot";
   align-items: center;
-  height: 36px;
+  height: 30px;
   border-radius: 999px;
-  background: rgba(14, 16, 22, 0.82);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 12, 18, 0.85);
+  backdrop-filter: blur(32px) saturate(190%);
+  -webkit-backdrop-filter: blur(32px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   color: #ffffff;
   font-family: var(--font-ui, 'Plus Jakarta Sans', system-ui, sans-serif);
-  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 24px -2px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
   z-index: 54;
   user-select: none;
   overflow: hidden;
   perspective: 350px;
-  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+              background 0.3s ease,
+              border-color 0.3s ease,
+              box-shadow 0.3s ease;
   animation: recordingPillIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.recording-indicator.collapsed:not(:hover) {
+  transform: translateX(-50%) scale(0.96);
+  background: rgba(10, 12, 18, 0.78);
+  box-shadow: 0 6px 18px -2px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+
+.recording-indicator.collapsed:not(:hover) .recording-title {
+  display: none;
+}
+
+.recording-indicator:hover,
+.recording-indicator:focus-within {
+  transform: translateX(-50%) scale(1.02);
+  background: rgba(10, 12, 18, 0.94);
+  border-color: rgba(255, 255, 255, 0.24);
+  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+}
+
 .recording-indicator.hiding {
-  transform: translate(-50%, -6px) scale(0.96);
+  transform: translate(-50%, -6px) scale(0.94);
   opacity: 0;
   filter: blur(4px);
   pointer-events: none;
@@ -626,7 +654,7 @@ body.force-hide-cursor * {
 
 @keyframes recordingPillIn {
   from {
-    transform: translate(-50%, -10px) scale(0.94);
+    transform: translate(-50%, -10px) scale(0.92);
     opacity: 0;
   }
   to {
@@ -644,12 +672,13 @@ body.force-hide-cursor * {
   grid-area: slot;
   display: inline-flex;
   align-items: center;
-  gap: 12px;
-  height: 36px;
+  gap: 9px;
+  height: 30px;
   box-sizing: border-box;
-  padding: 6px 14px;
+  padding: 4px 12px;
   white-space: nowrap;
   pointer-events: none;
+  transition: gap 0.25s ease, padding 0.25s ease;
 }
 
 /* Active Capturing View */
@@ -668,7 +697,7 @@ body.force-hide-cursor * {
   transition: opacity 0.10s ease-in 0s, transform 0.12s cubic-bezier(0.4, 0, 1, 1) 0s;
 }
 
-/* Saved to Screenshots View */
+/* Saved to Screenshots / Clips View */
 .recording-view-saved {
   opacity: 0;
   transform: rotateX(-80deg);
@@ -686,8 +715,8 @@ body.force-hide-cursor * {
 
 /* Ruby Camera Glyph */
 .recording-icon-cam {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
   fill: none;
   stroke: #ff3b30;
   stroke-width: 2;
@@ -714,10 +743,194 @@ body.force-hide-cursor * {
   }
 }
 
+/* ─── Style 3A: Top-Center Bezel Tab for Clip Recording ─── */
+.recording-indicator.clip-active {
+  position: fixed !important;
+  top: 0 !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  height: 28px !important;
+  border-radius: 0 0 10px 10px !important;
+  border-top: none !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.15) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+  background: rgba(10, 12, 18, 0.92) !important;
+  backdrop-filter: blur(24px) saturate(190%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(190%) !important;
+  box-shadow: 0 6px 20px -2px rgba(0, 0, 0, 0.7) !important;
+  padding: 0 !important;
+  z-index: 2500 !important;
+  -webkit-app-region: no-drag !important;
+  pointer-events: auto !important;
+}
+
+.recording-indicator.clip-active * {
+  -webkit-app-region: no-drag !important;
+}
+
+.recording-indicator.clip-active .recording-view-active {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  height: 28px !important;
+  padding: 0 10px !important;
+  pointer-events: auto !important;
+  -webkit-app-region: no-drag !important;
+}
+
+/* Strictly hide all elements on the left side of the timer */
+.recording-indicator.clip-active .recording-icon-cam,
+.recording-indicator.clip-active .recording-waveform,
+.recording-indicator.clip-active .recording-title,
+.recording-indicator.clip-active .recording-chip {
+  display: none !important;
+}
+
+/* Clean High-Precision Monospace Clip Timer (e.g. 00:41.2) */
+.recording-clip-duration {
+  display: none;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffffff;
+  background: transparent;
+  border: none;
+  padding: 0;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+.recording-indicator.clip-active .recording-clip-duration {
+  display: inline-block !important;
+}
+
+/* Hairline Divider | */
+.recording-clip-divider {
+  display: none;
+  width: 1px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+}
+
+.recording-indicator.clip-active .recording-clip-divider {
+  display: block !important;
+}
+
+/* Dynamic Island Stop Button with Folder Morph */
+.recording-stop-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  padding: 0;
+  border-radius: 5px;
+  background: #e11d48;
+  border: none;
+  color: #ffffff;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: none !important;
+  pointer-events: auto !important;
+  -webkit-app-region: no-drag !important;
+  z-index: 2501 !important;
+  transition: background-color 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.2s ease;
+}
+
+.recording-indicator.clip-active .recording-stop-btn {
+  display: inline-flex !important;
+}
+
+/* Expanded click hitbox so user never misses the button */
+.recording-indicator.clip-active .recording-stop-btn::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  cursor: pointer;
+  -webkit-app-region: no-drag !important;
+}
+
+.recording-indicator.clip-active .recording-stop-btn:hover {
+  background: #f43f5e;
+  box-shadow: none !important;
+}
+
+.recording-indicator.clip-active .recording-stop-btn:active {
+  transform: scale(0.9);
+}
+
+.recording-indicator.clip-active .recording-stop-text {
+  display: none !important;
+}
+
+/* Button Pop Spring */
+@keyframes recordingBtnPop {
+  0% { transform: scale(1); }
+  40% { transform: scale(0.86); }
+  75% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+.recording-stop-btn.btn-pop {
+  animation: recordingBtnPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards !important;
+}
+
+/* Red -> Green Color Transition */
+.recording-stop-btn.morph-green {
+  background-color: #10b981 !important;
+}
+
+/* Square Icon (Default Stop) */
+.recording-stop-square {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  fill: #ffffff;
+  pointer-events: none !important;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 1, 1), opacity 0.2s ease;
+}
+
+.recording-stop-square.hide-square {
+  transform: scale(0.3) rotate(45deg);
+  opacity: 0;
+}
+
+/* Folder Icon (Save Transition) */
+.recording-stop-folder {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  fill: #ffffff;
+  opacity: 0;
+  transform: scale(0.3) rotate(-20deg);
+  pointer-events: none;
+  transition: transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.2s ease;
+}
+
+.recording-stop-folder.show-folder {
+  transform: scale(1) rotate(0deg) !important;
+  opacity: 1 !important;
+}
+
+/* Tab Bezel Glide Exit */
+.recording-indicator.tab-exit-up {
+  transform: translate(-50%, -100%) scale(0.96) !important;
+  opacity: 0 !important;
+  filter: blur(3px) !important;
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  pointer-events: none !important;
+}
+
 /* Folder Glyph for Saved State */
 .recording-icon-folder {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   stroke: #38bdf8;
   stroke-width: 2;
   fill: none;
@@ -727,7 +940,7 @@ body.force-hide-cursor * {
 }
 
 .recording-title {
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
   color: #ffffff;
   letter-spacing: -0.01em;
@@ -735,37 +948,37 @@ body.force-hide-cursor * {
   line-height: 1;
 }
 
-/* Active Count Chip */
+/* Active Count Chip for Burst */
 .recording-chip {
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 3px 10px;
+  padding: 2px 8px;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   box-sizing: border-box;
 }
 
 .recording-count {
   font-variant-numeric: tabular-nums;
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-weight: 700;
   color: #ffffff;
   display: inline-block;
-  min-width: 18px;
+  min-width: 16px;
   text-align: right;
   transition: color 0.15s ease, transform 0.15s ease;
 }
 
 .recording-unit {
-  font-size: 11px;
+  font-size: 10.5px;
   color: rgba(255, 255, 255, 0.65);
   font-weight: 500;
 }
 
 .recording-pts {
-  font-size: 11px;
+  font-size: 10.5px;
   font-family: var(--font-mono, monospace);
   color: rgba(255, 255, 255, 0.45);
   margin-left: 2px;
@@ -792,7 +1005,7 @@ body.force-hide-cursor * {
 /* Hairline Divider & Saved Frames */
 .recording-divider {
   width: 1px;
-  height: 14px;
+  height: 12px;
   background: rgba(255, 255, 255, 0.18);
   flex-shrink: 0;
 }
@@ -800,7 +1013,7 @@ body.force-hide-cursor * {
 .recording-saved-frames {
   flex: 1;
   text-align: center;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: #38bdf8;
   font-variant-numeric: tabular-nums;

@@ -37,6 +37,29 @@ class HybridControls {
     this.recordingUnit       = document.getElementById('recordingUnit');
     this.recordingPts        = document.getElementById('recordingPts');
     this.recordingSavedFrames = document.getElementById('recordingSavedFrames');
+    this.recordingWaveform   = document.getElementById('recordingWaveform');
+    this.recordingClipDuration = document.getElementById('recordingClipDuration');
+    this.recordingStopBtn    = document.getElementById('recordingStopBtn');
+    this._clipTimerInterval  = null;
+    this._clipStartTime      = 0;
+    this._collapseTimer      = null;
+
+    if (this.recordingStopBtn) {
+      const triggerStop = (e) => {
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        if (window.HybridApp?.stopClipRecording) {
+          window.HybridApp.stopClipRecording();
+        } else if (this.player?.app?.stopClipRecording) {
+          this.player.app.stopClipRecording();
+        }
+      };
+      this.recordingStopBtn.addEventListener('click', triggerStop);
+      this.recordingStopBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+      this.recordingStopBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+    }
 
     // Play/Pause icons
     this.iconPlay  = document.querySelector('.icon-play');
@@ -709,6 +732,16 @@ class HybridControls {
 
     const canHideChrome = () => {
       if (this._mouseOverControls || isDraggingAny()) return false;
+      // Never hide the chrome while a modal is open or the user is typing —
+      // the controls would vanish behind the modal / mid-search.
+      if (document.querySelector('.modal-overlay:not([hidden])')) return false;
+      const active = document.activeElement;
+      if (active && (
+        active.tagName === 'INPUT' ||
+        active.tagName === 'SELECT' ||
+        active.tagName === 'TEXTAREA' ||
+        active.isContentEditable
+      )) return false;
       const welcomeScreen = document.getElementById('welcomeScreen');
       const hasMedia = !welcomeScreen || welcomeScreen.classList.contains('hidden');
       const isFullscreen = document.body.classList.contains('is-fullscreen');
@@ -1299,7 +1332,6 @@ class HybridControls {
         document.body.classList.toggle('is-fullscreen', isFs);
         document.body.classList.toggle('is-maximized', !isFs && !!window.HybridApp._windowVisualState.isMaximized);
       }
-      window.HybridToast?.show(isFs ? 'Fullscreen (F / Esc)' : 'Windowed (F)', { duration: 1500 });
       return isFs;
     } catch (err) {
       window.hybridAPI?.window?.logFullscreen?.('renderer:toggleFullscreen:error', { error: String(err) });
@@ -1546,6 +1578,7 @@ class HybridControls {
 
     clearTimeout(this.recordingIndicatorTimer);
     clearTimeout(this._recordingHideTimer);
+    clearTimeout(this._collapseTimer);
     this.recordingIndicator.classList.remove('hiding');
     this.recordingIndicator.hidden = false;
     this.recordingIndicator.classList.toggle('active', !!isRecording);
@@ -1554,10 +1587,13 @@ class HybridControls {
     const strText = String(text || '');
     const isBurst = strText.includes('Burst') || strText.includes('burst') || strText.includes('frames');
     const isSaved = strText.includes('Saved') || strText.includes('saved') || strText.includes('✓');
+    const isStopClip = strText.includes('Stop Recording') || strText.includes('Clip');
 
     if (isRecording) {
-      this.recordingIndicator.classList.remove('saved');
+      this.recordingIndicator.classList.remove('saved', 'collapsed', 'tab-exit-up');
       if (isBurst) {
+        clearInterval(this._clipTimerInterval);
+        this.recordingIndicator.classList.remove('clip-active');
         this.recordingIndicator.classList.add('burst-active');
         if (this.recordingIndicatorTitle) this.recordingIndicatorTitle.textContent = 'Burst Capturing';
 
@@ -1583,11 +1619,70 @@ class HybridControls {
         }
         if (this.recordingPts) this.recordingPts.textContent = pts;
       } else {
-        this.recordingIndicator.classList.remove('burst-active');
-        if (this.recordingIndicatorTitle) this.recordingIndicatorTitle.textContent = strText;
+        // Screen / Clip Recording (Style 3A Flush Bezel Tab)
+        this.recordingIndicator.classList.remove('burst-active', 'saved', 'tab-exit-up');
+        this.recordingIndicator.classList.add('clip-active');
+        if (this.recordingIndicatorTitle) this.recordingIndicatorTitle.textContent = 'Recording';
+
+        // Reset morph states for stop button
+        this.recordingStopBtn?.classList.remove('morph-green', 'btn-pop');
+        document.getElementById('recordingStopSquare')?.classList.remove('hide-square');
+        document.getElementById('recordingStopFolder')?.classList.remove('show-folder');
+
+        // High precision live clip timer (00:00.0)
+        clearInterval(this._clipTimerInterval);
+        this._clipStartTime = Date.now();
+        const updateClipTimer = () => {
+          const elapsedMs = Date.now() - this._clipStartTime;
+          const totalSec = elapsedMs / 1000;
+          const mins = String(Math.floor(totalSec / 60)).padStart(2, '0');
+          const secs = String(Math.floor(totalSec % 60)).padStart(2, '0');
+          const tenths = Math.floor((totalSec % 1) * 10);
+          if (this.recordingClipDuration) {
+            this.recordingClipDuration.textContent = `${mins}:${secs}.${tenths}`;
+          }
+        };
+        updateClipTimer();
+        this._clipTimerInterval = setInterval(updateClipTimer, 100);
       }
     } else {
-      this.recordingIndicator.classList.remove('active', 'burst-active');
+      clearInterval(this._clipTimerInterval);
+
+      const wasClip = this.recordingIndicator.classList.contains('clip-active') || isStopClip;
+
+      // Style 3A Stop Morph Flow for Clip Recording
+      if (wasClip && !isBurst) {
+        const stopSquare = document.getElementById('recordingStopSquare');
+        const stopFolder = document.getElementById('recordingStopFolder');
+
+        // 1. Tactile spring pop + Red -> Green morph
+        if (this.recordingStopBtn) {
+          this.recordingStopBtn.classList.remove('morph-green', 'btn-pop');
+          void this.recordingStopBtn.offsetWidth;
+          this.recordingStopBtn.classList.add('morph-green', 'btn-pop');
+        }
+
+        // 2. Icon morph: Stop square hides, Folder appears
+        stopSquare?.classList.add('hide-square');
+        stopFolder?.classList.add('show-folder');
+
+        // 3. Hold for 1000ms showing final timestamp | [ 📁 ], then glide into bezel
+        this.recordingIndicatorTimer = setTimeout(() => {
+          this.recordingIndicator.classList.add('tab-exit-up');
+          this._recordingHideTimer = setTimeout(() => {
+            this.recordingIndicator.hidden = true;
+            this.recordingIndicator.classList.remove('active', 'clip-active', 'collapsed', 'tab-exit-up', 'hiding');
+            this.recordingStopBtn?.classList.remove('morph-green', 'btn-pop');
+            stopSquare?.classList.remove('hide-square');
+            stopFolder?.classList.remove('show-folder');
+          }, 350);
+        }, 1000);
+        return;
+      }
+
+      // Standard Burst Mode Finalize Flow
+      this.recordingIndicator.classList.remove('active', 'burst-active', 'clip-active', 'collapsed');
+
       if (isSaved) {
         const countMatch = strText.match(/Saved\s+(\d+)\s+frames?/i) || strText.match(/(\d+)/);
         const count = countMatch ? (countMatch[1] || countMatch[0]) : '0';
@@ -1596,7 +1691,7 @@ class HybridControls {
         if (numCount === 0) {
           // Zero frames saved: cancel/hide immediately without flashing "Saved 0 Frames"
           this.recordingIndicator.hidden = true;
-          this.recordingIndicator.classList.remove('saved', 'active', 'burst-active');
+          this.recordingIndicator.classList.remove('saved', 'active', 'burst-active', 'clip-active');
           return;
         }
 
@@ -1617,7 +1712,7 @@ class HybridControls {
         this._recordingHideTimer = setTimeout(() => {
           if (this.recordingIndicator.classList.contains('hiding')) {
             this.recordingIndicator.hidden = true;
-            this.recordingIndicator.classList.remove('hiding', 'saved');
+            this.recordingIndicator.classList.remove('hiding', 'saved', 'clip-active', 'collapsed');
           }
         }, 350);
       }, 1800);

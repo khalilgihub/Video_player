@@ -293,7 +293,7 @@
 
     <!-- ─── Video Container ─── -->
     <div class="video-container" id="videoContainer">
-      <canvas id="videoCanvas" class="video-canvas"></canvas>
+      <canvas id="videoCanvas" class="video-canvas" style="display: none;"></canvas>
       <!-- mpv renders directly into this container via --wid or shared texture bridge -->
       <div id="mpvContainer" class="mpv-container"></div>
       <div id="video-curtain" class="video-curtain" aria-hidden="true"></div>
@@ -363,7 +363,28 @@
             <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
             <circle cx="12" cy="13" r="4"></circle>
           </svg>
+          <!-- Dynamic Island Audio Waveform (for Screen / Clip Recording) -->
+          <div class="recording-waveform" id="recordingWaveform" aria-hidden="true">
+            <span class="recording-wave-bar"></span>
+            <span class="recording-wave-bar"></span>
+            <span class="recording-wave-bar"></span>
+            <span class="recording-wave-bar"></span>
+          </div>
           <span class="recording-title" id="recordingIndicatorTitle">Burst Capturing</span>
+          <!-- Dynamic Island Live Duration (for Screen / Clip Recording) -->
+          <span class="recording-clip-duration" id="recordingClipDuration">00:00.0</span>
+          <!-- Vertical Hairline Divider for Minimal Clip HUD -->
+          <div class="recording-clip-divider" id="recordingClipDivider" aria-hidden="true"></div>
+          <!-- Dynamic Island Stop Button with Smooth Square-to-Folder Morph -->
+          <button class="recording-stop-btn" id="recordingStopBtn" type="button" title="Stop Recording (Ctrl+R)" aria-label="Stop recording">
+            <svg class="recording-stop-square" id="recordingStopSquare" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="5" y="5" width="14" height="14" rx="2"></rect>
+            </svg>
+            <svg class="recording-stop-folder" id="recordingStopFolder" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"></path>
+            </svg>
+            <span class="recording-stop-text" id="recordingStopText">Stop</span>
+          </button>
           <div class="recording-chip" id="recordingChip">
             <span class="recording-count" id="recordingFrameCount">1</span>
             <span class="recording-unit" id="recordingUnit">frame</span>

@@ -71,6 +71,8 @@ class MpvProcess extends EventEmitter {
     this._screenshotFormat = 'png';
     this._autoOrganizeScreenshots = options.autoOrganizeScreenshots !== false;
     this._inputConfDir = null;
+    this.destroyed = false;
+    this._reconnectTimer = null;
   }
 
   // ─── Resolve mpv binaries ──────────────────────────────
@@ -276,7 +278,17 @@ class MpvProcess extends EventEmitter {
 
         if (useDxBridge) {
           const ptr = this._libmpv.getHandleAddress ? this._libmpv.getHandleAddress() : (koffi ? koffi.address(this._libmpv.handle) : 0n);
-          dxBridgeManager.init(ptr, 1280, 720);
+          let bridgeOk = false;
+          try {
+            bridgeOk = dxBridgeManager.init(ptr, 1280, 720);
+          } catch (e) {
+            console.warn('[mpv-process] dxBridgeManager.init error:', e?.message || e);
+          }
+          if (!bridgeOk && hwnd) {
+            console.warn('[mpv-process] dxBridgeManager failed, fallback to native window wid');
+            this._libmpv.setOptionString('wid', hwnd);
+            this._libmpv.setOptionString('vo', 'gpu');
+          }
         }
 
         this.inProcess = true;
@@ -467,10 +479,15 @@ class MpvProcess extends EventEmitter {
     });
 
     // Give mpv a moment to create the pipe, then connect
-    setTimeout(() => this._connectSocket(), 300);
+    if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
+    this._reconnectTimer = setTimeout(() => this._connectSocket(), 300);
   }
 
   _handleProcessTermination(code) {
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
     if (this._terminationEmitted) return;
     this._terminationEmitted = true;
     if (code !== 0 && code !== null) {
@@ -484,9 +501,19 @@ class MpvProcess extends EventEmitter {
 
   // ─── IPC Socket ────────────────────────────────────────
   _connectSocket(retries = 10) {
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+    if (this.destroyed || this._terminationEmitted || !this.process) return;
+
     const sock = net.createConnection(this.pipeName);
 
     sock.on('connect', () => {
+      if (this.destroyed || this._terminationEmitted || !this.process) {
+        try { sock.destroy(); } catch {}
+        return;
+      }
       this.socket = sock;
       this.ready = true;
       this._recvBuf = '';
@@ -501,8 +528,9 @@ class MpvProcess extends EventEmitter {
     sock.on('data', (chunk) => this._onData(chunk));
 
     sock.on('error', (err) => {
+      if (this.destroyed || this._terminationEmitted || !this.process) return;
       if (retries > 0) {
-        setTimeout(() => this._connectSocket(retries - 1), 200);
+        this._reconnectTimer = setTimeout(() => this._connectSocket(retries - 1), 200);
       } else {
         this.emit('error', new Error('Could not connect to mpv IPC pipe: ' + err.message));
       }
@@ -1011,6 +1039,11 @@ class MpvProcess extends EventEmitter {
 
   // ─── Lifecycle ─────────────────────────────────────────
   destroy() {
+    this.destroyed = true;
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
     try {
       dxBridgeManager.destroy();
     } catch {}
