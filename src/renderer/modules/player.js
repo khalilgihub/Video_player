@@ -1211,8 +1211,18 @@ class HybridPlayer {
     window.hybridAPI?.window?.setPreventExitFullscreen?.(true);
   }
 
+  _releasePreventExitFullscreenIfNoModals() {
+    const hasOpenModal = Array.from(document.querySelectorAll('.modal-overlay:not([hidden])')).some(
+      (m) => !m.classList.contains('modal-closing')
+    ) || Boolean(window.HybridApp?.settingsModule?.hasOpenModal?.());
+
+    if (!hasOpenModal) {
+      window.hybridAPI?.window?.setPreventExitFullscreen?.(false);
+    }
+  }
+
   closeScreenshotCarousel() {
-    window.hybridAPI?.window?.setPreventExitFullscreen?.(false);
+    this._releasePreventExitFullscreenIfNoModals();
     if (this._carouselEl) {
       const el = this._carouselEl;
       this._carouselEl = null;
@@ -1279,7 +1289,7 @@ class HybridPlayer {
 
     // Immediately mark carousel as inactive for input/open checks (Choice C: Immediate Close)
     this._carouselEl = null;
-    window.hybridAPI?.window?.setPreventExitFullscreen?.(false);
+    this._releasePreventExitFullscreenIfNoModals();
 
     if (carousel) {
       // 1. Instantly hide interactive overlays so only image + badge participate in the delete animation
@@ -1354,7 +1364,7 @@ class HybridPlayer {
 
     // Immediately mark carousel as inactive for input/open checks
     this._carouselEl = null;
-    window.hybridAPI?.window?.setPreventExitFullscreen?.(false);
+    this._releasePreventExitFullscreenIfNoModals();
 
     if (carousel) {
       // 1. Instantly hide interactive overlays so only image + badge participate in the restore animation
@@ -1429,6 +1439,9 @@ class HybridPlayer {
     const carousel = document.createElement('div');
     carousel.id = 'screenshotCarousel';
     carousel.className = 'screenshot-preview carousel-mode';
+    carousel.inert = false;
+    carousel.removeAttribute('aria-hidden');
+    delete carousel.dataset.hybridModalInert;
 
     // Status badge (top-left inside card)
     const badge = document.createElement('div');

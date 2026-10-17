@@ -433,7 +433,14 @@ class HybridApp {
         this.cursorManager?.setFullscreen(isFs);
       };
 
-      const applyFsTransition = () => {};
+      const applyFsTransition = () => {
+        document.body.classList.add('fs-transition');
+        if (this._fsTransitionTimer) clearTimeout(this._fsTransitionTimer);
+        this._fsTransitionTimer = setTimeout(() => {
+          document.body.classList.remove('fs-transition');
+          this._fsTransitionTimer = null;
+        }, 500);
+      };
 
       const DWM_RENDERER_DIAG = false;
 

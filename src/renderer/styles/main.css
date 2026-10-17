@@ -1495,11 +1495,22 @@ body[data-welcome-background='gridmotion'] .gridmotion-mount {
 }
 
 .faulty-mount canvas,
-.particles-mount canvas,
-.dither-mount canvas {
+.particles-mount canvas {
   display: block;
   width: 100% !important;
   height: 100% !important;
+}
+
+.dither-mount canvas {
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: crisp-edges;
 }
 
 .welcome-content {

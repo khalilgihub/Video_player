@@ -153,11 +153,13 @@ export function initParticles(containerElement, customOptions = {}) {
   let rafId = 0;
   let mouseMoveRafId = 0;
   let pendingMouseClient = null;
+  let particles = null;
 
   const renderer = new Renderer({
     dpr: options.pixelRatio,
     depth: false,
     alpha: false,
+    preserveDrawingBuffer: true,
   });
   const gl = renderer.gl;
   gl.clearColor(0, 0, 0, 1);
@@ -173,16 +175,92 @@ export function initParticles(containerElement, customOptions = {}) {
   const camera = new Camera(gl, { fov: 15 });
   camera.position.set(0, 0, options.cameraDistance);
 
-  const resize = () => {
+  let allocatedWidth = 0;
+  let allocatedHeight = 0;
+  let throttledReallocTimer = null;
+  let lastReallocTime = 0;
+  const THROTTLE_MS = 60;
+
+  const renderCurrentFrame = () => {
+    if (destroyed || !particles) return;
+    renderer.render({ scene: particles, camera });
+    window.HybridPerfMonitor?.markFrame?.('effect:particles');
+  };
+
+  const commitBufferResize = (width, height) => {
+    if (destroyed) return;
+    const targetW = Math.floor(width * options.pixelRatio);
+    const targetH = Math.floor(height * options.pixelRatio);
+    if (allocatedWidth === targetW && allocatedHeight === targetH) return;
+    allocatedWidth = targetW;
+    allocatedHeight = targetH;
+    renderer.setSize(width, height);
+  };
+
+  const scheduleThrottledBufferRealloc = () => {
+    const now = performance.now();
+    const elapsed = now - lastReallocTime;
+
+    const performRealloc = () => {
+      if (destroyed) return;
+      const w = options.renderWidth || containerElement.clientWidth || 1;
+      const h = options.renderHeight || containerElement.clientHeight || 1;
+      commitBufferResize(w, h);
+      camera.perspective({ aspect: w / Math.max(1, h) });
+      renderCurrentFrame();
+    };
+
+    if (elapsed >= THROTTLE_MS) {
+      if (throttledReallocTimer) {
+        clearTimeout(throttledReallocTimer);
+        throttledReallocTimer = null;
+      }
+      lastReallocTime = now;
+      performRealloc();
+    } else if (!throttledReallocTimer) {
+      throttledReallocTimer = setTimeout(() => {
+        throttledReallocTimer = null;
+        lastReallocTime = performance.now();
+        performRealloc();
+      }, THROTTLE_MS - elapsed);
+    }
+  };
+
+  const resize = (forceSyncRealloc = false) => {
     if (destroyed) return;
     const width = options.renderWidth || containerElement.clientWidth || 1;
     const height = options.renderHeight || containerElement.clientHeight || 1;
-    renderer.setSize(width, height);
-    camera.perspective({ aspect: gl.canvas.width / gl.canvas.height });
+
+    camera.perspective({ aspect: width / Math.max(1, height) });
+
+    const isBoundsAnimating = !!window._isWindowBoundsAnimating;
+    const now = performance.now();
+    const elapsed = now - lastReallocTime;
+    const shouldThrottle = (isBoundsAnimating || elapsed < THROTTLE_MS) && !forceSyncRealloc;
+
+    const targetW = Math.floor(width * options.pixelRatio);
+    const targetH = Math.floor(height * options.pixelRatio);
+    const needsResize = forceSyncRealloc || targetW !== allocatedWidth || targetH !== allocatedHeight;
+
+    if (needsResize) {
+      if (shouldThrottle) {
+        scheduleThrottledBufferRealloc();
+      } else {
+        if (throttledReallocTimer) {
+          clearTimeout(throttledReallocTimer);
+          throttledReallocTimer = null;
+        }
+        lastReallocTime = now;
+        commitBufferResize(width, height);
+        camera.perspective({ aspect: width / Math.max(1, height) });
+      }
+    }
+
+    renderCurrentFrame();
   };
+
   let resizeRafId = 0;
   const onWindowResize = () => {
-    if (window._isWindowBoundsAnimating) return;
     if (resizeRafId) return;
     resizeRafId = window.requestAnimationFrame(() => {
       resizeRafId = 0;
@@ -190,7 +268,7 @@ export function initParticles(containerElement, customOptions = {}) {
     });
   };
   window.addEventListener('resize', onWindowResize, false);
-  resize();
+  resize(true);
 
   let resizeObserver = null;
   let resizeTimeout = 0;
@@ -271,7 +349,8 @@ export function initParticles(containerElement, customOptions = {}) {
     depthTest: false,
   });
 
-  const particles = new Mesh(gl, { mode: gl.POINTS, geometry, program });
+  particles = new Mesh(gl, { mode: gl.POINTS, geometry, program });
+  renderCurrentFrame();
 
   let lastTime = performance.now();
   let elapsed = 0;
@@ -385,6 +464,10 @@ export function initParticles(containerElement, customOptions = {}) {
     if (resizeRafId) {
       cancelAnimationFrame(resizeRafId);
       resizeRafId = 0;
+    }
+    if (throttledReallocTimer) {
+      clearTimeout(throttledReallocTimer);
+      throttledReallocTimer = null;
     }
     gl.canvas.removeEventListener('webglcontextlost', onContextLost);
     window.removeEventListener('resize', onWindowResize, false);

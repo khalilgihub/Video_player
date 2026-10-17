@@ -127,7 +127,7 @@
   --text-secondary: #888890;
   --text-tertiary: #444448;
   
-  --border-color: rgba(255, 255, 255, 0.05);
+  --border-color: rgba(255, 255, 255, 0.12);
   --border-focus: rgba(255, 255, 255, 0.15);
   
   --accent: #e50914;
@@ -210,6 +210,18 @@
 [data-theme="light"] .titlebar { color: #ffffff; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75); }
 [data-theme="light"] .titlebar-btn { color: rgba(255, 255, 255, 0.9); }
 [data-theme="light"] .sidebar-playlist { background: var(--bg-secondary); }
+[data-theme="light"] .top-right-volume-osd {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+[data-theme="light"] .setting-version-badge {
+  background: rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  color: #0f172a;
+  font-weight: 600;
+}
 
 body.brand-font-disabled {
   --font-display: 'Segoe UI', sans-serif;

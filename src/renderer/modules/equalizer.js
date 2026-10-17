@@ -179,6 +179,11 @@ class HybridEqualizer {
       return;
     }
 
+    // Dynamic pre-amp attenuation:
+    // If any band has a positive gain, attenuate all bands by the peak positive gain
+    // so the filter output never exceeds 0 dBFS, preventing digital audio clipping.
+    const maxBandGain = Math.max(0, ...this.bands);
+
     // FFmpeg's `superequalizer` filter requires 18 band multipliers (range 0..20, 1.0 = 0dB).
     // Interpolate the 10 UI bands (-12dB..+12dB) across the 18 filter bands.
     const gains = [];
@@ -190,7 +195,9 @@ class HybridEqualizer {
       const b1 = this.bands[Math.min(k + 1, 9)] ?? b0;
       const db = (1 - f) * b0 + f * b1;
       const clampedDb = Math.max(-12, Math.min(12, db));
-      const mult = Math.max(0, Math.min(20, Math.pow(10, clampedDb / 20)));
+      // Attenuate by peak positive gain to prevent exceeding 0 dBFS
+      const attenuatedDb = clampedDb - maxBandGain;
+      const mult = Math.max(0, Math.min(20, Math.pow(10, attenuatedDb / 20)));
       gains.push(mult.toFixed(2));
     }
     const filterStr = `lavfi=[superequalizer=${gains.join(':')}]`;

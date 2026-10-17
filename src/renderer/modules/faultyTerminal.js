@@ -305,7 +305,7 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
   let pendingMouseClient = null;
 
   const timeOffset = Math.random() * 100;
-  const renderer = new Renderer({ dpr: options.dpr });
+  const renderer = new Renderer({ dpr: options.dpr, preserveDrawingBuffer: true });
   const gl = renderer.gl;
   gl.clearColor(0, 0, 0, 1);
 
@@ -376,22 +376,98 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
     }
   };
 
-  const resize = () => {
+  let allocatedWidth = 0;
+  let allocatedHeight = 0;
+  let throttledReallocTimer = null;
+  let lastReallocTime = 0;
+  const THROTTLE_MS = 60;
+
+  const renderCurrentFrame = () => {
+    if (destroyed) return;
+    renderer.render({ scene: mesh });
+    window.HybridPerfMonitor?.markFrame?.('effect:faulty');
+  };
+
+  const commitBufferResize = (width, height) => {
+    if (destroyed) return;
+    const targetW = Math.floor(width * options.dpr);
+    const targetH = Math.floor(height * options.dpr);
+    if (allocatedWidth === targetW && allocatedHeight === targetH) return;
+    allocatedWidth = targetW;
+    allocatedHeight = targetH;
+    renderer.setSize(width, height);
+  };
+
+  const scheduleThrottledBufferRealloc = () => {
+    const now = performance.now();
+    const elapsed = now - lastReallocTime;
+
+    const performRealloc = () => {
+      if (destroyed) return;
+      const w = options.renderWidth || Math.max(1, containerElement.offsetWidth || containerElement.clientWidth || 1);
+      const h = options.renderHeight || Math.max(1, containerElement.offsetHeight || containerElement.clientHeight || 1);
+      commitBufferResize(w, h);
+      const aspect = w / Math.max(h, 1);
+      const baseGridY = Array.isArray(options.gridMul) ? options.gridMul[1] : 1;
+      program.uniforms.uGridMul.value = new Float32Array([baseGridY * aspect, baseGridY]);
+      program.uniforms.iResolution.value = new Color(gl.canvas.width, gl.canvas.height, aspect);
+      renderCurrentFrame();
+    };
+
+    if (elapsed >= THROTTLE_MS) {
+      if (throttledReallocTimer) {
+        clearTimeout(throttledReallocTimer);
+        throttledReallocTimer = null;
+      }
+      lastReallocTime = now;
+      performRealloc();
+    } else if (!throttledReallocTimer) {
+      throttledReallocTimer = setTimeout(() => {
+        throttledReallocTimer = null;
+        lastReallocTime = performance.now();
+        performRealloc();
+      }, THROTTLE_MS - elapsed);
+    }
+  };
+
+  const resize = (forceSyncRealloc = false) => {
     if (destroyed) return;
     const width = options.renderWidth || Math.max(1, containerElement.offsetWidth || containerElement.clientWidth || 1);
     const height = options.renderHeight || Math.max(1, containerElement.offsetHeight || containerElement.clientHeight || 1);
 
-    renderer.setSize(width, height);
     const aspect = width / Math.max(height, 1);
+    const baseGridY = Array.isArray(options.gridMul) ? options.gridMul[1] : 1;
+    program.uniforms.uGridMul.value = new Float32Array([baseGridY * aspect, baseGridY]);
+
+    const isBoundsAnimating = !!window._isWindowBoundsAnimating;
+    const now = performance.now();
+    const elapsed = now - lastReallocTime;
+    const shouldThrottle = (isBoundsAnimating || elapsed < THROTTLE_MS) && !forceSyncRealloc;
+
+    const targetW = Math.floor(width * options.dpr);
+    const targetH = Math.floor(height * options.dpr);
+    const needsResize = forceSyncRealloc || targetW !== allocatedWidth || targetH !== allocatedHeight;
+
+    if (needsResize) {
+      if (shouldThrottle) {
+        scheduleThrottledBufferRealloc();
+      } else {
+        if (throttledReallocTimer) {
+          clearTimeout(throttledReallocTimer);
+          throttledReallocTimer = null;
+        }
+        lastReallocTime = now;
+        commitBufferResize(width, height);
+      }
+    }
+
     program.uniforms.iResolution.value = new Color(
       gl.canvas.width,
       gl.canvas.height,
       aspect
     );
 
-    // Keep terminal glyph cells proportional and square regardless of container aspect ratio
-    const baseGridY = Array.isArray(options.gridMul) ? options.gridMul[1] : 1;
-    program.uniforms.uGridMul.value = new Float32Array([baseGridY * aspect, baseGridY]);
+    renderCurrentFrame();
   };
 
   let isPaused = false;
@@ -452,7 +528,6 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
 
   let resizeRafId = 0;
   const onWindowResize = () => {
-    if (window._isWindowBoundsAnimating) return;
     if (resizeRafId) return;
     resizeRafId = window.requestAnimationFrame(() => {
       resizeRafId = 0;
@@ -460,7 +535,7 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
     });
   };
   window.addEventListener('resize', onWindowResize);
-  resize();
+  resize(true);
 
   let resizeTimeout = 0;
   if (!options.renderWidth && typeof ResizeObserver === 'function') {
@@ -501,7 +576,7 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
     }
     if (prevDpr !== options.dpr) {
       renderer.dpr = options.dpr;
-      resize();
+      resize(true);
     }
     applyOptionUniforms();
   };
@@ -527,6 +602,10 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
     if (resizeRafId) {
       cancelAnimationFrame(resizeRafId);
       resizeRafId = 0;
+    }
+    if (throttledReallocTimer) {
+      clearTimeout(throttledReallocTimer);
+      throttledReallocTimer = null;
     }
     gl.canvas.removeEventListener('webglcontextlost', onContextLost);
     window.removeEventListener('resize', onWindowResize);

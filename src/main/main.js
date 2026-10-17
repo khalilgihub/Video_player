@@ -573,6 +573,9 @@ const WM_NCHITTEST = 0x0084;
 const WM_NCPAINT = 0x0085;
 const WM_NCACTIVATE = 0x0086;
 const WM_ERASEBKGND = 0x0014;
+const WM_SIZING = 0x0214;
+const WM_ENTERSIZEMOVE = 0x0231;
+const WM_EXITSIZEMOVE = 0x0232;
 const HTCLIENT = 1;
 const HTLEFT = 10;
 const HTRIGHT = 11;
@@ -1262,18 +1265,13 @@ function isWindowMaximizedOrFullscreen(win) {
 }
 
 function resolveNcHitTest(win, lParamBuffer) {
-  if (!win || win.isDestroyed() || win.isMinimized()) return HTCLIENT;
+  if (!win || win.isDestroyed() || win.isMinimized()) return undefined;
 
-  // When maximized or fullscreen, lock all edges (treating them as standard client area)
-  // to prevent any DWM resize cursors/gestures from showing.
-  if (isWindowMaximizedOrFullscreen(win)) {
-    return HTCLIENT;
-  }
-
-  if (!win.isResizable()) return HTCLIENT;
+  const isMaxOrFs = isWindowMaximizedOrFullscreen(win);
+  if (!win.isResizable() && !isMaxOrFs) return undefined;
 
   const physicalPoint = readScreenPointFromLParam(lParamBuffer);
-  if (!physicalPoint) return HTCLIENT;
+  if (!physicalPoint) return undefined;
   const screenPoint = typeof screen.screenToDipPoint === 'function'
     ? screen.screenToDipPoint(physicalPoint)
     : physicalPoint;
@@ -1285,7 +1283,7 @@ function resolveNcHitTest(win, lParamBuffer) {
   };
 
   if (localPoint.x < 0 || localPoint.y < 0 || localPoint.x > bounds.width || localPoint.y > bounds.height) {
-    return HTCLIENT;
+    return undefined;
   }
 
   const exclusions = Array.isArray(win.__hybridNcHitTestExclusions) ? win.__hybridNcHitTestExclusions : [];
@@ -1298,6 +1296,14 @@ function resolveNcHitTest(win, lParamBuffer) {
   const top = localPoint.y <= RESIZE_BORDER_DIP;
   const bottom = localPoint.y >= bounds.height - RESIZE_BORDER_DIP;
 
+  if (isMaxOrFs) {
+    // When maximized or fullscreen, lock all edges to prevent resize cursors
+    if (top || left || bottom || right) {
+      return HTCLIENT;
+    }
+    return undefined;
+  }
+
   // In restore (windowed) mode:
   // - All edges and corners are resizable.
   if (top && left) return HTTOPLEFT;
@@ -1309,7 +1315,9 @@ function resolveNcHitTest(win, lParamBuffer) {
   if (bottom) return HTBOTTOM;
   if (right) return HTRIGHT;
 
-  return HTCLIENT;
+  // Returning undefined allows Electron/Chromium's default window procedure
+  // to process draggable regions (-webkit-app-region: drag -> HTCAPTION) and client areas.
+  return undefined;
 }
 
 function setupWindowsNcHitTestHook(win) {
@@ -1318,8 +1326,10 @@ function setupWindowsNcHitTestHook(win) {
 
   win.hookWindowMessage(WM_NCHITTEST, (wParam, lParam) => {
     const hit = resolveNcHitTest(win, lParam);
-    // Returning a hit-test code allows native resize cursors + edge resizing.
-    return hit !== undefined ? hit : HTCLIENT;
+    if (hit !== undefined) {
+      return hit;
+    }
+    return undefined;
   });
 }
 
@@ -1327,10 +1337,13 @@ function setupWindowsNcCalcSizeHook(win) {
   if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
   if (typeof win.hookWindowMessage !== 'function') return;
 
-  win.hookWindowMessage(WM_NCCALCSIZE, () => {
-    // Returning 0 ensures the client area covers the entire window rectangle,
-    // eliminating the standard Windows non-client titlebar and white borders.
-    return 0;
+  win.hookWindowMessage(WM_NCCALCSIZE, (wParam) => {
+    const isCalc = Buffer.isBuffer(wParam) ? wParam.readInt32LE(0) !== 0 : !!wParam;
+    // When wParam is TRUE (1), returning WVR_REDRAW (0x0300) tells Windows
+    // to redraw the entire client area rather than preserving/bitbltting stale bits,
+    // eliminating black trailing flashes during border resizing.
+    // When wParam is FALSE (0), return 0.
+    return isCalc ? 0x0300 : 0;
   });
 }
 
@@ -1358,6 +1371,35 @@ function setupWindowsNcActivateHook(win) {
 
   win.hookWindowMessage(WM_NCACTIVATE, () => {
     return 1;
+  });
+}
+
+function setupWindowsSizeMoveHooks(win) {
+  if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
+  if (typeof win.hookWindowMessage !== 'function') return;
+
+  win.hookWindowMessage(WM_ENTERSIZEMOVE, () => {
+    win.__hybridIsResizing = true;
+    try {
+      if (!win.isDestroyed() && win.webContents) {
+        win.webContents.send('window-bounds-animating', true);
+      }
+    } catch (_) {}
+  });
+
+  win.hookWindowMessage(WM_SIZING, () => {
+    win.__hybridIsResizing = true;
+  });
+
+  win.hookWindowMessage(WM_EXITSIZEMOVE, () => {
+    win.__hybridIsResizing = false;
+    try {
+      if (!win.isDestroyed() && win.webContents) {
+        win.webContents.send('window-bounds-animating', false);
+      }
+    } catch (_) {}
+    // DO NOT invoke scheduleNativeDwmWindowStyles / SWP_FRAMECHANGED here!
+    // Styles are already applied. Recomputing frames causes DWM backbuffer teardown and black flashes.
   });
 }
 
@@ -1440,6 +1482,8 @@ function createMainWindow() {
     setupWindowsEraseBkgndHook(mainWindow);
     setupWindowsNcActivateHook(mainWindow);
     setupWindowsNcHitTestHook(mainWindow);
+    setupWindowsSizeMoveHooks(mainWindow);
+    scheduleNativeDwmWindowStyles(mainWindow, [0, 80, 200]);
   }
   if (mainWindow.__hybridUseFakeMaximize) {
     scheduleWindowsBorderSuppression(mainWindow, 'createMainWindow');
@@ -1760,6 +1804,17 @@ function createMainWindow() {
   });
   mainWindow.on('resize', () => {
     logWindowDwmSnapshotThrottled(mainWindow, 'resize');
+  });
+  mainWindow.on('will-resize', () => {
+    mainWindow.__hybridIsResizing = true;
+  });
+  mainWindow.on('resized', () => {
+    mainWindow.__hybridIsResizing = false;
+    try {
+      if (!mainWindow.isDestroyed() && mainWindow.webContents) {
+        mainWindow.webContents.send('window-bounds-animating', false);
+      }
+    } catch (_) {}
   });
 
   mainWindow.on('closed', () => {

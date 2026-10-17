@@ -19,9 +19,10 @@ void main() {
 }
 `;
 
-const waveFragmentShader = `
+const ditherWavesFragmentShader = `
 precision highp float;
 uniform vec2 resolution;
+uniform float aspect;
 uniform float time;
 uniform float waveSpeed;
 uniform float waveFrequency;
@@ -32,6 +33,30 @@ uniform vec2 mousePos;
 uniform int enableMouseInteraction;
 uniform float mouseRadius;
 uniform float mouseIntensity;
+uniform float colorNum;
+uniform float pixelSize;
+
+const float bayerMatrix8x8[64] = float[64](
+  0.0/64.0, 48.0/64.0, 12.0/64.0, 60.0/64.0,  3.0/64.0, 51.0/64.0, 15.0/64.0, 63.0/64.0,
+  32.0/64.0,16.0/64.0, 44.0/64.0, 28.0/64.0, 35.0/64.0,19.0/64.0, 47.0/64.0, 31.0/64.0,
+  8.0/64.0, 56.0/64.0,  4.0/64.0, 52.0/64.0, 11.0/64.0,59.0/64.0,  7.0/64.0, 55.0/64.0,
+  40.0/64.0,24.0/64.0, 36.0/64.0, 20.0/64.0, 43.0/64.0,27.0/64.0, 39.0/64.0, 23.0/64.0,
+  2.0/64.0, 50.0/64.0, 14.0/64.0, 62.0/64.0,  1.0/64.0,49.0/64.0, 13.0/64.0, 61.0/64.0,
+  34.0/64.0,18.0/64.0, 46.0/64.0, 30.0/64.0, 33.0/64.0,17.0/64.0, 45.0/64.0, 29.0/64.0,
+  10.0/64.0,58.0/64.0,  6.0/64.0, 54.0/64.0,  9.0/64.0,57.0/64.0,  5.0/64.0, 53.0/64.0,
+  42.0/64.0,26.0/64.0, 38.0/64.0, 22.0/64.0, 41.0/64.0,25.0/64.0, 37.0/64.0, 21.0/64.0
+);
+
+vec3 dither(vec2 coord, vec3 color) {
+  int x = int(mod(coord.x, 8.0));
+  int y = int(mod(coord.y, 8.0));
+  float threshold = bayerMatrix8x8[y * 8 + x] - 0.25;
+  float step = 1.0 / (colorNum - 1.0);
+  color += threshold * step;
+  float bias = 0.2;
+  color = clamp(color - bias, 0.0, 1.0);
+  return floor(color * (colorNum - 1.0) + 0.5) / (colorNum - 1.0);
+}
 
 vec4 mod289(vec4 x) { return x - floor(x * (1.0/289.0)) * 289.0; }
 vec4 permute(vec4 x) { return mod289(((x * 34.0) + 1.0) * x); }
@@ -85,55 +110,22 @@ float pattern(vec2 p) {
 }
 
 void main() {
-  vec2 uv = gl_FragCoord.xy / resolution.xy;
-  uv -= 0.5;
-  uv.x *= resolution.x / resolution.y;
+  vec2 ditherBlock = floor(vec2(gl_FragCoord.x, resolution.y - gl_FragCoord.y) / pixelSize);
+  vec2 pixelBlock = floor(gl_FragCoord.xy / pixelSize);
+  vec2 sampleCoord = (pixelBlock * pixelSize + 0.5 * pixelSize) / resolution.xy;
+  vec2 uv = sampleCoord - 0.5;
+  uv.x *= aspect;
   float f = pattern(uv);
   if (enableMouseInteraction == 1) {
     vec2 mouseNDC = (mousePos / resolution - 0.5) * vec2(1.0, -1.0);
-    mouseNDC.x *= resolution.x / resolution.y;
+    mouseNDC.x *= aspect;
     float dist = length(uv - mouseNDC);
     float effect = 1.0 - smoothstep(0.0, mouseRadius, dist);
     f -= mouseIntensity * effect;
   }
   vec3 col = mix(backgroundColor, waveColor, f);
+  col = dither(ditherBlock, col);
   gl_FragColor = vec4(col, 1.0);
-}
-`;
-
-const ditherFragmentShader = `
-precision highp float;
-uniform float colorNum;
-uniform float pixelSize;
-const float bayerMatrix8x8[64] = float[64](
-  0.0/64.0, 48.0/64.0, 12.0/64.0, 60.0/64.0,  3.0/64.0, 51.0/64.0, 15.0/64.0, 63.0/64.0,
-  32.0/64.0,16.0/64.0, 44.0/64.0, 28.0/64.0, 35.0/64.0,19.0/64.0, 47.0/64.0, 31.0/64.0,
-  8.0/64.0, 56.0/64.0,  4.0/64.0, 52.0/64.0, 11.0/64.0,59.0/64.0,  7.0/64.0, 55.0/64.0,
-  40.0/64.0,24.0/64.0, 36.0/64.0, 20.0/64.0, 43.0/64.0,27.0/64.0, 39.0/64.0, 23.0/64.0,
-  2.0/64.0, 50.0/64.0, 14.0/64.0, 62.0/64.0,  1.0/64.0,49.0/64.0, 13.0/64.0, 61.0/64.0,
-  34.0/64.0,18.0/64.0, 46.0/64.0, 30.0/64.0, 33.0/64.0,17.0/64.0, 45.0/64.0, 29.0/64.0,
-  10.0/64.0,58.0/64.0,  6.0/64.0, 54.0/64.0,  9.0/64.0,57.0/64.0,  5.0/64.0, 53.0/64.0,
-  42.0/64.0,26.0/64.0, 38.0/64.0, 22.0/64.0, 41.0/64.0,25.0/64.0, 37.0/64.0, 21.0/64.0
-);
-
-vec3 dither(vec2 uv, vec3 color) {
-  vec2 scaledCoord = floor(uv * resolution / pixelSize);
-  int x = int(mod(scaledCoord.x, 8.0));
-  int y = int(mod(scaledCoord.y, 8.0));
-  float threshold = bayerMatrix8x8[y * 8 + x] - 0.25;
-  float step = 1.0 / (colorNum - 1.0);
-  color += threshold * step;
-  float bias = 0.2;
-  color = clamp(color - bias, 0.0, 1.0);
-  return floor(color * (colorNum - 1.0) + 0.5) / (colorNum - 1.0);
-}
-
-void mainImage(in vec4 inputColor, in vec2 uv, out vec4 outputColor) {
-  vec2 normalizedPixelSize = pixelSize / resolution;
-  vec2 uvPixel = normalizedPixelSize * floor(uv / normalizedPixelSize);
-  vec4 color = texture2D(inputBuffer, uvPixel);
-  color.rgb = dither(uv, color.rgb);
-  outputColor = color;
 }
 `;
 
@@ -143,7 +135,7 @@ class RetroEffectImpl extends Effect {
       ['colorNum', new THREE.Uniform(colorNum)],
       ['pixelSize', new THREE.Uniform(pixelSize)],
     ]);
-    super('RetroEffect', ditherFragmentShader, { uniforms });
+    super('RetroEffect', 'void mainImage(in vec4 c, in vec2 u, out vec4 o) { o = c; }', { uniforms });
     this.uniforms = uniforms;
   }
 
@@ -179,7 +171,7 @@ const DEFAULT_OPTIONS = Object.freeze({
   cameraZ: 6,
   dpr: null,
   antialias: false,
-  preserveDrawingBuffer: false,
+  preserveDrawingBuffer: true,
   pauseWhenUnfocused: true,
   mouseEventTarget: null,
 });
@@ -241,8 +233,8 @@ export function initDitherWaves(containerElement, customOptions = {}) {
 
   const renderer = new THREE.WebGLRenderer({
     antialias: options.antialias,
-    preserveDrawingBuffer: options.preserveDrawingBuffer,
-    alpha: true,
+    preserveDrawingBuffer: options.preserveDrawingBuffer ?? true,
+    alpha: false,
   });
   renderer.setPixelRatio(options.dpr);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -257,6 +249,7 @@ export function initDitherWaves(containerElement, customOptions = {}) {
   const waveUniforms = {
     time: new THREE.Uniform(0),
     resolution: new THREE.Uniform(new THREE.Vector2(1, 1)),
+    aspect: new THREE.Uniform(1.0),
     waveSpeed: new THREE.Uniform(options.waveSpeed),
     waveFrequency: new THREE.Uniform(options.waveFrequency),
     waveAmplitude: new THREE.Uniform(options.waveAmplitude),
@@ -266,12 +259,14 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     enableMouseInteraction: new THREE.Uniform(options.enableMouseInteraction ? 1 : 0),
     mouseRadius: new THREE.Uniform(options.mouseRadius),
     mouseIntensity: new THREE.Uniform(options.mouseIntensity),
+    colorNum: new THREE.Uniform(options.colorNum),
+    pixelSize: new THREE.Uniform(options.pixelSize),
   };
 
   const planeGeometry = new THREE.PlaneGeometry(1, 1);
   const planeMaterial = new THREE.ShaderMaterial({
     vertexShader: waveVertexShader,
-    fragmentShader: waveFragmentShader,
+    fragmentShader: ditherWavesFragmentShader,
     uniforms: waveUniforms,
   });
   const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
@@ -280,32 +275,109 @@ export function initDitherWaves(containerElement, customOptions = {}) {
   const renderPass = new RenderPass(scene, camera);
   const retroEffect = new RetroEffectImpl(options.colorNum, options.pixelSize);
   const effectPass = new EffectPass(camera, retroEffect);
-  const composer = new EffectComposer(renderer);
-  composer.addPass(renderPass);
-  composer.addPass(effectPass);
+
+  const composer = {
+    passes: [renderPass, effectPass],
+    addPass: (p) => composer.passes.push(p),
+    removePass: (p) => {
+      const idx = composer.passes.indexOf(p);
+      if (idx !== -1) composer.passes.splice(idx, 1);
+    },
+    setSize: () => {},
+    render: () => {
+      renderer.render(scene, camera);
+    },
+    dispose: () => {
+      try { renderPass.dispose(); } catch (_) {}
+      try { effectPass.dispose(); } catch (_) {}
+    },
+  };
 
   containerElement.appendChild(renderer.domElement);
 
   const timer = new THREE.Timer();
   const mouseN = new THREE.Vector2(0.5, 0.5);
 
-  const updateSize = () => {
+  let allocatedWidth = 0;
+  let allocatedHeight = 0;
+  let allocatedDpr = 0;
+
+  const renderFrame = () => {
+    if (destroyed) return;
+
+    if (!options.disableAnimation) {
+      timer.update();
+      waveUniforms.time.value = timer.getElapsed();
+    }
+
+    waveUniforms.waveSpeed.value = options.waveSpeed;
+    waveUniforms.waveFrequency.value = options.waveFrequency;
+    waveUniforms.waveAmplitude.value = options.waveAmplitude;
+    waveUniforms.waveColor.value.set(...options.waveColor);
+    waveUniforms.backgroundColor.value.set(...options.bgColor);
+    waveUniforms.enableMouseInteraction.value = options.enableMouseInteraction ? 1 : 0;
+    waveUniforms.mouseRadius.value = options.mouseRadius;
+    waveUniforms.mouseIntensity.value = options.mouseIntensity;
+    waveUniforms.colorNum.value = options.colorNum;
+    waveUniforms.pixelSize.value = options.pixelSize;
+
+    retroEffect.colorNum = options.colorNum;
+    retroEffect.pixelSize = options.pixelSize;
+
+    renderer.render(scene, camera);
+    window.HybridPerfMonitor?.markFrame?.('effect:dither');
+  };
+
+  const commitBufferResize = (width, height, pixelWidth, pixelHeight, dpr) => {
+    if (destroyed) return;
+    if (allocatedWidth === pixelWidth && allocatedHeight === pixelHeight && allocatedDpr === dpr) {
+      return;
+    }
+    allocatedWidth = pixelWidth;
+    allocatedHeight = pixelHeight;
+    allocatedDpr = dpr;
+
+    renderer.setSize(width, height, false);
+    renderer.domElement.style.width = width + 'px';
+    renderer.domElement.style.height = height + 'px';
+    waveUniforms.resolution.value.set(pixelWidth, pixelHeight);
+  };
+
+  const updateSize = (forceSyncRealloc = false) => {
     if (destroyed) return;
 
     const containerSize = getContainerSize(containerElement);
     const width = options.renderWidth || containerSize.width;
     const height = options.renderHeight || containerSize.height;
-    camera.aspect = width / height;
+    if (width <= 0 || height <= 0) return;
+
+    const aspect = width / Math.max(1, height);
+    camera.aspect = aspect;
     camera.updateProjectionMatrix();
 
-    renderer.setSize(width, height, false);
-    composer.setSize(width, height);
-
-    const dpr = renderer.getPixelRatio();
-    waveUniforms.resolution.value.set(Math.floor(width * dpr), Math.floor(height * dpr));
+    if (waveUniforms.aspect) {
+      waveUniforms.aspect.value = aspect;
+    }
 
     const viewport = getViewportAtZ0(camera);
     planeMesh.scale.set(viewport.width, viewport.height, 1);
+
+    const dpr = renderer.getPixelRatio();
+    const pixelWidth = Math.floor(width * dpr);
+    const pixelHeight = Math.floor(height * dpr);
+
+    commitBufferResize(width, height, pixelWidth, pixelHeight, dpr);
+    renderFrame();
+    const gl = renderer.getContext();
+    if (gl) {
+      try {
+        if (typeof gl.finish === 'function') {
+          gl.finish();
+        } else if (typeof gl.flush === 'function') {
+          gl.flush();
+        }
+      } catch (_) {}
+    }
   };
 
   const flushMouse = () => {
@@ -330,12 +402,12 @@ export function initDitherWaves(containerElement, customOptions = {}) {
 
   let resizeRafId = 0;
   const onResize = () => {
-    if (window._isWindowBoundsAnimating) return;
-    if (resizeRafId) return;
-    resizeRafId = window.requestAnimationFrame(() => {
+    if (destroyed) return;
+    if (resizeRafId) {
+      window.cancelAnimationFrame(resizeRafId);
       resizeRafId = 0;
-      updateSize();
-    });
+    }
+    updateSize(true);
   };
 
   let isPaused = false;
@@ -349,25 +421,7 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     isPaused = false;
     rafId = window.requestAnimationFrame(renderLoop);
 
-    if (!options.disableAnimation) {
-      timer.update();
-      waveUniforms.time.value = timer.getElapsed();
-    }
-
-    waveUniforms.waveSpeed.value = options.waveSpeed;
-    waveUniforms.waveFrequency.value = options.waveFrequency;
-    waveUniforms.waveAmplitude.value = options.waveAmplitude;
-    waveUniforms.waveColor.value.set(...options.waveColor);
-    waveUniforms.backgroundColor.value.set(...options.bgColor);
-    waveUniforms.enableMouseInteraction.value = options.enableMouseInteraction ? 1 : 0;
-    waveUniforms.mouseRadius.value = options.mouseRadius;
-    waveUniforms.mouseIntensity.value = options.mouseIntensity;
-
-    retroEffect.colorNum = options.colorNum;
-    retroEffect.pixelSize = options.pixelSize;
-
-    composer.render();
-    window.HybridPerfMonitor?.markFrame?.('effect:dither');
+    renderFrame();
   };
 
   const resumeLoop = () => {
@@ -391,21 +445,15 @@ export function initDitherWaves(containerElement, customOptions = {}) {
   };
   renderer.domElement.addEventListener('webglcontextlost', onContextLost, false);
 
-  updateSize();
+  updateSize(true);
   mouseEventTarget.addEventListener('mousemove', onMouseMove, { passive: true });
   window.addEventListener('resize', onResize);
 
   let resizeObserver = null;
-  let resizeTimeout = 0;
   if (!options.renderWidth && typeof ResizeObserver === 'function') {
     resizeObserver = new ResizeObserver(() => {
       if (destroyed) return;
-      clearTimeout(resizeTimeout);
-      resizeTimeout = setTimeout(() => {
-        if (!destroyed) {
-          onResize();
-        }
-      }, 80);
+      onResize();
     });
     resizeObserver.observe(containerElement);
   }
@@ -427,7 +475,7 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     }
     if (prevDpr !== options.dpr) {
       renderer.setPixelRatio(options.dpr);
-      updateSize();
+      updateSize(true);
       const res = waveUniforms.resolution.value;
       waveUniforms.mousePos.value.set(mouseN.x * res.x, mouseN.y * res.y);
     }
@@ -455,7 +503,6 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     window.removeEventListener('resize', onResize);
     window.removeEventListener('focus', resumeLoop);
     document.removeEventListener('visibilitychange', resumeLoop);
-    clearTimeout(resizeTimeout);
     if (resizeObserver) {
       resizeObserver.disconnect();
       resizeObserver = null;
@@ -471,6 +518,10 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     const canvas = renderer.domElement;
     canvas.parentNode?.removeChild(canvas);
 
+    if (containerElement.__ditherWavesInstance === instance) {
+      delete containerElement.__ditherWavesInstance;
+    }
+
     ditherWavesdbg(`${LOG_TAG} destroy`, {
       canvasRemoved: !canvas.parentNode,
       passesDisposed: true,
@@ -478,15 +529,18 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     });
   };
 
-  return {
+  const instance = {
     destroy,
     updateOptions,
-    resize: onResize,
+    resize: (force = false) => (force ? updateSize(true) : onResize()),
     renderer,
     scene,
     camera,
     composer,
+    waveUniforms,
   };
+  containerElement.__ditherWavesInstance = instance;
+  return instance;
 }
 
 function ensureMount() {
@@ -585,7 +639,7 @@ async function syncLifecycleState() {
     mapped.dpr = getQualityDpr(quality);
     mapped.pauseWhenUnfocused = true;
     mapped.antialias = quality === 'high' || quality === 'custom';
-    mapped.preserveDrawingBuffer = quality === 'high' || quality === 'custom';
+    mapped.preserveDrawingBuffer = true;
 
     if (activeInstance?.updateOptions) {
       activeInstance.updateOptions(mapped);

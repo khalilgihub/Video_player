@@ -507,6 +507,11 @@ class HybridControls {
         return;
       }
 
+      // Fast check: only maximized windows require drag-to-restore interception.
+      // Windowed mode drags natively via -webkit-app-region: drag with zero IPC overhead.
+      const isMax = document.body.classList.contains('is-maximized') || !!window.HybridApp?._windowVisualState?.isMaximized;
+      if (!isMax) return;
+
       const response = await window.hybridAPI.window.titlebarDragStart({
         screenX: Math.round(event.screenX),
         screenY: Math.round(event.screenY),

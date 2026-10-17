@@ -48,6 +48,19 @@
 #define GCLP_HBRBACKGROUND (-10)
 #endif
 
+#ifndef WS_CLIPCHILDREN
+#define WS_CLIPCHILDREN 0x02000000L
+#endif
+#ifndef WS_CLIPSIBLINGS
+#define WS_CLIPSIBLINGS 0x04000000L
+static BOOL CALLBACK EnumChildProc(HWND childHwnd, LPARAM lParam) {
+    LONG_PTR cStyle = GetWindowLongPtrW(childHwnd, GWL_STYLE);
+    cStyle |= (WS_CLIPCHILDREN | WS_CLIPSIBLINGS);
+    SetWindowLongPtrW(childHwnd, GWL_STYLE, cStyle);
+    SetClassLongPtrW(childHwnd, GCLP_HBRBACKGROUND, (LONG_PTR)GetStockObject(NULL_BRUSH));
+    return TRUE;
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         return 1;
@@ -66,20 +79,18 @@ int main(int argc, char* argv[]) {
         return 2;
     }
 
-    // 2. Add WS_CAPTION, WS_MINIMIZEBOX, WS_MAXIMIZEBOX, WS_SYSMENU and remove WS_THICKFRAME.
-    // WS_CAPTION and WS_MINIMIZEBOX are strictly required by Windows DWM to execute
-    // the hardware Zoom / Scale minimize and restore animation.
+    // 2. Add WS_CAPTION, WS_THICKFRAME, WS_MINIMIZEBOX, WS_MAXIMIZEBOX, WS_SYSMENU, WS_CLIPCHILDREN, WS_CLIPSIBLINGS.
+    // WS_CLIPCHILDREN prevents parent from painting over child Direct3D window during resize.
     LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-    style &= ~WS_THICKFRAME;
-    style |= (WS_CAPTION | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU);
+    style |= (WS_THICKFRAME | WS_CAPTION | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU | WS_CLIPCHILDREN | WS_CLIPSIBLINGS);
     SetWindowLongPtrW(hwnd, GWL_STYLE, style);
 
     // 3. Force DWM transitions to enabled (DWMWA_TRANSITIONS_FORCEDISABLED = FALSE)
     BOOL forceDisabled = FALSE;
     DwmSetWindowAttribute(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED, &forceDisabled, sizeof(BOOL));
 
-    // 4. Set NC rendering policy to DISABLED (DWMNCRP_DISABLED) to eliminate inactive border leak
-    DWORD ncPolicy = DWMNCRP_DISABLED;
+    // 4. Set NC rendering policy to ENABLED (DWMNCRP_ENABLED = 2) to maintain hardware composition during resize
+    DWORD ncPolicy = DWMNCRP_ENABLED;
     DwmSetWindowAttribute(hwnd, DWMWA_NCRENDERING_POLICY, &ncPolicy, sizeof(DWORD));
 
     // 5. Set immersive dark mode (both Windows 11 / 20H1+ [20] and older Win10 [19])
@@ -102,10 +113,19 @@ int main(int argc, char* argv[]) {
     DWORD backdropNone = 1; // DWMSBT_NONE
     DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &backdropNone, sizeof(DWORD));
 
-    // 8. Set window class background brush to BLACK_BRUSH
-    SetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND, (LONG_PTR)GetStockObject(BLACK_BRUSH));
+    // 8. Set window class background brush to NULL_BRUSH (prevents GDI erasing with black on drag)
+    SetClassLongPtrW(hwnd, GCLP_HBRBACKGROUND, (LONG_PTR)GetStockObject(NULL_BRUSH));
 
-    // 9. Refresh window frame asynchronously without deadlocking the UI thread
+    // 9. Style child surfaces (Intermediate D3D Window, Chrome_RenderWidgetHostHWND)
+    // with WS_CLIPCHILDREN | WS_CLIPSIBLINGS and NULL_BRUSH to prevent GDI from erasing
+    // over hardware-rendered DirectX swapchains during window resizing.
+    EnumChildWindows(hwnd, EnumChildProc, 0);
+
+    // 10. Extend frame by 1px into client area across all 4 borders to maintain hardware composition during resize
+    MARGINS margins = { 1, 1, 1, 1 };
+    DwmExtendFrameIntoClientArea(hwnd, &margins);
+
+    // 11. Refresh window frame asynchronously without deadlocking the UI thread
     SetWindowPos(
         hwnd,
         NULL,

@@ -23,6 +23,22 @@ public class Program {
     [DllImport("dwmapi.dll")]
     public static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumChildWindows(IntPtr hWnd, EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MARGINS {
+        public int cxLeftWidth;
+        public int cxRightWidth;
+        public int cyTopHeight;
+        public int cyBottomHeight;
+    }
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref MARGINS pMarInset);
+
     public static int Main(string[] args) {
         if (args == null || args.Length < 1) return 1;
 
@@ -40,17 +56,29 @@ public class Program {
         long WS_THICKFRAME = 0x00040000L;
         long WS_MINIMIZEBOX = 0x00020000L;
         long WS_MAXIMIZEBOX = 0x00010000L;
+        long WS_CLIPCHILDREN = 0x02000000L;
+        long WS_CLIPSIBLINGS = 0x04000000L;
 
         long curStyle = GetWindowLongPtr(hwnd, -16).ToInt64();
         // Preserve WS_THICKFRAME so Windows DWM treats the window as resizable, enabling smooth
         // Aero-zoom maximize/restore animations and true 100% monitor coverage in fullscreen.
         // Custom non-client hit testing locks borders during maximize and fullscreen.
-        long newStyle = curStyle | WS_THICKFRAME | WS_CAPTION | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+        long newStyle = curStyle | WS_THICKFRAME | WS_CAPTION | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
         SetWindowLongPtr(hwnd, -16, new IntPtr(newStyle));
 
-        // Set class background brush to BLACK_BRUSH
-        IntPtr blackBrush = GetStockObject(4);
-        SetClassLongPtr(hwnd, -10, blackBrush);
+        // Set class background brush to NULL_BRUSH (5) to eliminate black flashes during drag/move
+        IntPtr nullBrush = GetStockObject(5);
+        SetClassLongPtr(hwnd, -10, nullBrush);
+
+        // Style child surfaces (Intermediate D3D Window, Chrome_RenderWidgetHostHWND)
+        // with WS_CLIPCHILDREN | WS_CLIPSIBLINGS and NULL_BRUSH to prevent GDI from erasing
+        // over hardware-rendered DirectX swapchains during window resizing.
+        EnumChildWindows(hwnd, (childHwnd, lParam) => {
+            long cStyle = GetWindowLongPtr(childHwnd, -16).ToInt64();
+            SetWindowLongPtr(childHwnd, -16, new IntPtr(cStyle | WS_CLIPCHILDREN | WS_CLIPSIBLINGS));
+            SetClassLongPtr(childHwnd, -10, nullBrush);
+            return true;
+        }, IntPtr.Zero);
 
         // Force DWM transitions enabled (enables minimize/restore taskbar animation)
         int forceDisabled = 0;
@@ -63,8 +91,8 @@ public class Program {
         // Clear any window clipping region so the window is a sharp, complete rectangle
         SetWindowRgn(hwnd, IntPtr.Zero, true);
 
-        // Disable DWM non-client frame rendering (DWMNCRP_DISABLED = 1) to eliminate inactive border leak
-        int ncPolicy = 1;
+        // Enable DWM non-client frame rendering (DWMNCRP_ENABLED = 2) to maintain hardware composition during resize
+        int ncPolicy = 2;
         DwmSetWindowAttribute(hwnd, 2, ref ncPolicy, 4);
 
         // Immersive dark mode (Windows 11 / 10)
@@ -83,6 +111,10 @@ public class Program {
         // Disable system backdrop fallbacks (DWMSBT_NONE = 1)
         int backdropNone = 1;
         DwmSetWindowAttribute(hwnd, 38, ref backdropNone, 4);
+
+        // Extend DWM frame by 1px on all 4 borders to preserve hardware composition on every resize edge
+        MARGINS margins = new MARGINS { cxLeftWidth = 1, cxRightWidth = 1, cyTopHeight = 1, cyBottomHeight = 1 };
+        DwmExtendFrameIntoClientArea(hwnd, ref margins);
 
         // SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS
         // 0x0020 | 0x0002 | 0x0001 | 0x0004 | 0x0010 | 0x0200 | 0x4000 = 0x4237
