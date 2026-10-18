@@ -1493,7 +1493,8 @@ class HybridControls {
     // Only surface the indicator once media is loaded; never on the welcome/startup screen.
     if (!this.player?.currentFilePath) return;
 
-    val.textContent = Math.round(percent);
+    const clamped = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+    val.textContent = clamped;
     osd.classList.add('visible');
 
     clearTimeout(this._volumeOsdTimeout);
@@ -1615,8 +1616,11 @@ class HybridControls {
           this.recordingFrameCount.textContent = count;
           if (prevCount !== count) {
             this.recordingFrameCount.classList.remove('digit-flash');
-            void this.recordingFrameCount.offsetWidth;
-            this.recordingFrameCount.classList.add('digit-flash');
+            requestAnimationFrame(() => {
+              if (this.recordingFrameCount) {
+                this.recordingFrameCount.classList.add('digit-flash');
+              }
+            });
           }
         }
         if (this.recordingUnit) {

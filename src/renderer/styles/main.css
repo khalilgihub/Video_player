@@ -2622,6 +2622,11 @@ body.welcome-active .welcome-recent {
   font-size: 12px;
   font-weight: 600;
   animation: pulse 1.5s ease-in-out infinite;
+  transition: right 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body.playlist-open .ab-loop-indicator {
+  right: 348px;
 }
 
 .ab-loop-indicator[hidden] {

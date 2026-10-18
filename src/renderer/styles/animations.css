@@ -352,7 +352,9 @@
   opacity: 0;
   transform: translateY(-6px);
   transition: opacity 0.18s cubic-bezier(0.16, 1, 0.3, 1),
-              transform 0.20s cubic-bezier(0.16, 1, 0.3, 1);
+              transform 0.20s cubic-bezier(0.16, 1, 0.3, 1),
+              top 0.20s cubic-bezier(0.16, 1, 0.3, 1),
+              right 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
   align-items: baseline;
   gap: 3px;
@@ -402,6 +404,17 @@ body.is-fullscreen .top-right-volume-osd {
 
 body.is-fullscreen.playlist-open .top-right-volume-osd {
   right: 348px;
+}
+
+/* Stack volume OSD below the A-B loop indicator when A-B loop is active */
+body.ab-loop-active .top-right-volume-osd,
+.ab-loop-indicator:not([hidden]) ~ .top-right-volume-osd {
+  top: 92px;
+}
+
+body.is-fullscreen.ab-loop-active .top-right-volume-osd,
+body.is-fullscreen .ab-loop-indicator:not([hidden]) ~ .top-right-volume-osd {
+  top: 92px;
 }
 
 /* ─── Seek Animation ─── */

@@ -604,7 +604,12 @@ class HybridShortcuts {
       }
       
       // Some actions should work even in modals
-      if (action !== 'toggle-play' && anyModalOpen) return;
+      if (action !== 'toggle-play' && anyModalOpen) {
+        if (this.player?._isBurstCapturing) {
+          this.player.stopBurstCapture();
+        }
+        return;
+      }
 
       // Special handling for screenshot action (Hold-to-Burst frame capture vs Single Tap)
       if (action === 'screenshot') {
@@ -784,6 +789,26 @@ class HybridShortcuts {
       }
       this._mouse4Pressed = false;
     });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        if (this._keySHoldTimer) {
+          clearTimeout(this._keySHoldTimer);
+          this._keySHoldTimer = null;
+        }
+        if (this.player?._isBurstCapturing) {
+          this.player.stopBurstCapture();
+        }
+        this._keySPressed = false;
+        this._activeScreenshotCode = null;
+
+        if (this._mouse4HoldTimer) {
+          clearTimeout(this._mouse4HoldTimer);
+          this._mouse4HoldTimer = null;
+        }
+        this._mouse4Pressed = false;
+      }
+    });
   }
 
   _bindMenuActions() {
@@ -855,15 +880,17 @@ class HybridShortcuts {
       }
       
       case 'volume-up': {
-        window.hybridAPI.mpv.command('add', 'volume', 5);
-        const nextUp = Math.min(100, Math.round((this.player.volume || 0) + 5));
+        const curVol = typeof this.player.volume === 'number' ? this.player.volume : 100;
+        const nextUp = Math.min(100, Math.round(curVol + 5));
+        this.player.setVolume(nextUp);
         this.controls.showVolumeOsd(nextUp);
         break;
       }
       
       case 'volume-down': {
-        window.hybridAPI.mpv.command('add', 'volume', -5);
-        const nextDown = Math.max(0, Math.round((this.player.volume || 0) - 5));
+        const curVol = typeof this.player.volume === 'number' ? this.player.volume : 100;
+        const nextDown = Math.max(0, Math.round(curVol - 5));
+        this.player.setVolume(nextDown);
         this.controls.showVolumeOsd(nextDown);
         break;
       }

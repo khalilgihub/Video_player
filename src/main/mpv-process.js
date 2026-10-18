@@ -237,7 +237,7 @@ class MpvProcess extends EventEmitter {
         this._libmpv.setOptionString('screenshot-template', 'hybrid-player-%tY-%tm-%td-%tH-%tM-%tS');
         this._libmpv.setOptionString('screenshot-format', this._screenshotFormat);
         this._libmpv.setOptionString('screenshot-jpeg-quality', '92');
-        this._libmpv.setOptionString('screenshot-webp-quality', '92');
+        this._libmpv.setOptionString('screenshot-webp-quality', '80');
         this._libmpv.setOptionString('screenshot-webp-compression', '0');
         this._libmpv.setOptionString('screenshot-webp-lossless', 'no');
         this._libmpv.setOptionString('cache', 'yes');
@@ -248,6 +248,7 @@ class MpvProcess extends EventEmitter {
         this._libmpv.setOptionString('cursor-autohide', 'no');
         this._libmpv.setOptionString('hr-seek', 'yes');
         this._libmpv.setOptionString('hr-seek-framedrop', 'yes');
+        this._libmpv.setOptionString('volume-max', '100');
 
         if (ytDlpPath) {
           const normalizedYtDlpPath = ytDlpPath.replace(/\\/g, '/');
@@ -386,7 +387,7 @@ class MpvProcess extends EventEmitter {
       '--screenshot-template=hybrid-player-%tY-%tm-%td-%tH-%tM-%tS',
       `--screenshot-format=${this._screenshotFormat}`,
       '--screenshot-jpeg-quality=92',
-      '--screenshot-webp-quality=92',
+      '--screenshot-webp-quality=80',
       '--screenshot-webp-compression=0',
       '--screenshot-webp-lossless=no',
       // Cache settings
@@ -401,6 +402,7 @@ class MpvProcess extends EventEmitter {
       // High-precision frame-accurate exact seeking
       '--hr-seek=yes',
       '--hr-seek-framedrop=yes',
+      '--volume-max=100',
     ];
 
     if (ytDlpPath) {
@@ -908,22 +910,34 @@ class MpvProcess extends EventEmitter {
    * @param {'video'|'subtitles'|'window'} mode
    */
   async screenshotBurstFrame(sessionId, seqNum, mode = 'video') {
-    const dir = await this.getEffectiveScreenshotDir();
-    const fmt = this._screenshotFormat || await this.getProperty('screenshot-format').catch(() => 'jpg');
+    if (!this._burstSessions) {
+      this._burstSessions = new Map();
+    }
 
-    // Dedicated burst subfolder per session
-    const burstFolder = `burst_${sessionId}`;
-    const burstDirPath = path.join(dir || '.', burstFolder);
-    if (!fs.existsSync(burstDirPath)) {
-      fs.mkdirSync(burstDirPath, { recursive: true });
+    let session = this._burstSessions.get(sessionId);
+    if (!session) {
+      const dir = await this.getEffectiveScreenshotDir();
+      const fmt = this._screenshotFormat || await this.getProperty('screenshot-format').catch(() => 'jpg');
+
+      // Dedicated burst subfolder per session
+      const burstFolder = `burst_${sessionId}`;
+      const burstDirPath = path.join(dir || '.', burstFolder);
+      if (!fs.existsSync(burstDirPath)) {
+        fs.mkdirSync(burstDirPath, { recursive: true });
+      }
+
+      session = { dir, burstFolder, burstDirPath, fmt };
+      this._burstSessions.set(sessionId, session);
     }
 
     const seqPadded = String(seqNum).padStart(5, '0');
-    const fileName = `frame-${seqPadded}.${fmt}`;
-    const expectedPath = path.join(burstDirPath, fileName);
+    const fileName = `frame-${seqPadded}.${session.fmt}`;
+    const expectedPath = path.join(session.burstDirPath, fileName);
 
-    await this.command('screenshot-to-file', expectedPath, mode);
-    return { framePath: expectedPath, fileName, burstFolder, seqNum };
+    // Non-blocking async screenshot: mpv offloads frame compression & disk write
+    // so playback decoding and VO presentation are not stalled.
+    await this.command('async', 'screenshot-to-file', expectedPath, mode);
+    return { framePath: expectedPath, fileName, burstFolder: session.burstFolder, seqNum };
   }
 
   /**
@@ -934,12 +948,28 @@ class MpvProcess extends EventEmitter {
    * @param {number} totalCount
    */
   async finalizeBurstSession(sessionId, totalCount) {
-    const dir = await this.getEffectiveScreenshotDir();
-    const burstFolder = `burst_${sessionId}`;
-    const burstDirPath = path.join(dir || '.', burstFolder);
+    const session = this._burstSessions?.get(sessionId);
+    const dir = session?.dir || await this.getEffectiveScreenshotDir();
+    const burstFolder = session?.burstFolder || `burst_${sessionId}`;
+    const burstDirPath = session?.burstDirPath || path.join(dir || '.', burstFolder);
+
+    if (this._burstSessions) {
+      this._burstSessions.delete(sessionId);
+    }
 
     if (!fs.existsSync(burstDirPath)) {
       return { inSubfolder: false, count: 0, folderName: '' };
+    }
+
+    // Brief grace period to ensure the last in-flight async frame has flushed to disk
+    const targetCount = Number(totalCount) || 0;
+    if (targetCount > 0) {
+      const startWait = Date.now();
+      while (Date.now() - startWait < 400) {
+        const currentCount = fs.readdirSync(burstDirPath).length;
+        if (currentCount >= targetCount) break;
+        await new Promise(r => setTimeout(r, 25));
+      }
     }
 
     const files = fs.readdirSync(burstDirPath);
@@ -1024,7 +1054,7 @@ class MpvProcess extends EventEmitter {
       this._screenshotFormat = cleanFmt;
       this.setProperty('screenshot-format', cleanFmt).catch(() => {});
       if (cleanFmt === 'webp') {
-        this.setProperty('screenshot-webp-quality', 92).catch(() => {});
+        this.setProperty('screenshot-webp-quality', 80).catch(() => {});
         this.setProperty('screenshot-webp-compression', 0).catch(() => {});
         this.setProperty('screenshot-webp-lossless', 'no').catch(() => {});
       }
@@ -1040,6 +1070,10 @@ class MpvProcess extends EventEmitter {
   // ─── Lifecycle ─────────────────────────────────────────
   destroy() {
     this.destroyed = true;
+    if (this._burstSessions) {
+      this._burstSessions.clear();
+      this._burstSessions = null;
+    }
     if (this._reconnectTimer) {
       clearTimeout(this._reconnectTimer);
       this._reconnectTimer = null;

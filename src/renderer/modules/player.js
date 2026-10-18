@@ -154,12 +154,17 @@ class HybridPlayer {
             this.isPlaying = false;
             this.onPlayStateChanged?.(false);
           }
+          if (!this.isPlaying && this._isBurstCapturing) {
+            this.stopBurstCapture();
+          }
           break;
 
-        case 'volume':
-          this.volume = value;
-          this.onVolumeChange?.(value);
+        case 'volume': {
+          const clamped = typeof value === 'number' ? Math.max(0, Math.min(100, value)) : value;
+          this.volume = clamped;
+          this.onVolumeChange?.(clamped);
           break;
+        }
 
         case 'mute':
           this.muted = value;
@@ -706,6 +711,7 @@ class HybridPlayer {
         indicator.hidden = false;
         indicator.setAttribute('aria-hidden', 'false');
       }
+      document.body?.classList.add('ab-loop-active');
     } else {
       this.clearABLoop();
     }
@@ -725,6 +731,7 @@ class HybridPlayer {
       indicator.hidden = true;
       indicator.setAttribute('aria-hidden', 'true');
     }
+    document.body?.classList.remove('ab-loop-active');
     window.HybridApp?.controlsModule?._updateABLoopButton?.();
     if (notify) {
       window.HybridToast?.show('Loop cleared');
@@ -915,13 +922,25 @@ class HybridPlayer {
     const nonce = Math.random().toString(36).substring(2, 6);
     this._burstSessionId = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}_${nonce}`;
 
-    // Video FPS pacing (default to ~24 fps = 41ms interval)
-    const fps = Number(this.videoParams?.fps) || 24;
-    const intervalMs = Math.max(16, Math.floor(1000 / fps));
+    // Target ~10 fps burst pacing with a guaranteed minimum breathing gap between frames
+    // so video decoding, VO rendering, and A-V sync never starve or drop playback frames.
+    const targetIntervalMs = 100;
+    const minBreathingMs = 40;
+
+    const scheduleNext = (delayMs) => {
+      if (!this._isBurstCapturing) return;
+      if (this._burstCaptureTimer) {
+        clearTimeout(this._burstCaptureTimer);
+      }
+      this._burstCaptureTimer = setTimeout(async () => {
+        await doCapture();
+      }, delayMs);
+    };
 
     const doCapture = async () => {
       if (!this._isBurstCapturing) return;
       if (this._burstInFlight) return; // Strict 1-by-1 in-flight handshake: 0 queue backlog!
+      if (this._burstFrameCount > 0 && !this.isPlaying) return; // Prevent duplicate static frame capture while paused
 
       this._burstInFlight = true;
       this._burstFrameCount += 1;
@@ -932,6 +951,7 @@ class HybridPlayer {
       const unit = count === 1 ? 'frame' : 'frames';
       window.HybridApp?.controlsModule?.setRecordingState(true, `📸 Burst capturing: ${count} ${unit}${ptsPart}`);
 
+      const startTime = performance.now();
       const flightPromise = (async () => {
         try {
           await window.hybridAPI?.mpv?.screenshotBurstFrame(this._burstSessionId, count, 'video');
@@ -939,6 +959,11 @@ class HybridPlayer {
           console.error('Burst frame capture failed:', err);
         } finally {
           this._burstInFlight = false;
+          if (this._isBurstCapturing) {
+            const elapsed = performance.now() - startTime;
+            const nextDelay = Math.max(minBreathingMs, targetIntervalMs - elapsed);
+            scheduleNext(nextDelay);
+          }
         }
       })();
       this._burstInFlightPromise = flightPromise;
@@ -947,10 +972,6 @@ class HybridPlayer {
 
     // Capture Frame 1 immediately on start — eliminates 0-frame dead lag!
     doCapture();
-
-    this._burstCaptureTimer = setInterval(() => {
-      doCapture();
-    }, intervalMs);
   }
 
   async stopBurstCapture() {
@@ -959,6 +980,7 @@ class HybridPlayer {
     const stoppedSessionId = this._burstSessionId;
 
     if (this._burstCaptureTimer) {
+      clearTimeout(this._burstCaptureTimer);
       clearInterval(this._burstCaptureTimer);
       this._burstCaptureTimer = null;
     }
