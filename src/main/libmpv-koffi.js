@@ -69,6 +69,7 @@ function bindLibMpv(dllPath) {
     terminate_destroy: lib.func('void mpv_terminate_destroy(mpv_handle *ctx)'),
     client_api_version: lib.func('unsigned long mpv_client_api_version(void)'),
     command: lib.func('int mpv_command(mpv_handle *ctx, const char **args)'),
+    command_async: lib.func('int mpv_command_async(mpv_handle *ctx, uint64_t reply_userdata, const char **args)'),
     command_string: lib.func('int mpv_command_string(mpv_handle *ctx, const char *args)'),
     set_option_string: lib.func('int mpv_set_option_string(mpv_handle *ctx, const char *name, const char *data)'),
     set_property_string: lib.func('int mpv_set_property_string(mpv_handle *ctx, const char *name, const char *data)'),
@@ -139,8 +140,17 @@ class LibmpvContext extends EventEmitter {
 
   command(...args) {
     if (this.destroyed || !this.handle) return -1;
-    const strArgs = args.map((a) => (a === null || a === undefined ? '' : String(a)));
+    let isAsync = false;
+    let cmdArgs = args;
+    if (args[0] === 'async') {
+      isAsync = true;
+      cmdArgs = args.slice(1);
+    }
+    const strArgs = cmdArgs.map((a) => (a === null || a === undefined ? '' : String(a)));
     strArgs.push(null);
+    if (isAsync && typeof this.funcs.command_async === 'function') {
+      return this.funcs.command_async(this.handle, 0n, strArgs);
+    }
     return this.funcs.command(this.handle, strArgs);
   }
 
@@ -194,7 +204,7 @@ class LibmpvContext extends EventEmitter {
   pollEvents() {
     if (this.destroyed || !this.handle) return;
     try {
-      while (true) {
+      while (!this.destroyed && this.handle) {
         const evPtr = this.funcs.wait_event(this.handle, 0);
         if (!evPtr) break;
         const ev = koffi.decode(evPtr, this.types.mpv_event);
@@ -300,7 +310,6 @@ class LibmpvContext extends EventEmitter {
 
       case 1: // MPV_EVENT_SHUTDOWN
         this.emit('shutdown');
-        this.destroy();
         break;
 
       default:

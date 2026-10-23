@@ -1742,11 +1742,13 @@ class HybridControls {
         clearInterval(this._clipTimerInterval);
         this._clipStartTime = Date.now();
         const updateClipTimer = () => {
-          const elapsedMs = Date.now() - this._clipStartTime;
-          const totalSec = elapsedMs / 1000;
-          const mins = String(Math.floor(totalSec / 60)).padStart(2, '0');
-          const secs = String(Math.floor(totalSec % 60)).padStart(2, '0');
-          const tenths = Math.floor((totalSec % 1) * 10);
+          const startSec = Number(window.HybridApp?.recordStartTime) || 0;
+          const curSec = Number(this.player?.currentTime) || startSec;
+          const totalSec = Math.max(0, curSec - startSec);
+          const totalTenths = Math.floor(Math.round(totalSec * 1000) / 100);
+          const mins = String(Math.floor(totalTenths / 600)).padStart(2, '0');
+          const secs = String(Math.floor((totalTenths % 600) / 10)).padStart(2, '0');
+          const tenths = totalTenths % 10;
           if (this.recordingClipDuration) {
             this.recordingClipDuration.textContent = `${mins}:${secs}.${tenths}`;
           }
@@ -1758,9 +1760,21 @@ class HybridControls {
       clearInterval(this._clipTimerInterval);
 
       const wasClip = this.recordingIndicator.classList.contains('clip-active') || isStopClip;
+      const isClipError = /fail|cancel|error/i.test(strText);
 
       // Style 3A Stop Morph Flow for Clip Recording
-      if (wasClip && !isBurst) {
+      if (wasClip && !isBurst && !isClipError) {
+        const startSec = Number(window.HybridApp?.recordStartTime) || 0;
+        const curSec = Number(this.player?.currentTime) || startSec;
+        const totalSec = Math.max(0, curSec - startSec);
+        const totalTenths = Math.floor(Math.round(totalSec * 1000) / 100);
+        const mins = String(Math.floor(totalTenths / 600)).padStart(2, '0');
+        const secs = String(Math.floor((totalTenths % 600) / 10)).padStart(2, '0');
+        const tenths = totalTenths % 10;
+        if (this.recordingClipDuration) {
+          this.recordingClipDuration.textContent = `${mins}:${secs}.${tenths}`;
+        }
+
         const stopSquare = document.getElementById('recordingStopSquare');
         const stopFolder = document.getElementById('recordingStopFolder');
 
@@ -1873,7 +1887,8 @@ class HybridControls {
       }
       if (modalId === 'bgSettingsModal') {
         if (!modal.hidden) {
-          const bgSelect = document.getElementById('settBackground');
+          const bgSelect = document.getElementById('welcomeBackgroundSelect');
+          window.HybridApp?.settingsModule?._refreshBgControls?.({ syncInputValues: true });
           window.HybridApp?.settingsModule?._showBgSettingsGroupFor?.(bgSelect?.value || 'dither');
         } else {
           const popover = document.getElementById('bgAccordionPopover');

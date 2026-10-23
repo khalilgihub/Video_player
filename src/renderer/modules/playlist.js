@@ -188,9 +188,6 @@ class HybridPlaylist {
       if (this.repeat === 'one') {
         window.hybridAPI?.mpv?.command?.('set_property', 'loop-file', 'inf');
         window.hybridAPI?.mpv?.command?.('set_property', 'loop-playlist', 'no');
-      } else if (this.repeat === 'all') {
-        window.hybridAPI?.mpv?.command?.('set_property', 'loop-file', 'no');
-        window.hybridAPI?.mpv?.command?.('set_property', 'loop-playlist', 'inf');
       } else {
         window.hybridAPI?.mpv?.command?.('set_property', 'loop-file', 'no');
         window.hybridAPI?.mpv?.command?.('set_property', 'loop-playlist', 'no');
@@ -204,7 +201,14 @@ class HybridPlaylist {
     if (!targetItem) return;
 
     // Deduplicate / debounce consecutive play requests for the same file if already active or loading
-    if (this._loadingPath === targetItem.path || (this.currentIndex === index && this.player?.currentFilePath === targetItem.path)) {
+    if (this._loadingPath === targetItem.path) {
+      return;
+    }
+    if (this.currentIndex === index && this.player?.currentFilePath === targetItem.path) {
+      if (!this.player.isPlaying || (this.player.duration > 0 && this.player.currentTime >= this.player.duration - 0.5)) {
+        this.player.seek(0);
+        window.hybridAPI?.mpv?.play?.();
+      }
       return;
     }
 

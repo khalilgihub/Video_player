@@ -57,11 +57,12 @@ class HybridThumbnails {
     }
     this._pending = true;
 
+    let timeoutId = null;
     try {
       thumbdbg('[thumbnails] capturing at', time.toFixed(2));
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Thumbnail capture timed out')), 5000)
-      );
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('Thumbnail capture timed out')), 5000);
+      });
       const result = await Promise.race([
         window.hybridAPI.mpv.captureThumbnail(time),
         timeoutPromise
@@ -88,6 +89,7 @@ class HybridThumbnails {
     } catch (err) {
       thumbdbg('[thumbnails] capture failed:', err.message);
     } finally {
+      clearTimeout(timeoutId);
       this._pending = false;
 
       // If a newer capture was queued while we were busy, fire it now
@@ -114,7 +116,6 @@ class HybridThumbnails {
   cancelPending() {
     this._requestToken++;
     this._queuedCapture = null;
-    this._pending = false;
     clearTimeout(this._debounceTimer);
     this.thumbEl?.classList.remove('is-loading');
   }

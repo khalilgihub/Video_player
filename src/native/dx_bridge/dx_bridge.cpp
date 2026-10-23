@@ -133,6 +133,14 @@ struct FramePayload {
     uint64_t generation;
 };
 
+struct RetiredBuffer {
+    int index = 0;
+    uint64_t generation = 0;
+    ID3D11Texture2D* d3d_shared_texture = nullptr;
+    IDXGIResource1* dxgi_resource1 = nullptr;
+    HANDLE nt_handle = nullptr;
+};
+
 class DxBridge {
 public:
     HWND dummy_hwnd = nullptr;
@@ -147,6 +155,7 @@ public:
     mpv_render_context* mpv_gl_ctx = nullptr;
 
     BufferEntry buffers[NUM_BUFFERS];
+    std::vector<RetiredBuffer> retired_buffers;
     int current_width = 1280;
     int current_height = 720;
     int flip_y = 1;
@@ -263,9 +272,57 @@ public:
         wglMakeCurrent(dummy_hdc, dummy_hglrc);
         const char* glVendor = (const char*)glGetString(GL_VENDOR);
 
+        auto tryCreateAndOpen = [&](IDXGIAdapter1* adapter, D3D_DRIVER_TYPE drvType) -> bool {
+            ID3D11Device* candDev = nullptr;
+            ID3D11DeviceContext* candCtx = nullptr;
+            HRESULT hr = D3D11CreateDevice(
+                adapter,
+                drvType,
+                nullptr,
+                createDeviceFlags,
+                featureLevels,
+                ARRAYSIZE(featureLevels),
+                D3D11_SDK_VERSION,
+                &candDev,
+                &createdFeatureLevel,
+                &candCtx
+            );
+            if (FAILED(hr)) {
+                hr = D3D11CreateDevice(
+                    adapter,
+                    drvType,
+                    nullptr,
+                    createDeviceFlags,
+                    featureLevels + 1,
+                    ARRAYSIZE(featureLevels) - 1,
+                    D3D11_SDK_VERSION,
+                    &candDev,
+                    &createdFeatureLevel,
+                    &candCtx
+                );
+            }
+            if (FAILED(hr) || !candDev) {
+                if (candCtx) candCtx->Release();
+                if (candDev) candDev->Release();
+                return false;
+            }
+            HANDLE hGlDev = wglDXOpenDeviceNV(candDev);
+            if (!hGlDev) {
+                candCtx->Release();
+                candDev->Release();
+                return false;
+            }
+            d3d_device = candDev;
+            d3d_context = candCtx;
+            gl_hDevice = hGlDev;
+            return true;
+        };
+
         IDXGIFactory1* pFactory = nullptr;
         CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&pFactory);
-        IDXGIAdapter1* pSelectedAdapter = nullptr;
+        std::vector<IDXGIAdapter1*> preferredAdapters;
+        std::vector<IDXGIAdapter1*> fallbackAdapters;
+
         if (pFactory) {
             IDXGIAdapter1* pAdapter = nullptr;
             for (UINT i = 0; pFactory->EnumAdapters1(i, &pAdapter) != DXGI_ERROR_NOT_FOUND; ++i) {
@@ -276,62 +333,71 @@ public:
                 printf("[dx_bridge] DXGI Adapter %u: %s (VendorID 0x%04X, LUID %08lX-%08lX)\n",
                     i, descStr, desc.VendorId, desc.AdapterLuid.HighPart, desc.AdapterLuid.LowPart);
 
-                if (!pSelectedAdapter) {
-                    if (glVendor && strstr(glVendor, "Intel") && desc.VendorId == 0x8086) {
-                        pSelectedAdapter = pAdapter;
-                        pAdapter->AddRef();
-                        printf("[dx_bridge] Matched OpenGL Intel GPU with DXGI Adapter %u!\n", i);
-                    } else if (glVendor && strstr(glVendor, "NVIDIA") && desc.VendorId == 0x10DE) {
-                        pSelectedAdapter = pAdapter;
-                        pAdapter->AddRef();
-                        printf("[dx_bridge] Matched OpenGL NVIDIA GPU with DXGI Adapter %u!\n", i);
+                if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) {
+                    pAdapter->Release();
+                    continue;
+                }
+
+                bool isVendorMatch = false;
+                if (glVendor) {
+                    if (strstr(glVendor, "Intel") && desc.VendorId == 0x8086) {
+                        isVendorMatch = true;
+                    } else if ((strstr(glVendor, "NVIDIA") || strstr(glVendor, "Nvidia")) && desc.VendorId == 0x10DE) {
+                        isVendorMatch = true;
+                    } else if ((strstr(glVendor, "AMD") || strstr(glVendor, "ATI") || strstr(glVendor, "Advanced Micro Devices")) &&
+                               (desc.VendorId == 0x1002 || desc.VendorId == 0x1022)) {
+                        isVendorMatch = true;
                     }
                 }
-                pAdapter->Release();
+
+                if (isVendorMatch) {
+                    printf("[dx_bridge] Vendor-matched OpenGL GPU with DXGI Adapter %u (%s)\n", i, descStr);
+                    preferredAdapters.push_back(pAdapter);
+                } else {
+                    fallbackAdapters.push_back(pAdapter);
+                }
             }
             pFactory->Release();
         }
 
-        D3D_DRIVER_TYPE driverType = pSelectedAdapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE;
-        HRESULT hr = D3D11CreateDevice(
-            pSelectedAdapter,
-            driverType,
-            nullptr,
-            createDeviceFlags,
-            featureLevels,
-            ARRAYSIZE(featureLevels),
-            D3D11_SDK_VERSION,
-            &d3d_device,
-            &createdFeatureLevel,
-            &d3d_context
-        );
-        if (FAILED(hr)) {
-            hr = D3D11CreateDevice(
-                pSelectedAdapter,
-                driverType,
-                nullptr,
-                createDeviceFlags,
-                featureLevels + 1,
-                ARRAYSIZE(featureLevels) - 1,
-                D3D11_SDK_VERSION,
-                &d3d_device,
-                &createdFeatureLevel,
-                &d3d_context
-            );
+        bool opened = false;
+        for (IDXGIAdapter1* adapter : preferredAdapters) {
+            if (!opened && tryCreateAndOpen(adapter, D3D_DRIVER_TYPE_UNKNOWN)) {
+                opened = true;
+            }
+            adapter->Release();
         }
-        if (pSelectedAdapter) {
-            pSelectedAdapter->Release();
-            pSelectedAdapter = nullptr;
+        for (IDXGIAdapter1* adapter : fallbackAdapters) {
+            if (!opened && tryCreateAndOpen(adapter, D3D_DRIVER_TYPE_UNKNOWN)) {
+                opened = true;
+            }
+            adapter->Release();
         }
-        if (FAILED(hr)) return false;
 
-        gl_hDevice = wglDXOpenDeviceNV(d3d_device);
+        if (!opened) {
+            opened = tryCreateAndOpen(nullptr, D3D_DRIVER_TYPE_HARDWARE);
+        }
+
         wglMakeCurrent(nullptr, nullptr);
-
-        return (gl_hDevice != nullptr);
+        return opened && (gl_hDevice != nullptr);
     }
 
-    void cleanupBuffer(BufferEntry& b) {
+    void cleanupRetiredBuffer(RetiredBuffer& rb) {
+        if (rb.nt_handle) {
+            CloseHandle(rb.nt_handle);
+            rb.nt_handle = nullptr;
+        }
+        if (rb.dxgi_resource1) {
+            rb.dxgi_resource1->Release();
+            rb.dxgi_resource1 = nullptr;
+        }
+        if (rb.d3d_shared_texture) {
+            rb.d3d_shared_texture->Release();
+            rb.d3d_shared_texture = nullptr;
+        }
+    }
+
+    void cleanupBuffer(BufferEntry& b, int index = -1, uint64_t generation = 0, bool defer_if_in_use = false) {
         if (b.gl_registered_obj && gl_hDevice && wglDXUnregisterObjectNV) {
             wglDXUnregisterObjectNV(gl_hDevice, b.gl_registered_obj);
             b.gl_registered_obj = nullptr;
@@ -344,28 +410,52 @@ public:
             glDeleteTextures(1, &b.gl_texture);
             b.gl_texture = 0;
         }
-        if (b.nt_handle) {
-            CloseHandle(b.nt_handle);
-            b.nt_handle = nullptr;
-        }
-        if (b.dxgi_resource1) {
-            b.dxgi_resource1->Release();
-            b.dxgi_resource1 = nullptr;
-        }
-        if (b.d3d_shared_texture) {
-            b.d3d_shared_texture->Release();
-            b.d3d_shared_texture = nullptr;
-        }
         if (b.d3d_render_texture) {
             b.d3d_render_texture->Release();
             b.d3d_render_texture = nullptr;
         }
+        if (defer_if_in_use && b.in_use.load(std::memory_order_acquire) &&
+            (b.nt_handle || b.d3d_shared_texture || b.dxgi_resource1)) {
+            retired_buffers.push_back(RetiredBuffer{
+                index,
+                generation,
+                b.d3d_shared_texture,
+                b.dxgi_resource1,
+                b.nt_handle
+            });
+            b.d3d_shared_texture = nullptr;
+            b.dxgi_resource1 = nullptr;
+            b.nt_handle = nullptr;
+        } else {
+            if (b.nt_handle) {
+                CloseHandle(b.nt_handle);
+                b.nt_handle = nullptr;
+            }
+            if (b.dxgi_resource1) {
+                b.dxgi_resource1->Release();
+                b.dxgi_resource1 = nullptr;
+            }
+            if (b.d3d_shared_texture) {
+                b.d3d_shared_texture->Release();
+                b.d3d_shared_texture = nullptr;
+            }
+        }
         b.in_use.store(false, std::memory_order_release);
     }
 
-    void cleanupD3D11() {
-        for (int i = 0; i < NUM_BUFFERS; i++) {
-            cleanupBuffer(buffers[i]);
+    void cleanupD3D11(bool force_all_retired = false) {
+        {
+            std::lock_guard<std::mutex> lock(buffer_mutex);
+            uint64_t gen = current_generation.load(std::memory_order_acquire);
+            for (int i = 0; i < NUM_BUFFERS; i++) {
+                cleanupBuffer(buffers[i], i, gen, !force_all_retired);
+            }
+            if (force_all_retired) {
+                for (auto& rb : retired_buffers) {
+                    cleanupRetiredBuffer(rb);
+                }
+                retired_buffers.clear();
+            }
         }
         if (gl_hDevice && wglDXCloseDeviceNV) {
             wglDXCloseDeviceNV(gl_hDevice);
@@ -386,7 +476,7 @@ public:
         int target_w = (width > 0) ? width : 1280;
         int target_h = (height > 0) ? height : 720;
 
-        // BUG #1 Fix: Wait for in-flight buffers to be released by Chromium before destroying textures
+        // Wait for in-flight buffers to be released by Chromium before retiring/reallocating textures
         {
             std::unique_lock<std::mutex> lock(buffer_mutex);
             cv_buffer_freed.wait_for(lock, std::chrono::milliseconds(500), [this]() {
@@ -401,8 +491,9 @@ public:
 
         std::lock_guard<std::mutex> lock(buffer_mutex);
 
+        uint64_t old_gen = current_generation.load(std::memory_order_acquire);
         for (int i = 0; i < NUM_BUFFERS; i++) {
-            cleanupBuffer(buffers[i]);
+            cleanupBuffer(buffers[i], i, old_gen, true);
         }
         buffers_allocated = false;
         current_generation.fetch_add(1, std::memory_order_acq_rel);
@@ -528,7 +619,7 @@ public:
             });
         }
 
-        cleanupD3D11();
+        cleanupD3D11(false);
 
         wglMakeCurrent(dummy_hdc, dummy_hglrc);
         if (!initD3D11()) {
@@ -709,6 +800,13 @@ public:
         if (index >= 0 && index < NUM_BUFFERS) {
             std::lock_guard<std::mutex> lock(buffer_mutex);
             if (check_generation && generation != current_generation.load(std::memory_order_acquire)) {
+                for (auto it = retired_buffers.begin(); it != retired_buffers.end(); ++it) {
+                    if (it->index == index && it->generation == generation) {
+                        cleanupRetiredBuffer(*it);
+                        retired_buffers.erase(it);
+                        break;
+                    }
+                }
                 return;
             }
             buffers[index].in_use.store(false, std::memory_order_release);
@@ -754,7 +852,7 @@ public:
             mpv_gl_ctx = nullptr;
         }
 
-        cleanupD3D11();
+        cleanupD3D11(true);
 
         wglMakeCurrent(nullptr, nullptr);
 
@@ -933,8 +1031,8 @@ static napi_value GetNtHandle(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
-    size_t argc = 1;
-    napi_value argv[1];
+    size_t argc = 2;
+    napi_value argv[2];
     napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
 
     int index = 0;
@@ -946,8 +1044,30 @@ static napi_value GetNtHandle(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
+    uint64_t expected_gen = 0;
+    bool has_generation = false;
+    if (argc >= 2) {
+        int64_t gen = 0;
+        if (napi_get_value_int64(env, argv[1], &gen) == napi_ok) {
+            expected_gen = (uint64_t)gen;
+            has_generation = true;
+        } else {
+            bool lossless = false;
+            if (napi_get_value_bigint_int64(env, argv[1], &gen, &lossless) == napi_ok) {
+                expected_gen = (uint64_t)gen;
+                has_generation = true;
+            }
+        }
+    }
+
     std::lock_guard<std::mutex> lock(g_bridge->buffer_mutex);
+    if (has_generation && expected_gen != g_bridge->current_generation.load(std::memory_order_acquire)) {
+        return nullptr;
+    }
     HANDLE h = g_bridge->buffers[index].nt_handle;
+    if (!h) {
+        return nullptr;
+    }
     void* data = nullptr;
     napi_value buffer;
     napi_create_buffer(env, sizeof(HANDLE), &data, &buffer);

@@ -55,6 +55,7 @@ class MpvProcess extends EventEmitter {
     /** @type {import('./libmpv-koffi').LibmpvContext|null} */
     this._libmpv = null;
     this.inProcess = false;
+    this._ownsDxBridge = false;
 
     // State
     this.ready = false;
@@ -205,89 +206,92 @@ class MpvProcess extends EventEmitter {
     if (LibmpvContext.isAvailable() && libmpvPath && opts.forceProcess !== true) {
       try {
         fsdbg('Initializing libmpv-2.dll directly in-process via C-FFI (koffi)', { libmpvPath, hwnd });
-        this._libmpv = new LibmpvContext(libmpvPath);
+        const configureLibmpvInstance = (ctx, allowDxBridge) => {
+          const tryDxBridge = allowDxBridge && dxBridgeManager.isSupported() && opts.attachWindow !== false;
+          if (tryDxBridge) {
+            ctx.setOptionString('vo', 'libmpv');
+            ctx.setOptionString('hwdec', 'd3d11va');
+          } else if (opts.attachWindow !== false && hwnd) {
+            ctx.setOptionString('wid', hwnd);
+            ctx.setOptionString('vo', 'gpu');
+            ctx.setOptionString('hwdec', opts.hwdec || (process.platform === 'win32' ? 'd3d11va' : 'auto-safe'));
+          } else if (opts.attachWindow === false) {
+            ctx.setOptionString('force-window', 'no');
+            ctx.setOptionString('mute', 'yes');
+            ctx.setOptionString('pause', 'yes');
+            ctx.setOptionString('audio', 'no');
+            ctx.setOptionString('vo', 'null');
+          } else {
+            throw new Error('libmpv in-process failed: missing valid HWND for embedded --wid rendering');
+          }
 
-        const useDxBridge = dxBridgeManager.isSupported() && opts.attachWindow !== false;
+          ctx.setOptionString('keepaspect-window', 'no');
+          ctx.setOptionString('auto-window-resize', 'no');
+          ctx.setOptionString('osc', 'no');
+          ctx.setOptionString('osd-bar', 'no');
+          ctx.setOptionString('osd-level', '0');
+          ctx.setOptionString('idle', 'yes');
+          ctx.setOptionString('keep-open', 'yes');
+          ctx.setOptionString('msg-level', 'all=warn');
+          ctx.setOptionString('ytdl', 'yes');
+          ctx.setOptionString('sub-auto', 'fuzzy');
+          ctx.setOptionString('sub-file-paths', 'subs:subtitles');
+          ctx.setOptionString('sub-fix-timing', 'no');
+          ctx.setOptionString('demuxer-mkv-subtitle-preroll', 'yes');
+          ctx.setOptionString('sub-ass-use-video-data', 'all');
+          ctx.setOptionString('sub-ass-override', 'scale');
+          ctx.setOptionString('screenshot-directory', screenshotDir);
+          ctx.setOptionString('screenshot-template', 'hybrid-player-%tY-%tm-%td-%tH-%tM-%tS');
+          ctx.setOptionString('screenshot-format', this._screenshotFormat);
+          ctx.setOptionString('screenshot-jpeg-quality', '92');
+          ctx.setOptionString('screenshot-webp-quality', '80');
+          ctx.setOptionString('screenshot-webp-compression', '0');
+          ctx.setOptionString('screenshot-webp-lossless', 'no');
+          ctx.setOptionString('cache', 'yes');
+          ctx.setOptionString('demuxer-max-bytes', '150MiB');
+          ctx.setOptionString('demuxer-max-back-bytes', '50MiB');
+          ctx.setOptionString('input-default-bindings', 'no');
+          ctx.setOptionString('input-conf', inputConfPath);
+          ctx.setOptionString('cursor-autohide', 'no');
+          ctx.setOptionString('hr-seek', 'yes');
+          ctx.setOptionString('volume-max', '200');
+          ctx.setOptionString('sub-codepage', 'auto');
+          if (isMuteAudioRequested) {
+            ctx.setOptionString('ao', 'null');
+          }
 
-        if (useDxBridge) {
-          this._libmpv.setOptionString('vo', 'libmpv');
-          this._libmpv.setOptionString('hwdec', 'd3d11va');
-        } else if (opts.attachWindow !== false && hwnd) {
-          this._libmpv.setOptionString('wid', hwnd);
-          this._libmpv.setOptionString('vo', 'gpu');
-          this._libmpv.setOptionString('hwdec', opts.hwdec || (process.platform === 'win32' ? 'd3d11va' : 'auto-safe'));
-        } else if (opts.attachWindow === false) {
-          this._libmpv.setOptionString('force-window', 'no');
-          this._libmpv.setOptionString('mute', 'yes');
-          this._libmpv.setOptionString('pause', 'yes');
-          this._libmpv.setOptionString('audio', 'no');
-          this._libmpv.setOptionString('vo', 'null');
-        } else {
-          throw new Error('libmpv in-process failed: missing valid HWND for embedded --wid rendering');
-        }
+          if (ytDlpPath) {
+            const normalizedYtDlpPath = ytDlpPath.replace(/\\/g, '/');
+            ctx.setOptionString('script-opts', `ytdl_hook-ytdl_path=${normalizedYtDlpPath}`);
+          }
 
-        this._libmpv.setOptionString('keepaspect-window', 'no');
-        this._libmpv.setOptionString('auto-window-resize', 'no');
-        this._libmpv.setOptionString('osc', 'no');
-        this._libmpv.setOptionString('osd-bar', 'no');
-        this._libmpv.setOptionString('osd-level', '0');
-        this._libmpv.setOptionString('idle', 'yes');
-        this._libmpv.setOptionString('keep-open', 'yes');
-        this._libmpv.setOptionString('msg-level', 'all=warn');
-        this._libmpv.setOptionString('ytdl', 'yes');
-        this._libmpv.setOptionString('sub-auto', 'fuzzy');
-        this._libmpv.setOptionString('sub-file-paths', 'subs:subtitles');
-        this._libmpv.setOptionString('sub-fix-timing', 'no');
-        this._libmpv.setOptionString('demuxer-mkv-subtitle-preroll', 'yes');
-        this._libmpv.setOptionString('sub-ass-use-video-data', 'all');
-        this._libmpv.setOptionString('sub-ass-override', 'scale');
-        this._libmpv.setOptionString('screenshot-directory', screenshotDir);
-        this._libmpv.setOptionString('screenshot-template', 'hybrid-player-%tY-%tm-%td-%tH-%tM-%tS');
-        this._libmpv.setOptionString('screenshot-format', this._screenshotFormat);
-        this._libmpv.setOptionString('screenshot-jpeg-quality', '92');
-        this._libmpv.setOptionString('screenshot-webp-quality', '80');
-        this._libmpv.setOptionString('screenshot-webp-compression', '0');
-        this._libmpv.setOptionString('screenshot-webp-lossless', 'no');
-        this._libmpv.setOptionString('cache', 'yes');
-        this._libmpv.setOptionString('demuxer-max-bytes', '150MiB');
-        this._libmpv.setOptionString('demuxer-max-back-bytes', '50MiB');
-        this._libmpv.setOptionString('input-default-bindings', 'no');
-        this._libmpv.setOptionString('input-conf', inputConfPath);
-        this._libmpv.setOptionString('cursor-autohide', 'no');
-        this._libmpv.setOptionString('hr-seek', 'yes');
-        this._libmpv.setOptionString('volume-max', '200');
-        this._libmpv.setOptionString('sub-codepage', 'auto');
-        if (isMuteAudioRequested) {
-          this._libmpv.setOptionString('ao', 'null');
-        }
+          const formatYtdlOptionValue = (val) => {
+            const str = String(val || '');
+            return str.includes(',') ? `[${str}]` : str;
+          };
+          const ytdlRawOptions = [];
+          if (opts.enableYtdlRawOptions === true) {
+            ytdlRawOptions.push(`extractor-args=${formatYtdlOptionValue('youtube:player_skip=webpage;player_client=tv,web_embedded,android,web')}`);
+            if (opts.ytdlUserAgent) {
+              ytdlRawOptions.push(`user-agent=${formatYtdlOptionValue(opts.ytdlUserAgent)}`);
+            }
+            if (cookiesPath && fs.existsSync(cookiesPath)) {
+              ytdlRawOptions.push(`cookies=${formatYtdlOptionValue(cookiesPath)}`);
+            }
+            if (ytdlRawOptions.length > 0) {
+              ctx.setOptionString('ytdl-raw-options', ytdlRawOptions.join(','));
+            }
+          }
 
-        if (ytDlpPath) {
-          const normalizedYtDlpPath = ytDlpPath.replace(/\\/g, '/');
-          this._libmpv.setOptionString('script-opts', `ytdl_hook-ytdl_path=${normalizedYtDlpPath}`);
-        }
-
-        const formatYtdlOptionValue = (val) => {
-          const str = String(val || '');
-          return str.includes(',') ? `[${str}]` : str;
+          const initRes = ctx.initialize();
+          if (initRes < 0) {
+            throw new Error(`mpv_initialize failed with error code ${initRes}`);
+          }
+          return tryDxBridge;
         };
-        const ytdlRawOptions = [];
-        if (opts.enableYtdlRawOptions === true) {
-          ytdlRawOptions.push(`extractor-args=${formatYtdlOptionValue('youtube:player_skip=webpage;player_client=tv,web_embedded,android,web')}`);
-          if (opts.ytdlUserAgent) {
-            ytdlRawOptions.push(`user-agent=${formatYtdlOptionValue(opts.ytdlUserAgent)}`);
-          }
-          if (cookiesPath && fs.existsSync(cookiesPath)) {
-            ytdlRawOptions.push(`cookies=${formatYtdlOptionValue(cookiesPath)}`);
-          }
-          if (ytdlRawOptions.length > 0) {
-            this._libmpv.setOptionString('ytdl-raw-options', ytdlRawOptions.join(','));
-          }
-        }
 
-        const initRes = this._libmpv.initialize();
-        if (initRes < 0) {
-          throw new Error(`mpv_initialize failed with error code ${initRes}`);
-        }
+        this._libmpv = new LibmpvContext(libmpvPath);
+        const useDxBridge = configureLibmpvInstance(this._libmpv, true);
 
         if (useDxBridge) {
           const ptr = this._libmpv.getHandleAddress ? this._libmpv.getHandleAddress() : (koffi ? koffi.address(this._libmpv.handle) : 0n);
@@ -297,10 +301,23 @@ class MpvProcess extends EventEmitter {
           } catch (e) {
             console.warn('[mpv-process] dxBridgeManager.init error:', e?.message || e);
           }
-          if (!bridgeOk && hwnd) {
-            console.warn('[mpv-process] dxBridgeManager failed, fallback to native window wid');
-            this._libmpv.setOptionString('wid', hwnd);
-            this._libmpv.setOptionString('vo', 'gpu');
+          if (bridgeOk) {
+            this._ownsDxBridge = true;
+          } else {
+            this._ownsDxBridge = false;
+            try {
+              if (dxBridgeManager.targetWindow && !dxBridgeManager.targetWindow.isDestroyed()) {
+                dxBridgeManager.targetWindow.setBackgroundColor('#00000000');
+              }
+            } catch {}
+            if (hwnd) {
+              console.warn('[mpv-process] dxBridgeManager failed, recreating libmpv context with native window wid');
+              try { this._libmpv.destroy(); } catch {}
+              this._libmpv = new LibmpvContext(libmpvPath);
+              configureLibmpvInstance(this._libmpv, false);
+            } else {
+              throw new Error('dxBridgeManager.init failed and no fallback HWND available');
+            }
           }
         }
 
@@ -313,7 +330,7 @@ class MpvProcess extends EventEmitter {
           if (name === 'video-params' && value && typeof value === 'object') {
             const w = value.w || value.width;
             const h = value.h || value.height;
-            if (w && h && dxBridgeManager.isSupported()) {
+            if (w && h && this._ownsDxBridge && dxBridgeManager.isSupported()) {
               dxBridgeManager.resize(w, h);
             }
           }
@@ -343,6 +360,9 @@ class MpvProcess extends EventEmitter {
         this._libmpv.on('log', (text) => {
           this.emit('log', text);
         });
+        this._libmpv.on('shutdown', () => {
+          this.destroy();
+        });
         this._libmpv.on('exit', (code) => {
           this.ready = false;
           this.process = null;
@@ -361,6 +381,10 @@ class MpvProcess extends EventEmitter {
         return;
       } catch (err) {
         mpverr('In-process libmpv initialization failed; falling back to external mpv.exe process:', err?.message || err);
+        if (this._ownsDxBridge) {
+          this._ownsDxBridge = false;
+          try { dxBridgeManager.destroy(); } catch {}
+        }
         if (this._libmpv) {
           try { this._libmpv.destroy(); } catch {}
           this._libmpv = null;
@@ -385,7 +409,7 @@ class MpvProcess extends EventEmitter {
       '--osd-level=0',
       `--input-ipc-server=${this.pipeName}`,
       `--hwdec=${opts.hwdec || (process.platform === 'win32' ? 'd3d11va' : 'auto-safe')}`,
-      '--vo=gpu',
+      opts.attachWindow === false ? '--vo=null' : '--vo=gpu',
       '--ytdl=yes',
       // Subtitle defaults & rock-solid multi-speaker synchronization
       '--sub-auto=fuzzy',
@@ -803,6 +827,12 @@ class MpvProcess extends EventEmitter {
 
   async togglePause() {
     const paused = !!(await this.getProperty('pause'));
+    if (paused) {
+      const eof = await this.getProperty('eof-reached').catch(() => false);
+      if (eof) {
+        await this.seek(0, 'absolute').catch(() => {});
+      }
+    }
     const nextPaused = !paused;
     await this.setProperty('pause', nextPaused);
     return nextPaused;
@@ -1131,16 +1161,20 @@ class MpvProcess extends EventEmitter {
       clearTimeout(this._reconnectTimer);
       this._reconnectTimer = null;
     }
-    try {
-      dxBridgeManager.destroy();
-    } catch {}
-    if (this.inProcess && this._libmpv) {
+    if (this._ownsDxBridge) {
+      this._ownsDxBridge = false;
       try {
-        this._libmpv.destroy();
+        dxBridgeManager.destroy();
       } catch {}
+    }
+    if (this.inProcess && this._libmpv) {
+      const ctx = this._libmpv;
       this._libmpv = null;
       this.inProcess = false;
       this.process = null;
+      try {
+        ctx.destroy();
+      } catch {}
     } else {
       if (this.socket) {
         try { this.command('quit').catch(() => {}); } catch {}

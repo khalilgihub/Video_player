@@ -113,7 +113,7 @@ class DxBridgeManager {
     let imported = null;
     let releasedManually = false;
     try {
-      const ntHandleBuffer = this.addon.getNtHandle(bufferIndex);
+      const ntHandleBuffer = this.addon.getNtHandle(bufferIndex, generation);
       if (!ntHandleBuffer || ntHandleBuffer.length < 8) {
         releasedManually = true;
         if (this.addon) this.addon.releaseBuffer(bufferIndex, generation);

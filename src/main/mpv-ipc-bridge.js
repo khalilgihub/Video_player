@@ -47,6 +47,11 @@ function screenshotdbg(...args) {
  * @param {import('./mpv-process').MpvProcess} mpv
  */
 function setupMpvIpc(win, mpv, options = {}) {
+  const registerHandler = (channel, handler) => {
+    ipcMain.removeHandler(channel);
+    ipcMain.handle(channel, handler);
+  };
+
   const getTrackedFullscreen = () => {
     if (!win || win.isDestroyed()) return false;
     if (typeof win.__hybridFullscreenState === 'boolean') {
@@ -76,7 +81,7 @@ function setupMpvIpc(win, mpv, options = {}) {
   const previewCache = new Map();
   const previewCacheFiles = new Map();
   const previewDir = path.join(app.getPath('temp'), `hybrid-player-thumbs-${process.pid}`);
-  const pausedFrameDir = path.join(app.getPath('temp'), 'hybrid-player-paused-frames');
+  const pausedFrameDir = path.join(app.getPath('temp'), `hybrid-player-paused-frames-${process.pid}`);
   const pausedFrameFiles = [];
   const PAUSED_FRAME_MAX_FILES = 12;
   const MAX_INLINE_PREVIEW_BYTES = 12 * 1024 * 1024;
@@ -143,6 +148,7 @@ function setupMpvIpc(win, mpv, options = {}) {
     if (!previewMpv.process) {
       previewMpv.spawn(null, {
         attachWindow: false,
+        forceProcess: true,
         hwdec: 'no',
         screenshotDir: previewDir,
       });
@@ -194,13 +200,13 @@ function setupMpvIpc(win, mpv, options = {}) {
         try { fs.unlinkSync(frameFile); } catch {}
       }
       pausedFrameFiles.length = 0;
-      try { fs.rmdirSync(pausedFrameDir); } catch {}
+      try { fs.rmSync(pausedFrameDir, { recursive: true, force: true }); } catch {}
       for (const tempPath of stagedUndoMap.keys()) {
         try { fs.unlinkSync(tempPath); } catch {}
       }
       stagedUndoMap.clear();
       try {
-        const undoDir = path.join(app.getPath('temp'), 'hybrid_screenshot_undo');
+        const undoDir = path.join(app.getPath('temp'), `hybrid_screenshot_undo_${process.pid}`);
         fs.rmdirSync(undoDir);
       } catch {}
     });
@@ -892,7 +898,7 @@ function setupMpvIpc(win, mpv, options = {}) {
   });
 
   // ── Generic command passthrough ────────────────────────
-  ipcMain.handle('mpv:command', async (_, ...args) => {
+  registerHandler('mpv:command', async (_, ...args) => {
     const cleanArgs = sanitizeRendererMpvCommand(args);
     if (!cleanArgs) return null;
     if (cleanArgs[0] === 'loadfile' && cleanArgs[2] === 'replace') {
@@ -901,14 +907,14 @@ function setupMpvIpc(win, mpv, options = {}) {
     return withReady(() => mpv.command(...cleanArgs), null);
   });
 
-  ipcMain.handle('mpv:set-property', async (_, name, value) => {
+  registerHandler('mpv:set-property', async (_, name, value) => {
     const cleanName = sanitizeMpvString(name, 80);
     const cleanValue = sanitizeMpvPropertyValue(cleanName, value);
     if (cleanValue === null) return false;
     return withReady(() => mpv.setProperty(cleanName, cleanValue), false);
   });
 
-  ipcMain.handle('mpv:get-property', async (_, name) => {
+  registerHandler('mpv:get-property', async (_, name) => {
     const cleanName = sanitizeMpvString(name, 80);
     if (!cleanName || !rendererGetPropertyAllowlist.has(cleanName)) return null;
     try {
@@ -924,7 +930,7 @@ function setupMpvIpc(win, mpv, options = {}) {
   });
 
   // ── File loading ───────────────────────────────────────
-  ipcMain.handle('mpv:load-file', async (_, filePath) => {
+  registerHandler('mpv:load-file', async (_, filePath) => {
     if (typeof filePath === 'string' && isLikelyAbsoluteLocalPath(filePath)) {
       try {
         let resolved = path.resolve(filePath);
@@ -955,47 +961,47 @@ function setupMpvIpc(win, mpv, options = {}) {
   });
 
   // ── Playback ───────────────────────────────────────────
-  ipcMain.handle('mpv:play', async () => withReady(() => mpv.play(), false));
-  ipcMain.handle('mpv:pause', async () => withReady(() => mpv.pause(), false));
-  ipcMain.handle('mpv:toggle-pause', async () => withReady(() => mpv.togglePause(), false));
-  ipcMain.handle('mpv:stop', async () => withReady(() => mpv.stop(), false));
-  ipcMain.handle('mpv:seek', async (_, time, flags) => {
+  registerHandler('mpv:play', async () => withReady(() => mpv.play(), false));
+  registerHandler('mpv:pause', async () => withReady(() => mpv.pause(), false));
+  registerHandler('mpv:toggle-pause', async () => withReady(() => mpv.togglePause(), false));
+  registerHandler('mpv:stop', async () => withReady(() => mpv.stop(), false));
+  registerHandler('mpv:seek', async (_, time, flags) => {
     const safeTime = sanitizeNumber(time, 0, 30 * 24 * 60 * 60, null);
     const safeFlags = seekFlagsAllowlist.has(flags) ? flags : 'absolute';
     if (safeTime === null) return false;
     return withReady(() => mpv.seek(safeTime, safeFlags), false);
   });
-  ipcMain.handle('mpv:seek-relative', async (_, sec) => {
+  registerHandler('mpv:seek-relative', async (_, sec) => {
     const safeSeconds = sanitizeNumber(sec, -24 * 60 * 60, 24 * 60 * 60, null);
     return safeSeconds === null ? false : withReady(() => mpv.seekRelative(safeSeconds), false);
   });
-  ipcMain.handle('mpv:seek-percent', async (_, pct) => {
+  registerHandler('mpv:seek-percent', async (_, pct) => {
     const safePercent = sanitizeNumber(pct, 0, 100, null);
     return safePercent === null ? false : withReady(() => mpv.seekPercent(safePercent), false);
   });
 
   // ── Volume / speed ─────────────────────────────────────
-  ipcMain.handle('mpv:set-volume', async (_, v) => {
+  registerHandler('mpv:set-volume', async (_, v) => {
     const safeVolume = sanitizeNumber(v, 0, 200, null);
     return safeVolume === null ? false : withReady(() => mpv.setVolume(safeVolume), false);
   });
-  ipcMain.handle('mpv:set-mute', async (_, m) => withReady(() => mpv.setMute(!!m), false));
-  ipcMain.handle('mpv:set-speed', async (_, s) => {
+  registerHandler('mpv:set-mute', async (_, m) => withReady(() => mpv.setMute(!!m), false));
+  registerHandler('mpv:set-speed', async (_, s) => {
     const safeSpeed = sanitizeNumber(s, 0.1, 16, null);
     return safeSpeed === null ? false : withReady(() => mpv.setSpeed(safeSpeed), false);
   });
 
   // ── Subtitles ──────────────────────────────────────────
-  ipcMain.handle('mpv:set-sub', async (_, id) => {
+  registerHandler('mpv:set-sub', async (_, id) => {
     const safeId = Number.isInteger(Number(id)) ? Number(id) : null;
     return safeId === null ? false : withReady(() => mpv.setSub(safeId), false);
   });
-  ipcMain.handle('mpv:set-sub-delay', async (_, sec) => {
+  registerHandler('mpv:set-sub-delay', async (_, sec) => {
     const safeDelay = sanitizeNumber(sec, -600, 600, null);
     return safeDelay === null ? false : withReady(() => mpv.setSubDelay(safeDelay), false);
   });
-  ipcMain.handle('mpv:set-sub-visibility', async (_, vis) => withReady(() => mpv.setSubVisibility(vis), false));
-  ipcMain.handle('mpv:add-sub-file', async (_, p) => {
+  registerHandler('mpv:set-sub-visibility', async (_, vis) => withReady(() => mpv.setSubVisibility(vis), false));
+  registerHandler('mpv:add-sub-file', async (_, p) => {
     const subtitlePath = sanitizeMediaSource(p, {
       mustExist: true,
       allowedExtensions: LOCAL_SUBTITLE_EXTENSIONS,
@@ -1004,80 +1010,80 @@ function setupMpvIpc(win, mpv, options = {}) {
   });
 
   // ── Audio tracks ───────────────────────────────────────
-  ipcMain.handle('mpv:set-audio', async (_, id) => {
+  registerHandler('mpv:set-audio', async (_, id) => {
     const safeId = Number.isInteger(Number(id)) ? Number(id) : null;
     return safeId === null ? false : withReady(() => mpv.setAudio(safeId), false);
   });
-  ipcMain.handle('mpv:set-audio-delay', async (_, sec) => {
+  registerHandler('mpv:set-audio-delay', async (_, sec) => {
     const safeDelay = sanitizeNumber(sec, -600, 600, null);
     return safeDelay === null ? false : withReady(() => mpv.setAudioDelay(safeDelay), false);
   });
 
   // ── Chapters ───────────────────────────────────────────
-  ipcMain.handle('mpv:set-chapter', async (_, idx) => {
+  registerHandler('mpv:set-chapter', async (_, idx) => {
     const safeIndex = Number.isInteger(Number(idx)) ? Number(idx) : null;
     return safeIndex === null ? false : withReady(() => mpv.setChapter(safeIndex), false);
   });
 
   // ── Frame stepping ─────────────────────────────────────
-  ipcMain.handle('mpv:frame-step', async () => withReady(() => mpv.frameStep(), false));
-  ipcMain.handle('mpv:frame-back-step', async () => withReady(() => mpv.frameBackStep(), false));
+  registerHandler('mpv:frame-step', async () => withReady(() => mpv.frameStep(), false));
+  registerHandler('mpv:frame-back-step', async () => withReady(() => mpv.frameBackStep(), false));
 
   // ── A-B loop ───────────────────────────────────────────
-  ipcMain.handle('mpv:set-ab-loop-a', async (_, t) => {
+  registerHandler('mpv:set-ab-loop-a', async (_, t) => {
     const safeTime = sanitizeNumber(t, 0, 30 * 24 * 60 * 60, null);
     return safeTime === null ? false : withReady(() => mpv.setABLoopA(safeTime), false);
   });
-  ipcMain.handle('mpv:set-ab-loop-b', async (_, t) => {
+  registerHandler('mpv:set-ab-loop-b', async (_, t) => {
     const safeTime = sanitizeNumber(t, 0, 30 * 24 * 60 * 60, null);
     return safeTime === null ? false : withReady(() => mpv.setABLoopB(safeTime), false);
   });
-  ipcMain.handle('mpv:clear-ab-loop', async () => withReady(() => mpv.clearABLoop(), false));
+  registerHandler('mpv:clear-ab-loop', async () => withReady(() => mpv.clearABLoop(), false));
 
   // ── Screenshot ─────────────────────────────────────────
-  ipcMain.handle('mpv:screenshot', async (_, mode, debugMeta) => {
+  registerHandler('mpv:screenshot', async (_, mode, debugMeta) => {
     return withReady(() => captureScreenshotWithAck(sanitizeScreenshotMode(mode), debugMeta), null);
   });
 
-  ipcMain.handle('mpv:screenshot-burst-frame', async (_, sessionId, seqNum, mode) => {
+  registerHandler('mpv:screenshot-burst-frame', async (_, sessionId, seqNum, mode) => {
     const safeSessionId = typeof sessionId === 'string' ? sessionId.replace(/[^a-zA-Z0-9_-]/g, '') : 'session';
     const safeSeq = Number.isInteger(Number(seqNum)) ? Number(seqNum) : 1;
     return withReady(() => mpv.screenshotBurstFrame(safeSessionId, safeSeq, sanitizeScreenshotMode(mode)), null);
   });
 
-  ipcMain.handle('mpv:finalize-burst-session', async (_, sessionId, totalCount) => {
+  registerHandler('mpv:finalize-burst-session', async (_, sessionId, totalCount) => {
     const safeSessionId = typeof sessionId === 'string' ? sessionId.replace(/[^a-zA-Z0-9_-]/g, '') : 'session';
     const safeCount = Number.isInteger(Number(totalCount)) ? Number(totalCount) : 0;
     return withReady(() => mpv.finalizeBurstSession(safeSessionId, safeCount), { inSubfolder: false, count: 0, folderName: '' });
   });
 
-  ipcMain.handle('mpv:capture-paused-frame', async (_, mode = 'subtitles') => {
+  registerHandler('mpv:capture-paused-frame', async (_, mode = 'subtitles') => {
     return withReady(() => capturePausedFrameSilent(sanitizeScreenshotMode(mode || 'subtitles')), null);
   });
 
-  ipcMain.handle('mpv:set-screenshot-dir', async (_, dir) => {
+  registerHandler('mpv:set-screenshot-dir', async (_, dir) => {
     if (dir == null || typeof dir === 'string') {
       return mpv.setScreenshotDir(typeof dir === 'string' ? dir.trim() : '');
     }
     return false;
   });
 
-  ipcMain.handle('mpv:get-screenshot-dir', async () => {
+  registerHandler('mpv:get-screenshot-dir', async () => {
     return typeof mpv.getScreenshotDir === 'function' ? mpv.getScreenshotDir() : (mpv._screenshotDir || '');
   });
 
-  ipcMain.handle('mpv:set-screenshot-format', async (_, fmt) => {
+  registerHandler('mpv:set-screenshot-format', async (_, fmt) => {
     if (typeof fmt === 'string' && fmt.trim()) {
       return mpv.setScreenshotFormat(fmt.trim());
     }
     return false;
   });
 
-  ipcMain.handle('mpv:get-screenshot-format', async () => {
+  registerHandler('mpv:get-screenshot-format', async () => {
     return typeof mpv.getScreenshotFormat === 'function' ? mpv.getScreenshotFormat() : (mpv._screenshotFormat || 'jpg');
   });
 
-  ipcMain.handle('mpv:set-auto-organize-screenshots', async (_, enabled) => {
+  registerHandler('mpv:set-auto-organize-screenshots', async (_, enabled) => {
     if (typeof mpv.setAutoOrganizeScreenshots === 'function') {
       mpv.setAutoOrganizeScreenshots(enabled !== false);
       return true;
@@ -1085,14 +1091,14 @@ function setupMpvIpc(win, mpv, options = {}) {
     return false;
   });
 
-  ipcMain.handle('mpv:get-effective-screenshot-dir', async () => {
+  registerHandler('mpv:get-effective-screenshot-dir', async () => {
     if (typeof mpv.getEffectiveScreenshotDir === 'function') {
       return await mpv.getEffectiveScreenshotDir();
     }
     return typeof mpv.getScreenshotDir === 'function' ? mpv.getScreenshotDir() : (mpv._screenshotDir || '');
   });
 
-  ipcMain.handle('mpv:screenshot-open-folder', async () => {
+  registerHandler('mpv:screenshot-open-folder', async () => {
     let dir = '';
     if (typeof mpv.getEffectiveScreenshotDir === 'function') {
       dir = await mpv.getEffectiveScreenshotDir();
@@ -1109,7 +1115,7 @@ function setupMpvIpc(win, mpv, options = {}) {
   });
 
   const getUndoDir = () => {
-    const undoDir = path.join(app.getPath('temp'), 'hybrid_screenshot_undo');
+    const undoDir = path.join(app.getPath('temp'), `hybrid_screenshot_undo_${process.pid}`);
     if (!fs.existsSync(undoDir)) {
       try { fs.mkdirSync(undoDir, { recursive: true }); } catch {}
     }
@@ -1137,7 +1143,9 @@ function setupMpvIpc(win, mpv, options = {}) {
     const candidateDirs = [
       path.join(tempBase, `hybrid-player-thumbs-${process.pid}`),
       path.join(tempBase, 'hybrid-player-thumbs'),
+      path.join(tempBase, `hybrid-player-paused-frames-${process.pid}`),
       path.join(tempBase, 'hybrid-player-paused-frames'),
+      path.join(tempBase, `hybrid_screenshot_undo_${process.pid}`),
       path.join(tempBase, 'hybrid_screenshot_undo'),
     ];
     if (candidateDirs.some((dir) => isSubPath(dir, cleanTarget))) {
@@ -1157,7 +1165,7 @@ function setupMpvIpc(win, mpv, options = {}) {
     return false;
   };
 
-  ipcMain.handle('mpv:delete-screenshot', async (_, filePath) => {
+  registerHandler('mpv:delete-screenshot', async (_, filePath) => {
     if (!filePath || typeof filePath !== 'string') {
       return { success: false, error: 'Invalid file path' };
     }
@@ -1216,7 +1224,7 @@ function setupMpvIpc(win, mpv, options = {}) {
     }
   });
 
-  ipcMain.handle('mpv:restore-screenshot', async (_, payload) => {
+  registerHandler('mpv:restore-screenshot', async (_, payload) => {
     const tempPath = payload?.tempPath ? path.resolve(String(payload.tempPath).trim()) : '';
     const originalPath = (payload?.originalPath || payload?.filePath)
       ? path.resolve(String(payload.originalPath || payload.filePath).trim())
@@ -1282,7 +1290,7 @@ function setupMpvIpc(win, mpv, options = {}) {
   });
 
   // ── Thumbnail capture for seek-bar hover preview ──────
-  ipcMain.handle('mpv:capture-thumbnail', async (_, time) => {
+  registerHandler('mpv:capture-thumbnail', async (_, time) => {
     return withReady(async () => {
       const mediaPath = mpv.filePath;
       if (!mediaPath) {
@@ -1362,7 +1370,7 @@ function setupMpvIpc(win, mpv, options = {}) {
   });
 
   // ── Status query ───────────────────────────────────────
-  ipcMain.handle('mpv:is-ready', async () => mpv.ready);
+  registerHandler('mpv:is-ready', async () => mpv.ready);
 }
 
 module.exports = { setupMpvIpc };

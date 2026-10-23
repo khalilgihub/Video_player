@@ -5,7 +5,12 @@ const { app } = require('electron');
 let logFilePath = null;
 let projectLogFilePath = null;
 
+function isFsLogEnabled() {
+  return process.env.HYBRID_FS_DEBUG === '1';
+}
+
 function initFullscreenLogger(baseDir = __dirname) {
+  if (!isFsLogEnabled()) return;
   try {
     const userDataPath = app?.getPath ? app.getPath('userData') : null;
     if (userDataPath) {
@@ -24,6 +29,7 @@ function initFullscreenLogger(baseDir = __dirname) {
 }
 
 function writeLog(line, timestamp = true) {
+  if (!isFsLogEnabled()) return;
   const formatted = timestamp ? `[${new Date().toISOString()}] ${line}\n` : line;
   console.log(formatted.trim());
 
@@ -40,6 +46,7 @@ function writeLog(line, timestamp = true) {
 }
 
 function logFs(event, details = {}) {
+  if (!isFsLogEnabled()) return;
   let detailStr = '';
   try {
     detailStr = typeof details === 'string' ? details : JSON.stringify(details);

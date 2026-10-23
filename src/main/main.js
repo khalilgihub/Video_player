@@ -3,11 +3,11 @@
  * Production-grade Electron video player
  */
 
-const { app, BrowserWindow, ipcMain, dialog, globalShortcut, screen, Menu, protocol, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, globalShortcut, screen, Menu, protocol, nativeTheme, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFile, spawn } = require('child_process');
-const { fileURLToPath } = require('url');
+const { fileURLToPath, pathToFileURL } = require('url');
 const { setupIpcHandlers, applyFakeMaximize } = require('./ipc-handlers');
 const { MpvProcess } = require('./mpv-process');
 const { setupMpvIpc } = require('./mpv-ipc-bridge');
@@ -321,7 +321,10 @@ async function clipMediaSegment({ filePath, startTime, duration }) {
     '-ss', formatFfmpegTimestamp(safeStartTime),
     '-i', targetPath,
     '-t', formatFfmpegTimestamp(safeDuration),
-    '-map', '0',
+    '-map', '0:v:0?',
+    '-map', '0:a?',
+    '-map', '0:s?',
+    '-dn',
     '-c', 'copy',
     outputPath,
   ];
@@ -508,17 +511,21 @@ function registerSystemDialogHandlers(win) {
     }
     const focused = BrowserWindow.getFocusedWindow();
     if (focused && !focused.isDestroyed()) return focused;
+    if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
     if (win && !win.isDestroyed()) return win;
     return null;
   };
 
+  ipcMain.removeHandler('app:get-startup-diagnostics');
   ipcMain.handle('app:get-startup-diagnostics', async () => startupDiagnostics.slice());
+  ipcMain.removeHandler('app:get-initial-file');
   ipcMain.handle('app:get-initial-file', async () => {
     return process.argv
       .map((arg) => resolveExistingLocalFile(arg, MEDIA_EXTENSIONS))
       .find(Boolean) || null;
   });
 
+  ipcMain.removeHandler('dialog:openFile');
   ipcMain.handle('dialog:openFile', async (event) => {
     const targetWin = getTargetWindow(event);
     const options = {
@@ -532,6 +539,7 @@ function registerSystemDialogHandlers(win) {
     return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
   });
 
+  ipcMain.removeHandler('dialog:openMultiple');
   ipcMain.handle('dialog:openMultiple', async (event) => {
     const targetWin = getTargetWindow(event);
     const options = {
@@ -545,6 +553,7 @@ function registerSystemDialogHandlers(win) {
     return result.canceled ? [] : result.filePaths;
   });
 
+  ipcMain.removeHandler('dialog:openFolder');
   ipcMain.handle('dialog:openFolder', async (event) => {
     const targetWin = getTargetWindow(event);
     const options = {
@@ -562,10 +571,12 @@ function registerSystemDialogHandlers(win) {
     return collectFolderMediaFiles(result.filePaths[0]);
   });
 
+  ipcMain.removeHandler('media:clip-segment');
   ipcMain.handle('media:clip-segment', async (_, payload) => {
     return clipMediaSegment(payload || {});
   });
 
+  ipcMain.removeHandler('youtube:get-quality-heights');
   ipcMain.handle('youtube:get-quality-heights', async (_, url) => {
     ytdbg('ipc youtube:get-quality-heights request', { url: String(url || '') });
     const heights = await getYoutubeQualityHeights(url);
@@ -573,6 +584,7 @@ function registerSystemDialogHandlers(win) {
     return heights;
   });
 
+  ipcMain.removeHandler('dialog:selectScreenshotDir');
   ipcMain.handle('dialog:selectScreenshotDir', async (event, currentDir) => {
     const defaultPath = typeof currentDir === 'string' && currentDir && fs.existsSync(currentDir)
       ? currentDir
@@ -589,6 +601,7 @@ function registerSystemDialogHandlers(win) {
     return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
   });
 
+  ipcMain.removeHandler('app:get-default-screenshot-dir');
   ipcMain.handle('app:get-default-screenshot-dir', async () => {
     return path.join(app.getPath('userData'), 'screenshots');
   });
@@ -1138,10 +1151,11 @@ async function flushDatabaseAsync() {
     dbSaveTimer = null;
   }
 
+  let tmpPath = null;
   try {
     const dir = path.dirname(DB_PATH);
     await fs.promises.mkdir(dir, { recursive: true });
-    const tmpPath = path.join(dir, `.${path.basename(DB_PATH)}.${process.pid}.${Date.now()}.${++dbTmpSeq}.tmp`);
+    tmpPath = path.join(dir, `.${path.basename(DB_PATH)}.${process.pid}.${Date.now()}.${++dbTmpSeq}.tmp`);
     const serialized = JSON.stringify(normalizeDatabase(dbToSave, createDefaultDatabase()), null, 2);
     await fs.promises.writeFile(tmpPath, serialized, 'utf-8');
     if (generation !== dbSaveGeneration || pendingDb) {
@@ -1150,6 +1164,12 @@ async function flushDatabaseAsync() {
     }
     fs.renameSync(tmpPath, DB_PATH);
   } catch (e) {
+    if (tmpPath) {
+      await fs.promises.unlink(tmpPath).catch(() => {});
+    }
+    if (generation === dbSaveGeneration && !pendingDb) {
+      pendingDb = dbToSave;
+    }
     console.error('Failed to save database asynchronously:', e);
   }
 }
@@ -1162,14 +1182,18 @@ function saveDatabase(db, { immediate = false } = {}) {
       clearTimeout(dbSaveTimer);
       dbSaveTimer = null;
     }
+    let tmpPath = null;
     try {
       const dir = path.dirname(DB_PATH);
       fs.mkdirSync(dir, { recursive: true });
-      const tmpPath = path.join(dir, `.${path.basename(DB_PATH)}.${process.pid}.${Date.now()}.${++dbTmpSeq}.tmp`);
+      tmpPath = path.join(dir, `.${path.basename(DB_PATH)}.${process.pid}.${Date.now()}.${++dbTmpSeq}.tmp`);
       fs.writeFileSync(tmpPath, JSON.stringify(normalizeDatabase(db, createDefaultDatabase()), null, 2), 'utf-8');
       fs.renameSync(tmpPath, DB_PATH);
       pendingDb = null;
     } catch (e) {
+      if (tmpPath) {
+        try { fs.unlinkSync(tmpPath); } catch {}
+      }
       console.error('Failed to save database immediately:', e);
     }
     return;
@@ -1747,6 +1771,7 @@ function createMainWindow() {
       mpvProcess.destroy();
       mpvProcess = null;
     }
+    dxBridgeManager.destroy();
     mainWindow = null;
   });
 
@@ -1869,11 +1894,6 @@ function createMainWindow() {
     } catch (_) {}
   });
 
-  mainWindow.on('closed', () => {
-    dxBridgeManager.destroy();
-    mainWindow = null;
-  });
-
   return mainWindow;
 }
 
@@ -1975,6 +1995,9 @@ function getLocalFileProtocolRoots() {
     path.join(tempDir, 'hybrid-player-thumbs'),
     path.join(tempDir, `hybrid-player-thumbs-${process.pid}`),
     path.join(tempDir, 'hybrid-player-paused-frames'),
+    path.join(tempDir, `hybrid_screenshot_undo_${process.pid}`),
+    path.join(tempDir, 'hybrid_screenshot_undo'),
+    path.join(tempDir, `hybrid-player-paused-frames-${process.pid}`),
     path.join(__dirname, '../../assets'),
   ];
   if (mpvProcess && typeof mpvProcess.getScreenshotDir === 'function') {
@@ -2108,9 +2131,13 @@ app.whenReady().then(() => {
     if (!filePath) {
       return new Response('Not found', { status: 404 });
     }
-    return new Response(fs.createReadStream(filePath), {
-      headers: { 'Content-Type': getMimeType(filePath) }
-    });
+    // net.fetch on a file:// URL lets Chromium own the file handle (range requests,
+    // abort handling, FILE_SHARE_DELETE). A hand-rolled fs.createReadStream wrapped
+    // in a Response wedged the main thread when the file was moved/aborted mid-read.
+    return net.fetch(pathToFileURL(filePath).toString(), {
+      headers: request.headers,
+      signal: request.signal,
+    }).catch(() => new Response('Not found', { status: 404 }));
   });
 
   const db = loadDatabase();
@@ -2133,20 +2160,27 @@ app.whenReady().then(() => {
     logPaths: getLogPaths()
   });
 
+  ipcMain.removeAllListeners('window:log-fullscreen');
   ipcMain.on('window:log-fullscreen', (_, payload) => {
     logFs(payload?.event || 'renderer:log', payload?.details || {});
   });
 
+  ipcMain.removeHandler('window:get-fullscreen-log-path');
   ipcMain.handle('window:get-fullscreen-log-path', () => {
     return getLogPaths();
   });
 
-  ipcMain.on('window:set-editing-focus', (_, state) => {
-    if (win && !win.isDestroyed()) {
-      win.__hybridEditingFocused = !!state;
+  ipcMain.removeAllListeners('window:set-editing-focus');
+  ipcMain.on('window:set-editing-focus', (event, state) => {
+    const targetWin = (event?.sender ? BrowserWindow.fromWebContents(event.sender) : null)
+      || (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null)
+      || (win && !win.isDestroyed() ? win : null);
+    if (targetWin && !targetWin.isDestroyed()) {
+      targetWin.__hybridEditingFocused = !!state;
     }
   });
 
+  ipcMain.removeAllListeners('shared-texture:ready');
   ipcMain.on('shared-texture:ready', () => {
     dxBridgeManager.setRendererReady(true);
   });
@@ -2187,7 +2221,15 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    createMainWindow();
+    const newWin = createMainWindow();
+    setupGlobalShortcuts();
+    registerSystemDialogHandlers(newWin);
+    if (global.__hybridDb) {
+      setupIpcHandlers(ipcMain, newWin, global.__hybridDb, saveDatabase, {
+        setTrackedFullscreen: (targetWin, targetState, source) => setTrackedFullscreen(targetWin, targetState, source),
+      });
+    }
+    setupYtDlpUpdaterIpc(newWin);
   }
 });
 

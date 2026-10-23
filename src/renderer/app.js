@@ -1027,9 +1027,6 @@ class HybridApp {
     }
     await window.hybridAPI.mpv.setProperty('vid', 'auto');
     await window.hybridAPI.mpv.command('loadfile', clean[0], 'replace');
-    for (let i = 1; i < clean.length; i++) {
-      await window.hybridAPI.mpv.command('loadfile', clean[i], 'append');
-    }
 
     window.HybridToast?.show(`Loaded ${clean.length} item(s)`);
   }
@@ -1872,7 +1869,6 @@ class HybridApp {
       const duration = safeEndTime - (this.recordStartTime || 0);
 
       this.isClipRecording = false;
-      this.controlsModule?.setRecordingState(false, 'Stop Recording');
       window.HybridToast?.show('Stop Recording');
 
       if (duration <= 0.2) {
@@ -1885,11 +1881,12 @@ class HybridApp {
         duration,
       });
 
+      this.controlsModule?.setRecordingState(false, 'Stop Recording');
       const outputName = result?.outputPath ? result.outputPath.split(/[/\\]/).pop() : 'clip';
       window.HybridToast?.show(`Clip saved: ${outputName}`);
       return true;
     } catch (error) {
-      this.controlsModule?.setRecordingState(false, 'Stop Recording');
+      this.controlsModule?.setRecordingState(false, 'Clip Failed');
       window.HybridToast?.show(error?.message || 'Clip export failed');
       return false;
     } finally {
@@ -1905,7 +1902,7 @@ class HybridApp {
     this.isClipRecording = false;
     this.recordStartTime = null;
     this.recordSourcePath = null;
-    this.controlsModule?.setRecordingState(false, 'Stop Recording');
+    this.controlsModule?.setRecordingState(false, 'Clip Cancelled');
     if (message) {
       window.HybridToast?.show(message);
     }

@@ -92,10 +92,10 @@ class CursorManager {
   /** Call when play/pause state changes */
   setPlaying(playing) {
     this._isPlaying = playing;
-    if (!playing && !this._isFullscreen) {
+    if (!playing) {
       this._showCursor();
       this._clearTimer();
-    } else if (playing || this._isFullscreen) {
+    } else {
       this._resetTimer();
     }
   }
@@ -108,7 +108,7 @@ class CursorManager {
 
   /** Re-evaluate after a modal is closed */
   resume() {
-    if ((this._isPlaying || this._isFullscreen) && !this._isModalOpen()) {
+    if (this._isPlaying && !this._isModalOpen()) {
       this._resetTimer();
     }
   }
@@ -124,7 +124,7 @@ class CursorManager {
       return;
     }
 
-    if ((this._isPlaying || this._isFullscreen) && !this._isModalOpen()) {
+    if (this._isPlaying && !this._isModalOpen()) {
       this._resetTimer();
     }
   }
@@ -133,7 +133,7 @@ class CursorManager {
 
   _onActivity() {
     this._showCursor();
-    if ((this._isPlaying || this._isFullscreen) && !this._isModalOpen()) {
+    if (this._isPlaying && !this._isModalOpen()) {
       this._resetTimer();
     }
   }
@@ -141,7 +141,7 @@ class CursorManager {
   _resetTimer() {
     this._clearTimer();
     this._idleTimer = setTimeout(() => {
-      if ((this._isPlaying || this._isFullscreen) && !this._isModalOpen()) {
+      if (this._isPlaying && !this._isModalOpen()) {
         this._hideCursor();
       }
     }, CursorManager.IDLE_MS);
@@ -176,7 +176,7 @@ class CursorManager {
   }
 
   _isModalOpen() {
-    return !!document.querySelector('.modal-overlay:not([hidden])');
+    return Boolean(document.querySelector('.modal-overlay:not([hidden])') || document.getElementById('screenshotCarousel'));
   }
 
   _isEditableFocused() {

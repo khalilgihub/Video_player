@@ -1646,13 +1646,17 @@ class HybridPlayer {
     const img = this._carouselEl.querySelector('img');
     if (img) {
       let retriedFallback = false;
+      const fallbackPath = current.tempPath || current.filePath || current.originalPath;
+      const buildFallbackUrl = (p) => {
+        if (!p) return '';
+        const normalized = p.replace(/\\/g, '/');
+        return `local-file:///${encodeURI(normalized).replace(/\?/g, '%3F').replace(/#/g, '%23')}?cb=${Date.now()}`;
+      };
       img.onerror = () => {
         if (retriedFallback) return;
-        const fallbackPath = current.filePath || current.tempPath || current.originalPath;
         if (fallbackPath) {
           retriedFallback = true;
-          const normalized = fallbackPath.replace(/\\/g, '/');
-          img.src = `local-file:///${encodeURI(normalized).replace(/\?/g, '%3F').replace(/#/g, '%23')}?cb=${Date.now()}`;
+          img.src = buildFallbackUrl(fallbackPath);
         }
       };
       const src = current.previewDataUrl || current.previewUrl || '';

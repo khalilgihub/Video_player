@@ -930,85 +930,110 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
   win.__hybridNcHitTestExclusions = [];
   win.__hybridUseFakeMaximize = !!win.__hybridUseFakeMaximize;
 
+  const registerHandler = (channel, handler) => {
+    ipcMain.removeHandler(channel);
+    ipcMain.handle(channel, handler);
+  };
+
+  const getActiveWin = (event) => {
+    if (win && !win.isDestroyed()) return win;
+    const senderWin = event?.sender ? BrowserWindow.fromWebContents(event.sender) : null;
+    if (senderWin && !senderWin.isDestroyed()) return senderWin;
+    return BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || win;
+  };
+
   // ─── Window Controls ───────────────────────────────────
-  ipcMain.handle('window:minimize', () => win.minimize());
-  ipcMain.handle('toggle-maximize', () => toggleWindowMaximize(win));
-  ipcMain.handle('window:maximize', () => toggleWindowMaximize(win));
-  ipcMain.handle('window:close', () => {
+  registerHandler('window:minimize', (event) => {
+    const activeWin = getActiveWin(event);
+    if (activeWin && !activeWin.isDestroyed()) activeWin.minimize();
+  });
+  registerHandler('toggle-maximize', (event) => toggleWindowMaximize(getActiveWin(event)));
+  registerHandler('window:maximize', (event) => toggleWindowMaximize(getActiveWin(event)));
+  registerHandler('window:close', (event) => {
     try {
       saveDatabase(db, { immediate: true });
     } catch {}
-    win.close();
+    const activeWin = getActiveWin(event);
+    if (activeWin && !activeWin.isDestroyed()) activeWin.close();
   });
-  ipcMain.handle('window:titlebar-drag-start', (_, payload) => beginTitlebarDragSession(win, payload));
-  ipcMain.handle('window:titlebar-drag-move', (_, payload) => moveTitlebarDragSession(win, payload));
-  ipcMain.handle('window:titlebar-drag-end', () => endTitlebarDragSession(win));
-  ipcMain.handle('window:set-hit-test-exclusions', (_, rects) => {
-    win.__hybridNcHitTestExclusions = sanitizeHitTestExclusions(rects);
+  registerHandler('window:titlebar-drag-start', (event, payload) => beginTitlebarDragSession(getActiveWin(event), payload));
+  registerHandler('window:titlebar-drag-move', (event, payload) => moveTitlebarDragSession(getActiveWin(event), payload));
+  registerHandler('window:titlebar-drag-end', (event) => endTitlebarDragSession(getActiveWin(event)));
+  registerHandler('window:set-hit-test-exclusions', (event, rects) => {
+    const activeWin = getActiveWin(event);
+    if (activeWin && !activeWin.isDestroyed()) {
+      activeWin.__hybridNcHitTestExclusions = sanitizeHitTestExclusions(rects);
+    }
     return true;
   });
-  ipcMain.handle('window:fullscreen', (_, state) => {
-    logWindowIpcState(win, 'window:fullscreen:request', { requestedState: state });
+  registerHandler('window:fullscreen', (event, state) => {
+    const activeWin = getActiveWin(event);
+    if (!activeWin || activeWin.isDestroyed()) return false;
+    logWindowIpcState(activeWin, 'window:fullscreen:request', { requestedState: state });
     if (typeof options.setTrackedFullscreen === 'function') {
-      return options.setTrackedFullscreen(win, state, 'ipc-window-fullscreen');
+      return options.setTrackedFullscreen(activeWin, state, 'ipc-window-fullscreen');
     }
     const now = Date.now();
-    const lockUntil = win.__hybridFullscreenTransitionUntil || 0;
-    const current = typeof win.__hybridFullscreenState === 'boolean'
-      ? win.__hybridFullscreenState
-      : win.isFullScreen();
+    const lockUntil = activeWin.__hybridFullscreenTransitionUntil || 0;
+    const current = typeof activeWin.__hybridFullscreenState === 'boolean'
+      ? activeWin.__hybridFullscreenState
+      : activeWin.isFullScreen();
     if (now < lockUntil) {
-      logWindowIpcState(win, 'window:fullscreen:skipped', { current });
+      logWindowIpcState(activeWin, 'window:fullscreen:skipped', { current });
       return current;
     }
     const target = typeof state === 'boolean' ? state : !current;
     if (target) {
-      capturePreFullscreenBounds(win, 'window:fullscreen');
-      if (win.__hybridFakeMaximized) {
-        win.__hybridFakeMaximized = false;
-        win.setResizable(true);
+      capturePreFullscreenBounds(activeWin, 'window:fullscreen');
+      if (activeWin.__hybridFakeMaximized) {
+        activeWin.__hybridFakeMaximized = false;
+        activeWin.setResizable(true);
       }
     }
-    win.__hybridFullscreenTransitionUntil = now + 400;
-    win.__hybridFullscreenState = !!target;
-    if (win.webContents && !win.webContents.isDestroyed()) {
-      win.webContents.send('window-fullscreen-transition-start', !!target);
-      win.webContents.send('window-is-fullscreen', !!target);
-      win.webContents.send('window-is-maximized', false);
-      win.webContents.send('window-state-changed', target ? 'fullscreen' : (isWindowMaximized(win) ? 'maximized' : 'normal'));
+    activeWin.__hybridFullscreenTransitionUntil = now + 400;
+    activeWin.__hybridFullscreenState = !!target;
+    if (activeWin.webContents && !activeWin.webContents.isDestroyed()) {
+      activeWin.webContents.send('window-fullscreen-transition-start', !!target);
+      activeWin.webContents.send('window-is-fullscreen', !!target);
+      activeWin.webContents.send('window-is-maximized', false);
+      activeWin.webContents.send('window-state-changed', target ? 'fullscreen' : (isWindowMaximized(activeWin) ? 'maximized' : 'normal'));
     }
-    win.setFullScreen(target);
+    activeWin.setFullScreen(target);
     if (process.platform === 'win32' && !target) {
-      scheduleNativeDwmWindowStyles(win, [0, 80, 200, 350]);
+      scheduleNativeDwmWindowStyles(activeWin, [0, 80, 200, 350]);
     }
-    logWindowIpcState(win, 'window:fullscreen:applied', { target });
+    logWindowIpcState(activeWin, 'window:fullscreen:applied', { target });
     return target;
   });
-  ipcMain.handle('window:isFullScreen', () => {
-    if (typeof win.__hybridFullscreenState === 'boolean') {
-      return win.__hybridFullscreenState;
+  registerHandler('window:isFullScreen', (event) => {
+    const activeWin = getActiveWin(event);
+    if (!activeWin || activeWin.isDestroyed()) return false;
+    if (typeof activeWin.__hybridFullscreenState === 'boolean') {
+      return activeWin.__hybridFullscreenState;
     }
-    return win.isFullScreen();
+    return activeWin.isFullScreen();
   });
-  ipcMain.handle('window:set-ui-locked', (_, state) => {
-    win.__hybridUiLocked = !!state;
-    if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
-      win.webContents.focus();
+  registerHandler('window:set-ui-locked', (event, state) => {
+    const activeWin = getActiveWin(event);
+    if (!activeWin || activeWin.isDestroyed()) return false;
+    activeWin.__hybridUiLocked = !!state;
+    if (activeWin.webContents && !activeWin.webContents.isDestroyed()) {
+      activeWin.webContents.focus();
     }
-    return win.__hybridUiLocked;
+    return activeWin.__hybridUiLocked;
   });
-  ipcMain.handle('window:set-prevent-exit-fullscreen', (_, state) => {
-    win.__hybridPreventExitFullscreen = !!state;
-    return win.__hybridPreventExitFullscreen;
+  registerHandler('window:set-prevent-exit-fullscreen', (event, state) => {
+    const activeWin = getActiveWin(event);
+    if (!activeWin || activeWin.isDestroyed()) return false;
+    activeWin.__hybridPreventExitFullscreen = !!state;
+    return activeWin.__hybridPreventExitFullscreen;
   });
-  ipcMain.handle('window:isMaximized', () => isWindowMaximized(win));
+  registerHandler('window:isMaximized', (event) => isWindowMaximized(getActiveWin(event)));
 
   // ─── File Operations ───────────────────────────────────
-  ipcMain.handle('dialog:openSubtitle', async (event) => {
-    const targetWin = (event?.sender ? BrowserWindow.fromWebContents(event.sender) : null)
-      || (win && !win.isDestroyed() ? win : null)
-      || BrowserWindow.getFocusedWindow();
-    const options = {
+  registerHandler('dialog:openSubtitle', async (event) => {
+    const targetWin = getActiveWin(event);
+    const dialogOpts = {
       title: 'Load Subtitle File',
       properties: ['openFile'],
       filters: [
@@ -1016,17 +1041,17 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
       ]
     };
     const result = targetWin && !targetWin.isDestroyed()
-      ? await dialog.showOpenDialog(targetWin, options)
-      : await dialog.showOpenDialog(options);
+      ? await dialog.showOpenDialog(targetWin, dialogOpts)
+      : await dialog.showOpenDialog(dialogOpts);
     return result.canceled ? null : result.filePaths[0];
   });
 
-  ipcMain.handle('db:getPreference', async (_, key) => {
+  registerHandler('db:getPreference', async (_, key) => {
     const prefKey = normalizeString(key, { max: 80 });
     return prefKey ? db.preferences[prefKey] : undefined;
   });
 
-  ipcMain.handle('db:setPreference', async (_, key, value) => {
+  registerHandler('db:setPreference', async (_, key, value) => {
     const prefKey = normalizeString(key, { max: 80 });
     const sanitized = sanitizePreference(prefKey, value);
     if (!prefKey || sanitized === INVALID_PREF) return false;
@@ -1035,11 +1060,11 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
     return true;
   });
 
-  ipcMain.handle('db:getAllPreferences', async () => {
+  registerHandler('db:getAllPreferences', async () => {
     return db.preferences;
   });
 
-  ipcMain.handle('db:saveAllPreferences', async (_, prefs) => {
+  registerHandler('db:saveAllPreferences', async (_, prefs) => {
     const cleanPrefs = sanitizePreferencePatch(prefs);
     db.preferences = { ...db.preferences, ...cleanPrefs };
     saveDatabase(db);
@@ -1047,7 +1072,7 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
   });
 
   // ─── History & Resume ──────────────────────────────────
-  ipcMain.handle('history:add', async (_, entry) => {
+  registerHandler('history:add', async (_, entry) => {
     // entry: { path, name, duration, timestamp }
     const cleanEntry = sanitizeHistoryEntry(entry);
     if (!cleanEntry) return false;
@@ -1064,7 +1089,7 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
     return true;
   });
 
-  ipcMain.handle('history:getRecent', async (_, count) => {
+  registerHandler('history:getRecent', async (_, count) => {
     const limit = Math.round(clampNumber(count || 20, 1, 100, 20));
     const historySnapshot = Array.isArray(db?.history) ? db.history.slice() : [];
     const historyChecks = await Promise.all(
@@ -1080,7 +1105,7 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
     return availableHistory.slice(0, limit);
   });
 
-  ipcMain.handle('resume:save', async (_, filePath, time, options = {}) => {
+  registerHandler('resume:save', async (_, filePath, time, options = {}) => {
     const mediaPath = sanitizeMediaKey(filePath);
     if (!mediaPath) return false;
     if (!db.resumePositions || typeof db.resumePositions !== 'object') {
@@ -1095,6 +1120,7 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
     return true;
   });
 
+  ipcMain.removeAllListeners('resume:saveSync');
   ipcMain.on('resume:saveSync', (event, filePath, time) => {
     const mediaPath = sanitizeMediaKey(filePath);
     if (!mediaPath) {
@@ -1113,12 +1139,12 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
     event.returnValue = true;
   });
 
-  ipcMain.handle('resume:get', async (_, filePath) => {
+  registerHandler('resume:get', async (_, filePath) => {
     const mediaPath = sanitizeMediaKey(filePath);
     return mediaPath ? db.resumePositions[mediaPath] || 0 : 0;
   });
 
-  ipcMain.handle('resume:clear', async (_, filePath) => {
+  registerHandler('resume:clear', async (_, filePath) => {
     const mediaPath = sanitizeMediaKey(filePath);
     if (!mediaPath) return false;
     if (Object.prototype.hasOwnProperty.call(db.resumePositions, mediaPath)) {
@@ -1129,7 +1155,7 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
   });
 
   // ─── Speed Memory ──────────────────────────────────────
-  ipcMain.handle('speed:save', async (_, filePath, speed) => {
+  registerHandler('speed:save', async (_, filePath, speed) => {
     const mediaPath = sanitizeMediaKey(filePath);
     if (!mediaPath) return false;
     setBoundedMemoryValue(db.speedMemory, mediaPath, clampNumber(speed, 0.1, 4, 1));
@@ -1137,13 +1163,13 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
     return true;
   });
 
-  ipcMain.handle('speed:get', async (_, filePath) => {
+  registerHandler('speed:get', async (_, filePath) => {
     const mediaPath = sanitizeMediaKey(filePath);
     return mediaPath ? db.speedMemory[mediaPath] || null : null;
   });
 
   // ─── Subtitle Delay Memory ────────────────────────────
-  ipcMain.handle('subtitleDelay:save', async (_, filePath, delay) => {
+  registerHandler('subtitleDelay:save', async (_, filePath, delay) => {
     const mediaPath = sanitizeMediaKey(filePath);
     if (!mediaPath) return false;
     setBoundedMemoryValue(
@@ -1155,14 +1181,14 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
     return true;
   });
 
-  ipcMain.handle('subtitleDelay:get', async (_, filePath) => {
+  registerHandler('subtitleDelay:get', async (_, filePath) => {
     const mediaPath = sanitizeMediaKey(filePath);
     return mediaPath ? db.subtitleDelayMemory[mediaPath] || 0 : 0;
   });
 
   // ─── Playlists ─────────────────────────────────────────
-  ipcMain.handle('playlist:getAll', async () => db.playlists);
-  ipcMain.handle('playlist:save', async (_, playlist) => {
+  registerHandler('playlist:getAll', async () => db.playlists);
+  registerHandler('playlist:save', async (_, playlist) => {
     const cleanPlaylist = sanitizePlaylist(playlist);
     if (!cleanPlaylist) return false;
     const idx = db.playlists.findIndex(p => p.id === cleanPlaylist.id);
@@ -1173,15 +1199,15 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
   });
 
   // ─── Debug Logging ─────────────────────────────────────
-  ipcMain.handle('debug:append-log', async (_, scope, payload) => {
+  registerHandler('debug:append-log', async (_, scope, payload) => {
     return appendDebugLog(scope, payload);
   });
 
-  ipcMain.handle('debug:get-log-file-path', async () => {
+  registerHandler('debug:get-log-file-path', async () => {
     return getDebugLogFilePath().logFile;
   });
 
-  ipcMain.handle('debug:tail-log', async (_, lines) => {
+  registerHandler('debug:tail-log', async (_, lines) => {
     const maxLines = Number.isFinite(Number(lines)) ? Number(lines) : 120;
     return tailDebugLog(maxLines);
   });

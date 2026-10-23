@@ -564,14 +564,14 @@ class HybridShortcuts {
         }
         const carouselMode = this.player?.getCarouselMode?.() || 'delete';
         if (carouselMode === 'restore') {
-          if (code === 'Enter' || action === 'restore-latest-screenshot') {
+          if (code === 'Enter' || code === 'KeyZ' || action === 'restore-latest-screenshot') {
             e.preventDefault();
             e.stopPropagation();
             this.player.restoreSelectedCarouselScreenshot();
             return;
           }
         } else {
-          if (code === 'Enter' || action === 'delete-latest-screenshot') {
+          if (code === 'Enter' || code === 'KeyD' || action === 'delete-latest-screenshot') {
             e.preventDefault();
             e.stopPropagation();
             this.player.deleteSelectedCarouselScreenshot();
@@ -604,7 +604,10 @@ class HybridShortcuts {
       }
       
       // Some actions should work even in modals
-      if (action !== 'toggle-play' && anyModalOpen) {
+      const isInteractiveTarget = Boolean(
+        e.target?.closest?.('button, [role="button"], [role="option"], [role="listbox"], [role="tab"], a[href]')
+      );
+      if (anyModalOpen && (action !== 'toggle-play' || isInteractiveTarget)) {
         if (this.player?._isBurstCapturing) {
           this.player.stopBurstCapture();
         }
