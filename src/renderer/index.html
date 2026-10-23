@@ -472,7 +472,7 @@
                 </svg>
               </button>
               <div class="volume-slider-track" id="volumeSliderTrack">
-                <input type="range" id="volumeSlider" class="volume-slider-horizontal" min="0" max="100" value="100"
+                <input type="range" id="volumeSlider" class="volume-slider-horizontal" min="0" max="200" value="100"
                   aria-label="Volume">
               </div>
               <span class="volume-value" id="volumeValue">100%</span>
@@ -1161,29 +1161,6 @@
             </select>
           </div>
 
-          <!-- Quality: 3 preset pills (radio group) + a derived "Custom" indicator.
-               Custom cannot be clicked directly — it engages when a slider is moved. -->
-          <fieldset class="bg-quality-group" role="radiogroup" aria-label="Background quality">
-            <span class="bg-row-label">Quality</span>
-            <div class="bg-quality-pills">
-              <label class="bg-quality-pill">
-                <input type="radio" name="welcomeQuality" value="low">
-                <span>Low</span>
-              </label>
-              <label class="bg-quality-pill">
-                <input type="radio" name="welcomeQuality" value="medium" checked>
-                <span>Medium</span>
-              </label>
-              <label class="bg-quality-pill">
-                <input type="radio" name="welcomeQuality" value="high">
-                <span>High</span>
-              </label>
-              <span class="bg-quality-pill bg-quality-custom" id="bgQualityCustom" aria-hidden="true"
-                data-quality="custom">
-                <span>Custom</span>
-              </span>
-            </div>
-          </fieldset>
         </div>
 
         <!-- DITHER -->

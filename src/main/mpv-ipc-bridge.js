@@ -88,7 +88,7 @@ function setupMpvIpc(win, mpv, options = {}) {
     '.jpg', '.jpeg', '.png', '.webp'
   ]);
   const LOCAL_SUBTITLE_EXTENSIONS = new Set([
-    '.srt', '.ass', '.ssa', '.vtt', '.sub', '.idx', '.sup'
+    '.srt', '.ass', '.ssa', '.vtt', '.sub', '.idx', '.sup', '.smi', '.rt'
   ]);
 
   if (!fs.existsSync(previewDir)) {
@@ -102,13 +102,15 @@ function setupMpvIpc(win, mpv, options = {}) {
     }
 
     let settled = false;
+    let onReady = null;
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
+      if (onReady) instance.removeListener('ready', onReady);
       reject(new Error('preview mpv not ready'));
     }, timeoutMs);
 
-    const onReady = () => {
+    onReady = () => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -252,13 +254,15 @@ function setupMpvIpc(win, mpv, options = {}) {
     }
 
     let settled = false;
+    let onReady = null;
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
+      if (onReady) mpv.removeListener('ready', onReady);
       reject(new Error('mpv not ready'));
     }, timeoutMs);
 
-    const onReady = () => {
+    onReady = () => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -284,11 +288,25 @@ function setupMpvIpc(win, mpv, options = {}) {
   const rendererGetPropertyAllowlist = new Set([
     'pause',
     'time-pos',
+    'duration',
     'drop-frame-count',
     'estimated-vf-fps',
     'video-bitrate',
     'video-codec',
     'demuxer-cache-state',
+    'sub-delay',
+    'sub-visibility',
+    'sub',
+    'volume',
+    'mute',
+    'speed',
+    'audio-delay',
+    'aid',
+    'vid',
+    'track-list',
+    'chapter-list',
+    'chapter',
+    'volume-max',
   ]);
 
   const rendererSetPropertyAllowlist = new Set([
@@ -327,12 +345,15 @@ function setupMpvIpc(win, mpv, options = {}) {
 
   const sanitizeLocalMediaPath = (source, { mustExist = false, allowedExtensions = null } = {}) => {
     try {
-      const resolved = path.resolve(source);
+      let resolved = path.resolve(source);
       if (!resolved || resolved.includes('\0')) return null;
       if (allowedExtensions && !allowedExtensions.has(path.extname(resolved).toLowerCase())) return null;
+      if (process.platform === 'win32' && resolved.length >= 260 && !resolved.startsWith('\\\\?\\')) {
+        resolved = `\\\\?\\${path.win32.normalize(resolved)}`;
+      }
       if (mustExist) {
         const stat = fs.statSync(resolved);
-        if (!stat.isFile()) return null;
+        if (!stat.isFile() || stat.size === 0) return null;
       }
       return resolved;
     } catch {
@@ -904,6 +925,21 @@ function setupMpvIpc(win, mpv, options = {}) {
 
   // ── File loading ───────────────────────────────────────
   ipcMain.handle('mpv:load-file', async (_, filePath) => {
+    if (typeof filePath === 'string' && isLikelyAbsoluteLocalPath(filePath)) {
+      try {
+        let resolved = path.resolve(filePath);
+        if (process.platform === 'win32' && resolved.length >= 260 && !resolved.startsWith('\\\\?\\')) {
+          resolved = `\\\\?\\${path.win32.normalize(resolved)}`;
+        }
+        if (fs.existsSync(resolved)) {
+          const stat = fs.statSync(resolved);
+          if (stat.isFile() && stat.size === 0) {
+            return { success: false, error: 'empty_file' };
+          }
+        }
+      } catch (_) {}
+    }
+
     const cleanFilePath = sanitizeMediaSource(filePath, {
       mustExist: true,
       allowedExtensions: LOCAL_MEDIA_EXTENSIONS,
@@ -940,7 +976,7 @@ function setupMpvIpc(win, mpv, options = {}) {
 
   // ── Volume / speed ─────────────────────────────────────
   ipcMain.handle('mpv:set-volume', async (_, v) => {
-    const safeVolume = sanitizeNumber(v, 0, 100, null);
+    const safeVolume = sanitizeNumber(v, 0, 200, null);
     return safeVolume === null ? false : withReady(() => mpv.setVolume(safeVolume), false);
   });
   ipcMain.handle('mpv:set-mute', async (_, m) => withReady(() => mpv.setMute(!!m), false));

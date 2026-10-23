@@ -334,12 +334,21 @@ async function clipMediaSegment({ filePath, startTime, duration }) {
     });
 
     let stderr = '';
+    const cleanOutput = () => {
+      try {
+        if (outputPath && fs.existsSync(outputPath)) {
+          fs.unlinkSync(outputPath);
+        }
+      } catch {}
+    };
+
     const timeout = setTimeout(() => {
       if (settled) return;
       settled = true;
       try {
         ffmpeg.kill('SIGKILL');
       } catch { }
+      cleanOutput();
       reject(new Error('Clip export timed out'));
     }, CLIP_EXPORT_TIMEOUT_MS);
 
@@ -355,10 +364,16 @@ async function clipMediaSegment({ filePath, startTime, duration }) {
     });
 
     ffmpeg.on('error', (error) => {
+      cleanOutput();
       finish(() => reject(new Error(`Failed to start ffmpeg: ${error.message}`)));
     });
 
     ffmpeg.on('close', (code) => {
+      if (settled) {
+        cleanOutput();
+        return;
+      }
+
       if (code === 0) {
         finish(() => resolve({
           outputPath,
@@ -368,6 +383,7 @@ async function clipMediaSegment({ filePath, startTime, duration }) {
         return;
       }
 
+      cleanOutput();
       const message = stderr.trim() || `ffmpeg exited with code ${code}`;
       finish(() => reject(new Error(message)));
     });
@@ -419,7 +435,13 @@ async function getYoutubeQualityHeights(url) {
     !app.isPackaged ? path.join(__dirname, '../../cookies.txt') : null,
   ].filter(Boolean);
   const cookiesPath = cookieCandidates.find((p) => !p.includes('app.asar\\') && !p.includes('app.asar/') && fs.existsSync(p)) || null;
-  const args = ['-J', '--no-warnings', '--no-playlist'];
+  const args = [
+    '-J',
+    '--no-warnings',
+    '--no-playlist',
+    '--extractor-args',
+    'youtube:player_skip=webpage;player_client=tv,web_embedded,android,web'
+  ];
   if (cookiesPath) {
     args.push('--cookies', cookiesPath);
   }
@@ -479,6 +501,17 @@ async function getYoutubeQualityHeights(url) {
 }
 
 function registerSystemDialogHandlers(win) {
+  const getTargetWindow = (event) => {
+    if (event?.sender) {
+      const fromSender = BrowserWindow.fromWebContents(event.sender);
+      if (fromSender && !fromSender.isDestroyed()) return fromSender;
+    }
+    const focused = BrowserWindow.getFocusedWindow();
+    if (focused && !focused.isDestroyed()) return focused;
+    if (win && !win.isDestroyed()) return win;
+    return null;
+  };
+
   ipcMain.handle('app:get-startup-diagnostics', async () => startupDiagnostics.slice());
   ipcMain.handle('app:get-initial-file', async () => {
     return process.argv
@@ -486,29 +519,41 @@ function registerSystemDialogHandlers(win) {
       .find(Boolean) || null;
   });
 
-  ipcMain.handle('dialog:openFile', async () => {
-    const result = await dialog.showOpenDialog(win, {
+  ipcMain.handle('dialog:openFile', async (event) => {
+    const targetWin = getTargetWindow(event);
+    const options = {
       title: 'Open Media File',
       properties: ['openFile'],
       filters: createMediaFilters()
-    });
+    };
+    const result = targetWin
+      ? await dialog.showOpenDialog(targetWin, options)
+      : await dialog.showOpenDialog(options);
     return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
   });
 
-  ipcMain.handle('dialog:openMultiple', async () => {
-    const result = await dialog.showOpenDialog(win, {
+  ipcMain.handle('dialog:openMultiple', async (event) => {
+    const targetWin = getTargetWindow(event);
+    const options = {
       title: 'Open Multiple Media Files',
       properties: ['openFile', 'multiSelections'],
       filters: createMediaFilters()
-    });
+    };
+    const result = targetWin
+      ? await dialog.showOpenDialog(targetWin, options)
+      : await dialog.showOpenDialog(options);
     return result.canceled ? [] : result.filePaths;
   });
 
-  ipcMain.handle('dialog:openFolder', async () => {
-    const result = await dialog.showOpenDialog(win, {
+  ipcMain.handle('dialog:openFolder', async (event) => {
+    const targetWin = getTargetWindow(event);
+    const options = {
       title: 'Open Folder',
       properties: ['openDirectory']
-    });
+    };
+    const result = targetWin
+      ? await dialog.showOpenDialog(targetWin, options)
+      : await dialog.showOpenDialog(options);
 
     if (result.canceled || result.filePaths.length === 0) {
       return [];
@@ -528,15 +573,19 @@ function registerSystemDialogHandlers(win) {
     return heights;
   });
 
-  ipcMain.handle('dialog:selectScreenshotDir', async (_, currentDir) => {
+  ipcMain.handle('dialog:selectScreenshotDir', async (event, currentDir) => {
     const defaultPath = typeof currentDir === 'string' && currentDir && fs.existsSync(currentDir)
       ? currentDir
       : path.join(app.getPath('userData'), 'screenshots');
-    const result = await dialog.showOpenDialog(win, {
+    const targetWin = getTargetWindow(event);
+    const options = {
       title: 'Select Screenshot Directory',
       defaultPath,
       properties: ['openDirectory', 'createDirectory']
-    });
+    };
+    const result = targetWin
+      ? await dialog.showOpenDialog(targetWin, options)
+      : await dialog.showOpenDialog(options);
     return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
   });
 
@@ -559,6 +608,9 @@ if (process.platform === 'linux') {
 
 // Memory optimization
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512');
+if (process.env.HYBRID_MUTE_AUDIO === '1' || process.env.NODE_ENV === 'test' || (Array.isArray(process.argv) && process.argv.includes('--mute-audio'))) {
+  app.commandLine.appendSwitch('mute-audio');
+}
 
 let mainWindow = null;
 let mpvProcess = null;
@@ -588,7 +640,7 @@ const HTBOTTOMRIGHT = 17;
 const RESIZE_BORDER_DIP = 8;
 
 // Fullscreen/input trace logging.
-const FS_DEBUG = true;
+const FS_DEBUG = false;
 function fsdbg(...args) {
   if (!FS_DEBUG) return;
   console.log('[FSDBG][main]', ...args);

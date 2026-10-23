@@ -5,7 +5,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 
 const APP_ID = 'com.hybridplayer.app';
 const APP_NAME = 'Hybrid Player';
@@ -61,23 +61,24 @@ function registerShellMetadata(app) {
 
     // 1. Configure HKCU registry keys via native reg.exe
     // Windows 11 WinUI 3 XAML requires PNG for IconUri/SmallLogo.
-    const regCommands = [
-      `reg.exe add "HKCU\\Software\\Classes\\Applications\\mpv.exe" /v "FriendlyAppName" /d "${APP_NAME}" /f`,
-      `reg.exe add "HKCU\\Software\\Classes\\Applications\\mpv.exe" /v "ApplicationCompany" /d "${APP_NAME}" /f`,
-      `reg.exe add "HKCU\\Software\\Classes\\Applications\\mpv.exe" /v "IconUri" /d "${logoPng}" /f`,
-      `reg.exe add "HKCU\\Software\\Classes\\Applications\\mpv.exe\\DefaultIcon" /ve /d "${icoPath}" /f`,
-      `reg.exe add "HKCU\\Software\\Classes\\AppUserModelId\\${APP_ID}" /v "DisplayName" /d "${APP_NAME}" /f`,
-      `reg.exe add "HKCU\\Software\\Classes\\AppUserModelId\\${APP_ID}" /v "IconUri" /d "${logoPng}" /f`,
-      `reg.exe add "HKCU\\Software\\Classes\\AppUserModelId\\${APP_ID}" /v "SmallLogo" /d "${logoPng}" /f`,
-      `reg.exe add "HKCU\\Software\\Classes\\AppUserModelId\\${APP_ID}" /v "Square44x44Logo" /d "${logoPng}" /f`,
-      `reg.exe add "HKCU\\Software\\Classes\\AppUserModelId\\${APP_ID}" /v "Square150x150Logo" /d "${logoPng}" /f`,
-      `reg.exe add "HKCU\\Software\\Classes\\AppUserModelId\\mpv.exe" /v "DisplayName" /d "${APP_NAME}" /f`,
-      `reg.exe add "HKCU\\Software\\Classes\\AppUserModelId\\mpv.exe" /v "IconUri" /d "${logoPng}" /f`,
-      `reg.exe add "HKCU\\Software\\Classes\\AppUserModelId\\mpv.exe" /v "SmallLogo" /d "${logoPng}" /f`,
+    const regEntries = [
+      ['HKCU\\Software\\Classes\\Applications\\mpv.exe', '/v', 'FriendlyAppName', '/d', APP_NAME, '/f'],
+      ['HKCU\\Software\\Classes\\Applications\\mpv.exe', '/v', 'ApplicationCompany', '/d', APP_NAME, '/f'],
+      ['HKCU\\Software\\Classes\\Applications\\mpv.exe', '/v', 'IconUri', '/d', logoPng, '/f'],
+      ['HKCU\\Software\\Classes\\Applications\\mpv.exe\\DefaultIcon', '/ve', '/d', icoPath, '/f'],
+      [`HKCU\\Software\\Classes\\AppUserModelId\\${APP_ID}`, '/v', 'DisplayName', '/d', APP_NAME, '/f'],
+      [`HKCU\\Software\\Classes\\AppUserModelId\\${APP_ID}`, '/v', 'IconUri', '/d', logoPng, '/f'],
+      [`HKCU\\Software\\Classes\\AppUserModelId\\${APP_ID}`, '/v', 'SmallLogo', '/d', logoPng, '/f'],
+      [`HKCU\\Software\\Classes\\AppUserModelId\\${APP_ID}`, '/v', 'Square44x44Logo', '/d', logoPng, '/f'],
+      [`HKCU\\Software\\Classes\\AppUserModelId\\${APP_ID}`, '/v', 'Square150x150Logo', '/d', logoPng, '/f'],
+      ['HKCU\\Software\\Classes\\AppUserModelId\\mpv.exe', '/v', 'DisplayName', '/d', APP_NAME, '/f'],
+      ['HKCU\\Software\\Classes\\AppUserModelId\\mpv.exe', '/v', 'IconUri', '/d', logoPng, '/f'],
+      ['HKCU\\Software\\Classes\\AppUserModelId\\mpv.exe', '/v', 'SmallLogo', '/d', logoPng, '/f'],
     ];
 
-    const combinedRegCmd = regCommands.join(' && ');
-    exec(combinedRegCmd, { windowsHide: true }, () => {});
+    for (const entry of regEntries) {
+      execFile('reg.exe', ['add', ...entry], { windowsHide: true }, () => {});
+    }
 
     // 2. Ensure Start Menu shortcut exists so Windows 11 Shell Link resolver
     // maps mpv.exe and the AUMID to the official app name and icon.
@@ -93,18 +94,25 @@ function registerShellMetadata(app) {
           `$Shortcut = $WshShell.CreateShortcut('${shortcutPath.replace(/'/g, "''")}');`,
           `$Shortcut.TargetPath = '${targetPath.replace(/'/g, "''")}';`,
           `$Shortcut.IconLocation = '${icoPath.replace(/'/g, "''")},0';`,
-          `$Shortcut.Description = '${APP_NAME}';`,
+          `$Shortcut.Description = '${APP_NAME.replace(/'/g, "''")}';`,
           '$Shortcut.Save();',
         ].join(' ');
 
-        exec(
-          `powershell.exe -NoProfile -NonInteractive -Command "${psScript}"`,
+        execFile(
+          'powershell.exe',
+          ['-NoProfile', '-NonInteractive', '-Command', psScript],
           { windowsHide: true },
-          () => {
+          (error) => {
+            if (error) return;
             // Apply explicit AppUserModelId to the Start Menu shortcut
             const setAppIdScript = resolveUnpackedPath(path.join(__dirname, 'set-shortcut-appid.ps1'));
             if (fs.existsSync(setAppIdScript)) {
-              exec(`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${setAppIdScript}"`, { windowsHide: true }, () => {});
+              execFile(
+                'powershell.exe',
+                ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', setAppIdScript],
+                { windowsHide: true },
+                () => {}
+              );
             }
           }
         );

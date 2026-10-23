@@ -11,9 +11,20 @@ const DEFAULT_OPTIONS = Object.freeze({
   gradientColor: '#000000',
   speed: 1.0,
   maxMove: 300,
+  scale: 1.0,
+  aspectRatio: '16:9',
+  autoMove: false,
   customPictures: [],
   dpr: null,
   pauseWhenUnfocused: true,
+});
+
+const ASPECT_RATIO_MAP = Object.freeze({
+  '16:9': '16 / 9',
+  '1:1': '1 / 1',
+  '3:4': '3 / 4',
+  '4:3': '4 / 3',
+  'auto': '1 / 1',
 });
 
 const DEFAULT_GRADIENTS = [
@@ -110,24 +121,28 @@ export function initGridMotion(containerElement, customOptions = {}) {
       gap: 0.5rem;
       flex: none;
       position: relative;
-      width: 250%;
-      height: 250%;
-      display: grid;
-      grid-template-rows: repeat(4, 1fr);
-      grid-template-columns: 100%;
-      transform: rotate(-12deg);
+      width: 1600%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transform: rotate(-12deg) scale(1);
       transform-origin: center center;
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
       z-index: 2;
     }
     .grid-motion-row {
       display: grid;
       gap: 0.5rem;
-      grid-template-columns: repeat(7, 1fr);
+      grid-template-columns: repeat(48, 1fr);
+      width: 100%;
       will-change: transform;
     }
     .grid-motion-item {
       position: relative;
       overflow: hidden;
+      width: 100%;
+      aspect-ratio: var(--grid-card-aspect-ratio, 16 / 9);
     }
     .grid-motion-item-inner {
       position: relative;
@@ -152,14 +167,16 @@ export function initGridMotion(containerElement, customOptions = {}) {
       height: 100%;
       background-size: cover;
       background-position: center;
+      background-repeat: no-repeat;
       position: absolute;
       inset: 0;
-      opacity: 0.85;
-      transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s;
+      opacity: 1.0;
+      image-rendering: auto;
+      transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), filter 0.3s ease;
     }
     .grid-motion-item-inner:hover .grid-motion-item-img {
       transform: scale(1.06);
-      opacity: 1.0;
+      filter: brightness(1.08);
     }
     .grid-motion-item-content {
       padding: 1rem;
@@ -178,16 +195,18 @@ export function initGridMotion(containerElement, customOptions = {}) {
 
   const rowElements = [];
   const cardElements = [];
+  const NUM_ROWS = 10;
+  const NUM_COLS = 48;
 
-  // Build 4 rows with 7 columns each
-  for (let r = 0; r < 4; r++) {
+  // Build rows with NUM_COLS columns each
+  for (let r = 0; r < NUM_ROWS; r++) {
     const row = document.createElement('div');
     row.className = 'grid-motion-row';
     container.appendChild(row);
     rowElements.push(row);
 
-    for (let c = 0; c < 7; c++) {
-      const itemIndex = r * 7 + c;
+    for (let c = 0; c < NUM_COLS; c++) {
+      const itemIndex = r * NUM_COLS + c;
       const item = document.createElement('div');
       item.className = 'grid-motion-item';
 
@@ -204,29 +223,155 @@ export function initGridMotion(containerElement, customOptions = {}) {
 
       item.appendChild(inner);
       row.appendChild(item);
-      cardElements.push({ inner, imgDiv, textDiv, index: itemIndex });
+      cardElements.push({ inner, imgDiv, textDiv, index: itemIndex, rowIdx: r, colIdx: c });
     }
   }
 
   let mouseX = window.innerWidth / 2;
+  let targetScrollOffset = 0;
+  const rowScrollOffsets = new Array(NUM_ROWS).fill(0);
+  let autoOffset = 0;
+  let lastTime = performance.now();
   let destroyed = false;
+  let cardPitch = 0;
+  let loopWidth = 0;
+
+  const applyScale = () => {
+    const s = Math.max(0.35, Math.min(1.6, Number(options.scale) || 1.0));
+    container.style.transform = `rotate(-12deg) scale(${s})`;
+  };
+  applyScale();
+
+  const applyAspectRatio = () => {
+    const ratioKey = options.aspectRatio || '16:9';
+    const cssRatio = ASPECT_RATIO_MAP[ratioKey] || '16 / 9';
+    container.style.setProperty('--grid-card-aspect-ratio', cssRatio);
+  };
+  applyAspectRatio();
+
+  const measureLoop = () => {
+    if (!rowElements[0] || !rowElements[0].children[1]) return;
+    const c0 = rowElements[0].children[0];
+    const c1 = rowElements[0].children[1];
+    cardPitch = c1.offsetLeft - c0.offsetLeft;
+    if (cardPitch <= 0) {
+      cardPitch = container.clientWidth / NUM_COLS;
+    }
+    const hasPics = Array.isArray(options.customPictures) && options.customPictures.length > 0;
+    const numPics = hasPics ? options.customPictures.length : 7;
+    loopWidth = Math.max(1, numPics * cardPitch);
+  };
+
+  const isMainMount = containerElement.id === 'gridMotionMount' ||
+                      containerElement.parentElement?.id === 'welcomeScreen' ||
+                      containerElement.closest('#welcomeScreen');
+
+  let persistScaleTimer = null;
+
+  const handleWheel = (e) => {
+    if (!isMainMount || destroyed) return;
+
+    // Do not intercept scroll if cursor is inside a modal, settings panel, playlist, or dropdown
+    if (e.target.closest('.modal-panel') ||
+        e.target.closest('.modal-overlay') ||
+        e.target.closest('#recentFiles') ||
+        e.target.closest('.welcome-recent') ||
+        e.target.closest('.bg-settings-panel') ||
+        e.target.closest('.custom-select-dropdown')) {
+      return;
+    }
+
+    const ws = document.getElementById('welcomeScreen');
+    if (ws && ws.classList.contains('hidden')) return;
+
+    e.preventDefault();
+
+    let delta = -e.deltaY;
+    if (e.deltaMode === 1) {
+      delta *= 33;
+    }
+
+    // Ctrl + Wheel (or trackpad pinch-to-zoom) adjusts scale between 0.4 and 1.4
+    if (e.ctrlKey) {
+      const curScale = Number(options.scale) || 1.0;
+      const zoomStep = delta > 0 ? 0.05 : -0.05;
+      const newScale = Math.round(Math.max(0.4, Math.min(1.4, curScale + zoomStep)) * 100) / 100;
+      if (newScale !== curScale) {
+        options.scale = newScale;
+        applyScale();
+
+        // 1. Synchronize settings module (updates slider thumb, value text, and --bgp-fill)
+        if (window.HybridApp?.settingsModule?.updateGridmotionScale) {
+          window.HybridApp.settingsModule.updateGridmotionScale(newScale);
+        } else {
+          const scaleInput = document.getElementById('bgGridmotionScale');
+          if (scaleInput) {
+            scaleInput.value = String(newScale);
+            const valSpan = scaleInput.parentElement?.querySelector('.bg-setting-value');
+            if (valSpan) valSpan.textContent = String(newScale);
+            const min = Number(scaleInput.min) || 0.4;
+            const max = Number(scaleInput.max) || 1.4;
+            const pct = Math.min(100, Math.max(0, ((newScale - min) / (max - min)) * 100));
+            scaleInput.style.setProperty('--bgp-fill', `${pct}%`);
+            scaleInput.style.setProperty('--fill', `${pct}%`);
+          }
+        }
+
+        // 2. Persist to shared state and SQLite DB (debounced 300ms to avoid IPC spam with 30MB payload)
+        window.__hybridWelcomeEffectsState = window.__hybridWelcomeEffectsState || {};
+        const curOpts = window.__hybridWelcomeEffectsState.bgOpts_gridmotion || {};
+        window.__hybridWelcomeEffectsState.bgOpts_gridmotion = { ...curOpts, scale: newScale };
+        clearTimeout(persistScaleTimer);
+        persistScaleTimer = setTimeout(() => {
+          if (window.hybridAPI?.db?.setPreference) {
+            const latestOpts = window.__hybridWelcomeEffectsState?.bgOpts_gridmotion || { ...curOpts, scale: newScale };
+            window.hybridAPI.db.setPreference('bgOpts_gridmotion', JSON.stringify(latestOpts)).catch(() => {});
+          }
+        }, 300);
+      }
+      return;
+    }
+
+    // Scroll up (delta > 0) -> targetScrollOffset increases
+    // Scroll down (delta < 0) -> targetScrollOffset decreases
+    const speed = Math.max(0.1, Number(options.speed) || 1.0);
+    const scrollStep = delta * (0.85 * speed);
+
+    // Infinite scroll: no limit or boundary
+    targetScrollOffset += scrollStep;
+  };
+
+  if (isMainMount) {
+    window.addEventListener('wheel', handleWheel, { passive: false });
+  }
+
+  const handleResize = () => {
+    measureLoop();
+  };
+  window.addEventListener('resize', handleResize, { passive: true });
 
   const updateCardContents = () => {
     const hasPics = Array.isArray(options.customPictures) && options.customPictures.length > 0;
-    cardElements.forEach(({ inner, imgDiv, textDiv, index }) => {
+    const numPics = hasPics ? options.customPictures.length : 7;
+    cardElements.forEach(({ inner, imgDiv, textDiv, rowIdx, colIdx }) => {
       if (hasPics) {
-        const pic = options.customPictures[index % options.customPictures.length];
+        // Stagger rows slightly for visual variety
+        const picIndex = (colIdx + rowIdx * 2) % numPics;
+        const pic = options.customPictures[picIndex];
         imgDiv.style.backgroundImage = `url(${pic})`;
         imgDiv.style.display = 'block';
         textDiv.textContent = '';
         inner.style.background = '#111';
       } else {
+        const textIdx = (colIdx + rowIdx * 3) % 7;
         imgDiv.style.backgroundImage = '';
         imgDiv.style.display = 'none';
-        textDiv.textContent = CARD_TEXTS[index % CARD_TEXTS.length];
-        inner.style.background = DEFAULT_GRADIENTS[index % DEFAULT_GRADIENTS.length];
+        textDiv.textContent = CARD_TEXTS[textIdx % CARD_TEXTS.length];
+        inner.style.background = DEFAULT_GRADIENTS[textIdx % DEFAULT_GRADIENTS.length];
       }
     });
+
+    measureLoop();
   };
 
   updateCardContents();
@@ -244,31 +389,64 @@ export function initGridMotion(containerElement, customOptions = {}) {
 
   const updateMotion = () => {
     if (destroyed) return;
-    if (options.pauseWhenUnfocused && !isAppInteractive()) return;
+    if (options.pauseWhenUnfocused && !isAppInteractive()) {
+      lastTime = performance.now();
+      return;
+    }
 
-    const maxMoveAmount = options.maxMove;
-    const baseDuration = 0.8 / options.speed;
-    const inertiaFactors = [0.6, 0.4, 0.3, 0.2];
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - lastTime) / 1000);
+    lastTime = now;
+
+    if (loopWidth <= 0) {
+      measureLoop();
+    }
+    const lw = loopWidth > 0 ? loopWidth : 2000;
+
+    const speedMultiplier = Math.max(0.1, Number(options.speed) || 1.0);
+
+    // Automatic continuous glide if autoMove is enabled
+    if (options.autoMove) {
+      const autoSpeed = 42 * speedMultiplier; // pixels per second
+      autoOffset += autoSpeed * dt;
+    }
+
+    const maxMoveAmount = options.maxMove || 300;
+    const mouseDelta = (mouseX / window.innerWidth) * maxMoveAmount - maxMoveAmount / 2;
+    const inertiaMultipliers = [1.2, 0.95, 0.8, 0.7, 1.1, 0.85];
 
     rowElements.forEach((row, index) => {
+      // index % 2 === 0: Grid 1 (even rows) -> direction = 1
+      // index % 2 === 1: Grid 2 (odd rows) -> direction = -1
       const direction = index % 2 === 0 ? 1 : -1;
-      const moveAmount = ((mouseX / window.innerWidth) * maxMoveAmount - maxMoveAmount / 2) * direction;
+      const factor = Math.min(1, dt * 8 * inertiaMultipliers[index % inertiaMultipliers.length]);
+      rowScrollOffsets[index] += (targetScrollOffset - rowScrollOffsets[index]) * factor;
 
-      gsap.to(row, {
-        x: moveAmount,
-        duration: baseDuration + inertiaFactors[index % inertiaFactors.length],
-        ease: 'power3.out',
-        overwrite: 'auto',
-      });
+      const rawX = (rowScrollOffsets[index] + autoOffset + mouseDelta) * direction;
+
+      // Mathematically seamless infinite wrap centered around 0
+      const wrappedX = (((rawX + lw / 2) % lw) + lw) % lw - lw / 2;
+
+      row.style.transform = `translate3d(${wrappedX}px, 0, 0)`;
     });
   };
 
   gsap.ticker.add(updateMotion);
 
+  const resetScroll = () => {
+    targetScrollOffset = 0;
+    autoOffset = 0;
+    for (let i = 0; i < rowScrollOffsets.length; i++) {
+      rowScrollOffsets[i] = 0;
+    }
+  };
+
   const updateOptions = (nextOptions = {}) => {
     if (!nextOptions || typeof nextOptions !== 'object' || destroyed) return;
     const prevPicturesJson = JSON.stringify(options.customPictures);
     const prevGradient = options.gradientColor;
+    const prevScale = options.scale;
+    const prevAspectRatio = options.aspectRatio;
 
     Object.assign(options, nextOptions);
 
@@ -278,14 +456,36 @@ export function initGridMotion(containerElement, customOptions = {}) {
     if (prevGradient !== options.gradientColor) {
       applyGradient();
     }
+    if (prevScale !== options.scale) {
+      applyScale();
+    }
+    if (prevAspectRatio !== options.aspectRatio) {
+      applyAspectRatio();
+      measureLoop();
+    }
   };
 
   const destroy = () => {
     if (destroyed) return;
     destroyed = true;
 
+    if (persistScaleTimer) {
+      clearTimeout(persistScaleTimer);
+      persistScaleTimer = null;
+      if (window.hybridAPI?.db?.setPreference) {
+        const latestOpts = window.__hybridWelcomeEffectsState?.bgOpts_gridmotion;
+        if (latestOpts) {
+          window.hybridAPI.db.setPreference('bgOpts_gridmotion', JSON.stringify(latestOpts)).catch(() => {});
+        }
+      }
+    }
+
     gsap.ticker.remove(updateMotion);
     window.removeEventListener('mousemove', handleMouseMove);
+    window.removeEventListener('resize', handleResize);
+    if (isMainMount) {
+      window.removeEventListener('wheel', handleWheel);
+    }
 
     rowElements.forEach(row => gsap.killTweensOf(row));
 
@@ -295,7 +495,9 @@ export function initGridMotion(containerElement, customOptions = {}) {
     gridMotiondbg(`${LOG_TAG} destroyed`);
   };
 
-  return { destroy, updateOptions };
+  const getOptions = () => ({ ...options });
+
+  return { destroy, updateOptions, resetScroll, getOptions };
 }
 
 function ensureMount() {
@@ -379,6 +581,9 @@ async function syncLifecycleState() {
     if (userOpts.gradientColor !== undefined) mapped.gradientColor = userOpts.gradientColor;
     if (userOpts.speed !== undefined) mapped.speed = userOpts.speed;
     if (userOpts.maxMove !== undefined) mapped.maxMove = userOpts.maxMove;
+    if (userOpts.scale !== undefined) mapped.scale = Number(userOpts.scale);
+    if (userOpts.aspectRatio !== undefined) mapped.aspectRatio = userOpts.aspectRatio;
+    if (userOpts.autoMove !== undefined) mapped.autoMove = Boolean(userOpts.autoMove);
     if (userOpts.customPictures !== undefined) mapped.customPictures = userOpts.customPictures;
     mapped.pauseWhenUnfocused = true;
 
@@ -462,6 +667,26 @@ if (typeof window !== 'undefined') {
     createGridMotion,
     destroyGridMotion,
     initGridMotion,
+    resetScroll: () => activeInstance?.resetScroll?.(),
+    setScale: (scale) => {
+      if (!activeInstance) return;
+      activeInstance.updateOptions({ scale });
+    },
+    setAspectRatio: (aspectRatio) => {
+      if (!activeInstance) return;
+      activeInstance.updateOptions({ aspectRatio });
+    },
+    updateOptions: (opts) => {
+      if (!activeInstance) return;
+      activeInstance.updateOptions(opts);
+    },
+    getOptions: () => activeInstance?.getOptions?.() || {},
+    toggleAutoMove: () => {
+      if (!activeInstance) return false;
+      const cur = Boolean(activeInstance.getOptions?.().autoMove);
+      activeInstance.updateOptions({ autoMove: !cur });
+      return !cur;
+    },
   };
 
   if (document.readyState === 'loading') {

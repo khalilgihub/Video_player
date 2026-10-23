@@ -412,7 +412,7 @@ export function initDitherWaves(containerElement, customOptions = {}) {
 
   let isPaused = false;
   const renderLoop = () => {
-    if (destroyed) return;
+    if (destroyed || contextLost) return;
     if (options.pauseWhenUnfocused && !isAppInteractive()) {
       isPaused = true;
       rafId = 0;
@@ -425,7 +425,7 @@ export function initDitherWaves(containerElement, customOptions = {}) {
   };
 
   const resumeLoop = () => {
-    if (destroyed) return;
+    if (destroyed || contextLost) return;
     if (isPaused && isAppInteractive()) {
       isPaused = false;
       if (!rafId) {
@@ -436,14 +436,26 @@ export function initDitherWaves(containerElement, customOptions = {}) {
   window.addEventListener('focus', resumeLoop);
   document.addEventListener('visibilitychange', resumeLoop);
 
+  let contextLost = false;
   const onContextLost = (event) => {
     event.preventDefault();
+    contextLost = true;
+    isPaused = true;
     if (rafId) {
       window.cancelAnimationFrame(rafId);
       rafId = 0;
     }
   };
+  const onContextRestored = () => {
+    contextLost = false;
+    isPaused = false;
+    updateSize(true);
+    if (!rafId && !destroyed) {
+      rafId = window.requestAnimationFrame(renderLoop);
+    }
+  };
   renderer.domElement.addEventListener('webglcontextlost', onContextLost, false);
+  renderer.domElement.addEventListener('webglcontextrestored', onContextRestored, false);
 
   updateSize(true);
   mouseEventTarget.addEventListener('mousemove', onMouseMove, { passive: true });
@@ -499,6 +511,7 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     }
 
     renderer.domElement.removeEventListener('webglcontextlost', onContextLost);
+    renderer.domElement.removeEventListener('webglcontextrestored', onContextRestored);
     mouseEventTarget.removeEventListener('mousemove', onMouseMove);
     window.removeEventListener('resize', onResize);
     window.removeEventListener('focus', resumeLoop);
@@ -513,6 +526,9 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     planeMaterial.dispose();
 
     composer.dispose();
+    try {
+      renderer.getContext()?.getExtension('WEBGL_lose_context')?.loseContext();
+    } catch {}
     renderer.dispose();
 
     const canvas = renderer.domElement;

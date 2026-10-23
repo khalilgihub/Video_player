@@ -356,8 +356,9 @@ export function initParticles(containerElement, customOptions = {}) {
   let elapsed = 0;
 
   let isPaused = false;
+  let contextLost = false;
   const update = t => {
-    if (destroyed) return;
+    if (destroyed || contextLost) return;
     if (options.pauseWhenUnfocused && !isAppInteractive()) {
       isPaused = true;
       rafId = 0;
@@ -395,7 +396,7 @@ export function initParticles(containerElement, customOptions = {}) {
   };
 
   const resumeLoop = () => {
-    if (destroyed) return;
+    if (destroyed || contextLost) return;
     if (isPaused && isAppInteractive()) {
       isPaused = false;
       if (!rafId) {
@@ -408,12 +409,23 @@ export function initParticles(containerElement, customOptions = {}) {
 
   const onContextLost = (e) => {
     e.preventDefault();
+    contextLost = true;
+    isPaused = true;
     if (rafId) {
       cancelAnimationFrame(rafId);
       rafId = 0;
     }
   };
+  const onContextRestored = () => {
+    contextLost = false;
+    isPaused = false;
+    resize();
+    if (!rafId && !destroyed) {
+      rafId = requestAnimationFrame(update);
+    }
+  };
   gl.canvas.addEventListener('webglcontextlost', onContextLost, false);
+  gl.canvas.addEventListener('webglcontextrestored', onContextRestored, false);
 
   rafId = requestAnimationFrame(update);
 
@@ -470,6 +482,7 @@ export function initParticles(containerElement, customOptions = {}) {
       throttledReallocTimer = null;
     }
     gl.canvas.removeEventListener('webglcontextlost', onContextLost);
+    gl.canvas.removeEventListener('webglcontextrestored', onContextRestored);
     window.removeEventListener('resize', onWindowResize, false);
     window.removeEventListener('focus', resumeLoop);
     document.removeEventListener('visibilitychange', resumeLoop);

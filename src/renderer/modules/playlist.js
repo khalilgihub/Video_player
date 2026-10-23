@@ -35,7 +35,13 @@ class HybridPlaylist {
     this.mainShuffleBtn = document.getElementById('btnShuffle');
     this.mainRepeatBtn = document.getElementById('btnRepeat');
     
+    this.ITEM_HEIGHT = 40;
+    this._isVirtualized = false;
+    this._filteredItems = [];
+    this._scrollRaf = null;
+
     this._bindEvents();
+    this._bindListEvents();
     this._syncModeButtons();
   }
 
@@ -72,7 +78,13 @@ class HybridPlaylist {
   }
 
   _createItems(filePaths) {
-    return filePaths.map(fp => ({
+    const SUB_EXTS = new Set(['.srt', '.ass', '.ssa', '.vtt', '.sub', '.idx', '.sup', '.smi', '.rt']);
+    const valid = (filePaths || []).filter(fp => {
+      if (typeof fp !== 'string' || !fp.trim()) return false;
+      const ext = fp.substring(fp.lastIndexOf('.')).toLowerCase();
+      return !SUB_EXTS.has(ext);
+    });
+    return valid.map(fp => ({
       path: fp,
       name: fp.split(/[/\\]/).pop(),
       duration: null
@@ -95,6 +107,8 @@ class HybridPlaylist {
   }
 
   replaceFiles(filePaths, { autoPlay = true } = {}) {
+    this._loadingPath = null;
+    this._loadingIndex = null;
     this.items = this._createItems(filePaths);
     this.currentIndex = -1;
     this._playedShuffleIndices.clear();
@@ -186,17 +200,36 @@ class HybridPlaylist {
 
   async playIndex(index, { allowResume = (this.items.length === 1) } = {}) {
     if (index < 0 || index >= this.items.length) return;
+    const targetItem = this.items[index];
+    if (!targetItem) return;
+
+    // Deduplicate / debounce consecutive play requests for the same file if already active or loading
+    if (this._loadingPath === targetItem.path || (this.currentIndex === index && this.player?.currentFilePath === targetItem.path)) {
+      return;
+    }
+
     const filter = this.searchInput?.value || '';
     const requestId = ++this._playRequestId;
+    this._loadingPath = targetItem.path;
+    this._loadingIndex = index;
     this.currentIndex = index;
     this._playedShuffleIndices.add(index);
     this._renderList(filter);
-    const loaded = await this.player.loadFile(this.items[index].path, { allowResume });
-    if (!loaded && requestId === this._playRequestId) {
-      this.currentIndex = -1;
-      this._renderList(filter);
+    try {
+      const loaded = await this.player.loadFile(targetItem.path, { allowResume });
+      if (!loaded && requestId === this._playRequestId) {
+        this.currentIndex = -1;
+        this._renderList(filter);
+      }
+      return loaded;
+    } finally {
+      if (this._loadingPath === targetItem.path) {
+        this._loadingPath = null;
+      }
+      if (this._loadingIndex === index) {
+        this._loadingIndex = null;
+      }
     }
-    return loaded;
   }
 
   handleTrackEnded() {
@@ -375,51 +408,111 @@ class HybridPlaylist {
     window.HybridApp?.controlsModule?.updateToolbarVisibility?.();
   }
 
+  _bindListEvents() {
+    this.listEl?.addEventListener('click', (e) => {
+      const removeBtn = e.target.closest('.playlist-item-remove');
+      if (removeBtn) {
+        e.stopPropagation();
+        const index = parseInt(removeBtn.dataset.remove, 10);
+        if (!isNaN(index)) this.remove(index);
+        return;
+      }
+      const itemEl = e.target.closest('.playlist-item');
+      if (itemEl) {
+        const index = parseInt(itemEl.dataset.index, 10);
+        if (!isNaN(index)) this.playIndex(index, { allowResume: false });
+      }
+    });
+
+    this.listEl?.addEventListener('scroll', () => {
+      if (!this._isVirtualized) return;
+      if (this._scrollRaf) return;
+      this._scrollRaf = requestAnimationFrame(() => {
+        this._scrollRaf = null;
+        this._renderVirtualSlice();
+      });
+    }, { passive: true });
+  }
+
   _renderList(filter = (this.searchInput?.value || '')) {
     const lowerFilter = filter.trim().toLowerCase();
     
     if (this.items.length === 0) {
+      this._isVirtualized = false;
+      this._filteredItems = [];
       this.listEl.replaceChildren(this._createEmptyState());
       this.countEl.textContent = '0 items';
       return;
     }
 
-    const fragment = document.createDocumentFragment();
-    let visibleCount = 0;
-    this.items.forEach((item, i) => {
-      if (lowerFilter && !item.name.toLowerCase().includes(lowerFilter)) return;
-      visibleCount++;
-      fragment.appendChild(this._createPlaylistItem(item, i));
-    });
-
-    if (visibleCount === 0) {
-      this.listEl.replaceChildren(this._createEmptyState('No matches', 'Try a different search'));
-    } else {
-      this.listEl.replaceChildren(fragment);
+    const filtered = [];
+    for (let i = 0; i < this.items.length; i++) {
+      const item = this.items[i];
+      if (!lowerFilter || item.name.toLowerCase().includes(lowerFilter)) {
+        filtered.push({ item, originalIndex: i });
+      }
     }
+    this._filteredItems = filtered;
 
     const totalLabel = `${this.items.length} item${this.items.length !== 1 ? 's' : ''}`;
-    this.countEl.textContent = lowerFilter ? `${visibleCount} of ${totalLabel}` : totalLabel;
+    this.countEl.textContent = lowerFilter ? `${filtered.length} of ${totalLabel}` : totalLabel;
 
-    // Bind clicks
-    this.listEl.querySelectorAll('.playlist-item').forEach(el => {
-      el.addEventListener('click', (e) => {
-        if (e.target.closest('.playlist-item-remove')) return;
-        this.playIndex(parseInt(el.dataset.index), { allowResume: false });
-      });
-    });
-
-    this.listEl.querySelectorAll('.playlist-item-remove').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.remove(parseInt(btn.dataset.remove));
-      });
-    });
-
-    // Scroll active into view
-    const activeEl = this.listEl.querySelector('.playlist-item.active');
-    if (activeEl) {
-      activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (filtered.length === 0) {
+      this._isVirtualized = false;
+      this.listEl.replaceChildren(this._createEmptyState('No matches', 'Try a different search'));
+      return;
     }
+
+    if (filtered.length <= 80) {
+      this._isVirtualized = false;
+      const fragment = document.createDocumentFragment();
+      for (const entry of filtered) {
+        fragment.appendChild(this._createPlaylistItem(entry.item, entry.originalIndex));
+      }
+      this.listEl.replaceChildren(fragment);
+      const activeEl = this.listEl.querySelector('.playlist-item.active');
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+      return;
+    }
+
+    // Virtualized rendering for > 80 items
+    this._isVirtualized = true;
+    this._renderVirtualSlice();
+  }
+
+  _renderVirtualSlice() {
+    const items = this._filteredItems;
+    if (!items || items.length === 0) return;
+
+    const scrollTop = this.listEl.scrollTop || 0;
+    const clientHeight = this.listEl.clientHeight || 400;
+    const totalHeight = items.length * this.ITEM_HEIGHT;
+
+    const startIndex = Math.max(0, Math.floor(scrollTop / this.ITEM_HEIGHT) - 5);
+    const endIndex = Math.min(items.length, Math.ceil((scrollTop + clientHeight) / this.ITEM_HEIGHT) + 5);
+
+    const spacer = document.createElement('div');
+    spacer.style.height = `${totalHeight}px`;
+    spacer.style.position = 'relative';
+    spacer.style.width = '100%';
+
+    const sliceContainer = document.createElement('div');
+    sliceContainer.style.position = 'absolute';
+    sliceContainer.style.top = `${startIndex * this.ITEM_HEIGHT}px`;
+    sliceContainer.style.left = '0';
+    sliceContainer.style.right = '0';
+
+    const fragment = document.createDocumentFragment();
+    for (let i = startIndex; i < endIndex; i++) {
+      const entry = items[i];
+      fragment.appendChild(this._createPlaylistItem(entry.item, entry.originalIndex));
+    }
+    sliceContainer.appendChild(fragment);
+    spacer.appendChild(sliceContainer);
+
+    this.listEl.replaceChildren(spacer);
   }
 
   _createEmptyState(titleText = 'Playlist is empty', hintText = 'Drop files or click + to add') {

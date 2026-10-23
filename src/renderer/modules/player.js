@@ -36,6 +36,8 @@ class HybridPlayer {
     // Per-file state
     this.currentFile     = null;
     this.currentFilePath = null;
+    this.isAudioOnly     = false;
+    this.isLive          = false;
 
     // A-B loop (UI state – the actual loop runs inside mpv)
     this.abLoop = { a: null, b: null, active: false };
@@ -87,7 +89,7 @@ class HybridPlayer {
 
     // Ensure playback position is saved if window unloads/exits
     window.addEventListener('beforeunload', () => {
-      this.destroy();
+      this.destroySync();
     });
   }
 
@@ -160,7 +162,7 @@ class HybridPlayer {
           break;
 
         case 'volume': {
-          const clamped = typeof value === 'number' ? Math.max(0, Math.min(100, value)) : value;
+          const clamped = typeof value === 'number' ? Math.max(0, Math.min(200, value)) : value;
           this.volume = clamped;
           this.onVolumeChange?.(clamped);
           break;
@@ -177,6 +179,7 @@ class HybridPlayer {
 
         case 'track-list':
           this.trackList = value || [];
+          this._checkAudioOnlyState();
           this.onTrackListChanged?.(this.trackList);
           for (const listener of this._trackListListeners) {
             try { listener(this.trackList); } catch (e) { console.error('Track list listener error:', e); }
@@ -249,12 +252,14 @@ class HybridPlayer {
           } else if (data?.reason === 'error') {
             console.error('mpv playback error on end-file:', data);
             window.HybridApp?._cancelVideoLoadSpinner?.();
+            window.HybridApp?.resetToIdleState?.();
             this.onError?.(data?.error || data);
           }
           break;
         case 'error':
           console.error('mpv error:', data);
           window.HybridApp?._cancelVideoLoadSpinner?.();
+          window.HybridApp?.resetToIdleState?.();
           this.onError?.(data);
           break;
       }
@@ -376,10 +381,22 @@ class HybridPlayer {
   }
 
   _isNearEnd(thresholdSeconds = 2) {
-    return Number.isFinite(this.duration) &&
-      this.duration > 0 &&
-      Number.isFinite(this.currentTime) &&
-      this.currentTime >= Math.max(0, this.duration - thresholdSeconds);
+    if (!Number.isFinite(this.duration) || this.duration <= 0) return false;
+    if (!Number.isFinite(this.currentTime)) return false;
+    const isSecondsThreshold = this.currentTime >= Math.max(0, this.duration - thresholdSeconds);
+    const isPercentThreshold = (this.currentTime / this.duration) >= 0.95;
+    return isSecondsThreshold || isPercentThreshold;
+  }
+
+  _checkAudioOnlyState() {
+    if (!this.currentFilePath || !Array.isArray(this.trackList) || this.trackList.length === 0) {
+      return;
+    }
+    const hasVideo = this.trackList.some(t => t.type === 'video');
+    const hasAudio = this.trackList.some(t => t.type === 'audio');
+    const isAudioOnly = hasAudio && !hasVideo;
+    this.isAudioOnly = isAudioOnly;
+    window.HybridApp?.setAudioOnlyMode?.(isAudioOnly);
   }
 
   async _clearResumePosition() {
@@ -461,20 +478,54 @@ class HybridPlayer {
       this.clearABLoop?.({ notify: false });
       this.currentTime = 0;
       this.duration = 0;
+      this.isLive = false;
       this.currentFilePath = filePath;
+
+      const fileName = filePath.split(/[/\\]/).pop();
 
       // Ensure video track selection isn't left disabled by previous media state.
       await window.hybridAPI.mpv.setProperty('vid', 'auto');
 
       // Tell mpv to load
       const loadResult = await window.hybridAPI.mpv.loadFile(filePath);
-      if (loadResult === false) {
-        throw new Error('Playback engine is not ready yet. Please try again.');
+      if (loadResult && loadResult.error === 'empty_file') {
+        throw new Error('Failed to load: ' + fileName + ' (empty file)');
       }
+      if (loadResult === false || loadResult == null) {
+        throw new Error('File not found: ' + fileName);
+      }
+
+      // Check for immediate demux error (e.g. corrupt media)
+      const demuxCheck = await new Promise((resolve) => {
+        let timer = null;
+        let removeListener = null;
+        const cleanup = () => {
+          if (timer) clearTimeout(timer);
+          if (typeof removeListener === 'function') removeListener();
+        };
+        const onEvent = (event, data) => {
+          if (event === 'end-file' && data?.reason === 'error') {
+            cleanup();
+            resolve({ ok: false, error: data?.error || 'Demuxing failed' });
+          } else if (event === 'playback-restart' || event === 'file-loaded') {
+            cleanup();
+            resolve({ ok: true });
+          }
+        };
+        removeListener = window.hybridAPI.mpv.onEvent(onEvent);
+        timer = setTimeout(() => {
+          cleanup();
+          resolve({ ok: true });
+        }, 300);
+      });
+
+      if (!demuxCheck.ok) {
+        throw new Error('Failed to parse media: ' + (demuxCheck.error || 'corrupt file'));
+      }
+
       await window.hybridAPI.mpv.play();
 
       // Title bar
-      const fileName = filePath.split(/[/\\]/).pop();
       document.getElementById('titlebarText').textContent = fileName + ' — Hybrid Player';
 
       // Resume position (only if allowResume is enabled)
@@ -542,8 +593,11 @@ class HybridPlayer {
     } catch (err) {
       this.currentFilePath = previousFilePath;
       window.HybridApp?._cancelVideoLoadSpinner?.();
+      window.HybridApp?.resetToIdleState?.();
       console.error('Failed to load file:', err);
-      window.HybridToast?.show('Failed to load: ' + filePath.split(/[/\\]/).pop());
+      const isNotFound = err?.message?.toLowerCase()?.includes('not found');
+      const msg = isNotFound ? `File not found: ${filePath.split(/[/\\]/).pop()}` : `Failed to load: ${filePath.split(/[/\\]/).pop()}`;
+      window.HybridToast?.show(msg);
       return false;
     }
   }
@@ -559,6 +613,7 @@ class HybridPlayer {
       this.currentFilePath = url;
       this.currentTime = 0;
       this.duration = 0;
+      this.isLive = false;
       this._lastEndedMediaKey = null;
       this._lastEndedAt = 0;
       this._singleScreenshotStack = [];
@@ -575,6 +630,35 @@ class HybridPlayer {
       if (loadResult === false || loadResult == null) {
         throw new Error('Failed to open network stream');
       }
+
+      // Check for immediate connection/demux error
+      const demuxCheck = await new Promise((resolve) => {
+        let timer = null;
+        let removeListener = null;
+        const cleanup = () => {
+          if (timer) clearTimeout(timer);
+          if (typeof removeListener === 'function') removeListener();
+        };
+        const onEvent = (event, data) => {
+          if (event === 'end-file' && (data?.reason === 'error' || data?.error)) {
+            cleanup();
+            resolve({ ok: false, error: data?.error || 'Connection failed' });
+          } else if (event === 'playback-restart' || event === 'file-loaded') {
+            cleanup();
+            resolve({ ok: true });
+          }
+        };
+        removeListener = window.hybridAPI.mpv.onEvent(onEvent);
+        timer = setTimeout(() => {
+          cleanup();
+          resolve({ ok: false, error: 'Connection timeout' });
+        }, 2000);
+      });
+
+      if (!demuxCheck.ok) {
+        throw new Error('Failed to open network stream: ' + (demuxCheck.error || 'error'));
+      }
+
       return true;
     } catch (err) {
       if (this._playbackSessionId === sessionId) {
@@ -583,6 +667,7 @@ class HybridPlayer {
         this.onPlayStateChanged?.(false);
       }
       window.HybridApp?._cancelVideoLoadSpinner?.();
+      window.HybridApp?.resetToIdleState?.();
       console.error('Failed to load url:', err);
       window.HybridToast?.show('Failed to load network stream');
       return false;
@@ -602,10 +687,8 @@ class HybridPlayer {
       const nextPaused = await window.hybridAPI.mpv.togglePause();
       this.isPlaying = !nextPaused;
       this.onPlayStateChanged?.(this.isPlaying);
-    } catch {
-      this.isPlaying = !this.isPlaying;
-      this.onPlayStateChanged?.(this.isPlaying);
-      window.hybridAPI.mpv.togglePause();
+    } catch (err) {
+      console.warn('Failed to toggle play state:', err);
     }
   }
 
@@ -616,6 +699,10 @@ class HybridPlayer {
   }
 
   seek(time) {
+    if (!this.currentFilePath) return;
+    if (this.isLive && Number.isFinite(this.currentTime) && time > this.currentTime) {
+      return;
+    }
     if (!isNaN(time) && isFinite(time)) {
       this._lastEndedSessionId = -1;
       this._lastEndedMediaKey = null;
@@ -627,34 +714,62 @@ class HybridPlayer {
   }
 
   seekRelative(seconds) {
+    if (!this.currentFilePath) return;
+    const sec = Number(seconds);
+    if (!Number.isFinite(sec)) return;
+    if (this.isLive && sec > 0) {
+      return;
+    }
     window.HybridApp?._setNetworkLoading(true);
-    window.hybridAPI.mpv.seekRelative(seconds);
+    window.hybridAPI.mpv.seekRelative(sec);
   }
 
   seekPercent(percent) {
+    if (!this.currentFilePath) return;
+    const pct = Number(percent);
+    if (!Number.isFinite(pct)) return;
+    if (this.isLive) {
+      return;
+    }
     window.HybridApp?._setNetworkLoading(true);
-    window.hybridAPI.mpv.seekPercent(percent);
+    window.hybridAPI.mpv.seekPercent(pct);
   }
 
   // ── Volume ─────────────────────────────────────────────
-  setVolume(value) {
-    // value: fractional (0 < v < 1) or integer percentage (0–100) → mpv volume 0–100
+  setVolume(value, options = false) {
+    // value: fractional (0 < v < 1) or integer percentage (0–100, or up to 200 when volume boost enabled)
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return;
-    const target = (numeric > 0 && numeric < 1) ? numeric * 100 : numeric;
-    const clamped = Math.max(0, Math.min(100, Math.round(target)));
+    const isFractional = (numeric > 0 && numeric < 1) || (numeric > 1 && numeric <= 2 && numeric % 1 !== 0);
+    const target = isFractional ? numeric * 100 : numeric;
+    const allowBoost = (typeof options === 'boolean' && options) ||
+                       (typeof options === 'object' && options?.allowBoost) ||
+                       Boolean(this.volumeBoostEnabled);
+    const maxVol = allowBoost ? 200 : 100;
+    const clamped = Math.max(0, Math.min(maxVol, Math.round(target)));
     this.volume = clamped;
     window.hybridAPI.mpv.setVolume(clamped);
+    this.onVolumeChange?.(this.muted ? 0 : this.volume, { reason: 'api' });
+  }
+
+  setVolumeBoost(value) {
+    this.volumeBoostEnabled = true;
+    return this.setVolume(value, true);
   }
 
   getEffectiveVolume() {
     return this.muted ? 0 : this.volume / 100;
   }
 
-  toggleMute() {
-    this.muted = !this.muted;
+  setMuted(muted) {
+    this.muted = !!muted;
     window.hybridAPI.mpv.setMute(this.muted);
+    this.onVolumeChange?.(this.muted ? 0 : this.volume, { reason: 'mute' });
     return this.muted;
+  }
+
+  toggleMute() {
+    return this.setMuted(!this.muted);
   }
 
   // ── Speed ──────────────────────────────────────────────
@@ -922,20 +1037,9 @@ class HybridPlayer {
     const nonce = Math.random().toString(36).substring(2, 6);
     this._burstSessionId = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}_${nonce}`;
 
-    // Target ~10 fps burst pacing with a guaranteed minimum breathing gap between frames
-    // so video decoding, VO rendering, and A-V sync never starve or drop playback frames.
-    const targetIntervalMs = 100;
-    const minBreathingMs = 40;
-
-    const scheduleNext = (delayMs) => {
-      if (!this._isBurstCapturing) return;
-      if (this._burstCaptureTimer) {
-        clearTimeout(this._burstCaptureTimer);
-      }
-      this._burstCaptureTimer = setTimeout(async () => {
-        await doCapture();
-      }, delayMs);
-    };
+    // Video FPS pacing (default to ~24 fps = 41ms interval)
+    const fps = Number(this.videoParams?.fps) || 24;
+    const intervalMs = Math.max(16, Math.floor(1000 / fps));
 
     const doCapture = async () => {
       if (!this._isBurstCapturing) return;
@@ -951,7 +1055,6 @@ class HybridPlayer {
       const unit = count === 1 ? 'frame' : 'frames';
       window.HybridApp?.controlsModule?.setRecordingState(true, `📸 Burst capturing: ${count} ${unit}${ptsPart}`);
 
-      const startTime = performance.now();
       const flightPromise = (async () => {
         try {
           await window.hybridAPI?.mpv?.screenshotBurstFrame(this._burstSessionId, count, 'video');
@@ -959,11 +1062,6 @@ class HybridPlayer {
           console.error('Burst frame capture failed:', err);
         } finally {
           this._burstInFlight = false;
-          if (this._isBurstCapturing) {
-            const elapsed = performance.now() - startTime;
-            const nextDelay = Math.max(minBreathingMs, targetIntervalMs - elapsed);
-            scheduleNext(nextDelay);
-          }
         }
       })();
       this._burstInFlightPromise = flightPromise;
@@ -972,6 +1070,10 @@ class HybridPlayer {
 
     // Capture Frame 1 immediately on start — eliminates 0-frame dead lag!
     doCapture();
+
+    this._burstCaptureTimer = setInterval(() => {
+      doCapture();
+    }, intervalMs);
   }
 
   async stopBurstCapture() {
@@ -1011,9 +1113,10 @@ class HybridPlayer {
       return;
     }
 
-    const unit = total === 1 ? 'frame' : 'frames';
-    window.HybridApp?.controlsModule?.setRecordingState(false, `✓ Saved ${total} ${unit}`);
-    await window.hybridAPI?.mpv?.finalizeBurstSession(stoppedSessionId, total);
+    const result = await window.hybridAPI?.mpv?.finalizeBurstSession(stoppedSessionId, total);
+    const finalCount = (result && typeof result.count === 'number') ? result.count : total;
+    const unit = finalCount === 1 ? 'frame' : 'frames';
+    window.HybridApp?.controlsModule?.setRecordingState(false, `✓ Saved ${finalCount} ${unit}`);
   }
 
   _showScreenshotPreview(payload) {
@@ -1853,7 +1956,7 @@ class HybridPlayer {
 
   // ── Utilities ──────────────────────────────────────────
   formatTime(seconds) {
-    if (!seconds || !isFinite(seconds)) return '0:00';
+    if (!seconds || !isFinite(seconds) || seconds <= 0) return '0:00';
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
@@ -1863,6 +1966,30 @@ class HybridPlayer {
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
 
+  _checkAudioOnlyState() {
+    const videoTracks = (this.trackList || []).filter(t => t.type === 'video');
+    const audioTracks = (this.trackList || []).filter(t => t.type === 'audio');
+    const isAudioOnly = videoTracks.length === 0 && audioTracks.length > 0;
+    this.isAudioOnly = isAudioOnly;
+    window.HybridApp?.setAudioOnlyMode?.(isAudioOnly);
+  }
+
+  destroySync() {
+    if (this._resumeSeekTimer) {
+      clearTimeout(this._resumeSeekTimer);
+      this._resumeSeekTimer = null;
+    }
+    if (this.currentFilePath && this.currentTime > 5 && !this._isNearEnd()) {
+      try {
+        if (window.hybridAPI?.resume?.saveSync) {
+          return window.hybridAPI.resume.saveSync(this.currentFilePath, this.currentTime);
+        }
+      } catch (e) {
+        console.warn('Failed to save resume synchronously on destroy:', e);
+      }
+    }
+  }
+
   async destroy() {
     if (this._resumeSeekTimer) {
       clearTimeout(this._resumeSeekTimer);
@@ -1870,6 +1997,9 @@ class HybridPlayer {
     }
     if (this.currentFilePath && this.currentTime > 5 && !this._isNearEnd()) {
       try {
+        if (window.hybridAPI?.resume?.saveSync) {
+          return window.hybridAPI.resume.saveSync(this.currentFilePath, this.currentTime);
+        }
         return await window.hybridAPI.resume.save(this.currentFilePath, this.currentTime, { immediate: true });
       } catch (e) {
         console.warn('Failed to save resume on destroy:', e);

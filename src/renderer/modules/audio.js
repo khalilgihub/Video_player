@@ -54,6 +54,7 @@ class HybridAudio {
   }
 
   setSyncOffset(offsetMs, { apply = true } = {}) {
+    const prevOffset = this.syncOffset;
     this.syncOffset = this._clampSyncOffset(offsetMs);
     const syncValue = document.getElementById('audioSyncValue');
     if (syncValue) {
@@ -61,7 +62,14 @@ class HybridAudio {
     }
 
     if (apply && window.hybridAPI?.mpv?.setAudioDelay) {
-      window.hybridAPI.mpv.setAudioDelay(this.syncOffset / 1000);
+      Promise.resolve(window.hybridAPI.mpv.setAudioDelay(this.syncOffset / 1000))
+        .catch((err) => {
+          console.warn('[audio] setAudioDelay failed:', err?.message || err);
+          this.syncOffset = prevOffset;
+          if (syncValue) {
+            syncValue.textContent = `${this.syncOffset > 0 ? '+' : ''}${this.syncOffset}ms`;
+          }
+        });
     }
 
     return this.syncOffset;

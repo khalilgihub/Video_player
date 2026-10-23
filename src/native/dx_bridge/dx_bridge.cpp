@@ -130,6 +130,7 @@ struct FramePayload {
     int buffer_index;
     int width;
     int height;
+    uint64_t generation;
 };
 
 class DxBridge {
@@ -149,9 +150,10 @@ public:
     int current_width = 1280;
     int current_height = 720;
     int flip_y = 1;
+    bool buffers_allocated = false;
+    std::atomic<uint64_t> current_generation{1};
 
-    std::atomic<int> pending_resize_width{0};
-    std::atomic<int> pending_resize_height{0};
+    std::atomic<uint64_t> pending_resize{0};
 
     std::thread render_thread;
     std::atomic<bool> running{false};
@@ -329,92 +331,6 @@ public:
         return (gl_hDevice != nullptr);
     }
 
-    bool allocateBuffers(int width, int height) {
-        current_width = (width > 0) ? width : 1280;
-        current_height = (height > 0) ? height : 720;
-
-        for (int i = 0; i < NUM_BUFFERS; i++) {
-            cleanupBuffer(buffers[i]);
-
-            // 1. Pure D3D11 Render Target for OpenGL / WGL Interop
-            D3D11_TEXTURE2D_DESC renderDesc = {};
-            renderDesc.Width = current_width;
-            renderDesc.Height = current_height;
-            renderDesc.MipLevels = 1;
-            renderDesc.ArraySize = 1;
-            renderDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-            renderDesc.SampleDesc.Count = 1;
-            renderDesc.SampleDesc.Quality = 0;
-            renderDesc.Usage = D3D11_USAGE_DEFAULT;
-            renderDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-            renderDesc.CPUAccessFlags = 0;
-            renderDesc.MiscFlags = 0;
-
-            HRESULT hr = d3d_device->CreateTexture2D(&renderDesc, nullptr, &buffers[i].d3d_render_texture);
-            if (FAILED(hr)) {
-                printf("[dx_bridge] CreateTexture2D render failed: 0x%08X\n", hr);
-                return false;
-            }
-
-            // 2. Shared NT Texture for Electron sharedTexture
-            D3D11_TEXTURE2D_DESC sharedDesc = renderDesc;
-            sharedDesc.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
-
-            hr = d3d_device->CreateTexture2D(&sharedDesc, nullptr, &buffers[i].d3d_shared_texture);
-            if (FAILED(hr)) {
-                printf("[dx_bridge] CreateTexture2D shared failed: 0x%08X\n", hr);
-                return false;
-            }
-
-            hr = buffers[i].d3d_shared_texture->QueryInterface(__uuidof(IDXGIResource1), (void**)&buffers[i].dxgi_resource1);
-            if (FAILED(hr)) {
-                printf("[dx_bridge] QueryInterface IDXGIResource1 failed: 0x%08X\n", hr);
-                return false;
-            }
-
-            hr = buffers[i].dxgi_resource1->CreateSharedHandle(
-                nullptr,
-                DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
-                nullptr,
-                &buffers[i].nt_handle
-            );
-            if (FAILED(hr)) {
-                printf("[dx_bridge] CreateSharedHandle failed: 0x%08X\n", hr);
-                return false;
-            }
-
-            // 3. Register render texture with WGL
-            glGenTextures(1, &buffers[i].gl_texture);
-            glBindTexture(GL_TEXTURE_2D, buffers[i].gl_texture);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            glBindTexture(GL_TEXTURE_2D, 0);
-
-            buffers[i].gl_registered_obj = wglDXRegisterObjectNV(
-                gl_hDevice,
-                buffers[i].d3d_render_texture,
-                buffers[i].gl_texture,
-                GL_TEXTURE_2D,
-                WGL_ACCESS_READ_WRITE_NV
-            );
-            if (!buffers[i].gl_registered_obj) {
-                printf("[dx_bridge] wglDXRegisterObjectNV failed: GetLastError = %lu\n", GetLastError());
-                return false;
-            }
-
-            glGenFramebuffers(1, &buffers[i].gl_fbo);
-            glBindFramebuffer(GL_FRAMEBUFFER, buffers[i].gl_fbo);
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, buffers[i].gl_texture, 0);
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-            buffers[i].in_use.store(false);
-        }
-
-        return true;
-    }
-
     void cleanupBuffer(BufferEntry& b) {
         if (b.gl_registered_obj && gl_hDevice && wglDXUnregisterObjectNV) {
             wglDXUnregisterObjectNV(gl_hDevice, b.gl_registered_obj);
@@ -444,7 +360,191 @@ public:
             b.d3d_render_texture->Release();
             b.d3d_render_texture = nullptr;
         }
-        b.in_use.store(false);
+        b.in_use.store(false, std::memory_order_release);
+    }
+
+    void cleanupD3D11() {
+        for (int i = 0; i < NUM_BUFFERS; i++) {
+            cleanupBuffer(buffers[i]);
+        }
+        if (gl_hDevice && wglDXCloseDeviceNV) {
+            wglDXCloseDeviceNV(gl_hDevice);
+            gl_hDevice = nullptr;
+        }
+        if (d3d_context) {
+            d3d_context->Release();
+            d3d_context = nullptr;
+        }
+        if (d3d_device) {
+            d3d_device->Release();
+            d3d_device = nullptr;
+        }
+        buffers_allocated = false;
+    }
+
+    bool allocateBuffers(int width, int height) {
+        int target_w = (width > 0) ? width : 1280;
+        int target_h = (height > 0) ? height : 720;
+
+        // BUG #1 Fix: Wait for in-flight buffers to be released by Chromium before destroying textures
+        {
+            std::unique_lock<std::mutex> lock(buffer_mutex);
+            cv_buffer_freed.wait_for(lock, std::chrono::milliseconds(500), [this]() {
+                for (int i = 0; i < NUM_BUFFERS; i++) {
+                    if (buffers[i].in_use.load(std::memory_order_acquire)) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+        }
+
+        std::lock_guard<std::mutex> lock(buffer_mutex);
+
+        for (int i = 0; i < NUM_BUFFERS; i++) {
+            cleanupBuffer(buffers[i]);
+        }
+        buffers_allocated = false;
+        current_generation.fetch_add(1, std::memory_order_acq_rel);
+
+        if (!d3d_device || !gl_hDevice) {
+            printf("[dx_bridge] allocateBuffers failed: device or gl_hDevice is null\n");
+            current_width = 0;
+            current_height = 0;
+            return false;
+        }
+
+        for (int i = 0; i < NUM_BUFFERS; i++) {
+            // 1. Pure D3D11 Render Target for OpenGL / WGL Interop
+            D3D11_TEXTURE2D_DESC renderDesc = {};
+            renderDesc.Width = target_w;
+            renderDesc.Height = target_h;
+            renderDesc.MipLevels = 1;
+            renderDesc.ArraySize = 1;
+            renderDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            renderDesc.SampleDesc.Count = 1;
+            renderDesc.SampleDesc.Quality = 0;
+            renderDesc.Usage = D3D11_USAGE_DEFAULT;
+            renderDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+            renderDesc.CPUAccessFlags = 0;
+            renderDesc.MiscFlags = 0;
+
+            HRESULT hr = d3d_device->CreateTexture2D(&renderDesc, nullptr, &buffers[i].d3d_render_texture);
+            if (FAILED(hr)) {
+                printf("[dx_bridge] CreateTexture2D render failed: 0x%08X\n", (unsigned int)hr);
+                for (int j = 0; j <= i; j++) cleanupBuffer(buffers[j]);
+                current_width = 0;
+                current_height = 0;
+                return false;
+            }
+
+            // 2. Shared NT Texture for Electron sharedTexture
+            D3D11_TEXTURE2D_DESC sharedDesc = renderDesc;
+            sharedDesc.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
+
+            hr = d3d_device->CreateTexture2D(&sharedDesc, nullptr, &buffers[i].d3d_shared_texture);
+            if (FAILED(hr)) {
+                printf("[dx_bridge] CreateTexture2D shared failed: 0x%08X\n", (unsigned int)hr);
+                for (int j = 0; j <= i; j++) cleanupBuffer(buffers[j]);
+                current_width = 0;
+                current_height = 0;
+                return false;
+            }
+
+            hr = buffers[i].d3d_shared_texture->QueryInterface(__uuidof(IDXGIResource1), (void**)&buffers[i].dxgi_resource1);
+            if (FAILED(hr)) {
+                printf("[dx_bridge] QueryInterface IDXGIResource1 failed: 0x%08X\n", (unsigned int)hr);
+                for (int j = 0; j <= i; j++) cleanupBuffer(buffers[j]);
+                current_width = 0;
+                current_height = 0;
+                return false;
+            }
+
+            hr = buffers[i].dxgi_resource1->CreateSharedHandle(
+                nullptr,
+                DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
+                nullptr,
+                &buffers[i].nt_handle
+            );
+            if (FAILED(hr)) {
+                printf("[dx_bridge] CreateSharedHandle failed: 0x%08X\n", (unsigned int)hr);
+                for (int j = 0; j <= i; j++) cleanupBuffer(buffers[j]);
+                current_width = 0;
+                current_height = 0;
+                return false;
+            }
+
+            // 3. Register render texture with WGL
+            glGenTextures(1, &buffers[i].gl_texture);
+            glBindTexture(GL_TEXTURE_2D, buffers[i].gl_texture);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glBindTexture(GL_TEXTURE_2D, 0);
+
+            buffers[i].gl_registered_obj = wglDXRegisterObjectNV(
+                gl_hDevice,
+                buffers[i].d3d_render_texture,
+                buffers[i].gl_texture,
+                GL_TEXTURE_2D,
+                WGL_ACCESS_READ_WRITE_NV
+            );
+            if (!buffers[i].gl_registered_obj) {
+                printf("[dx_bridge] wglDXRegisterObjectNV failed: GetLastError = %lu\n", GetLastError());
+                for (int j = 0; j <= i; j++) cleanupBuffer(buffers[j]);
+                current_width = 0;
+                current_height = 0;
+                return false;
+            }
+
+            glGenFramebuffers(1, &buffers[i].gl_fbo);
+            glBindFramebuffer(GL_FRAMEBUFFER, buffers[i].gl_fbo);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, buffers[i].gl_texture, 0);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+            buffers[i].in_use.store(false, std::memory_order_release);
+        }
+
+        // BUG #4 Fix: Assign current dimensions and mark allocated only upon success
+        current_width = target_w;
+        current_height = target_h;
+        buffers_allocated = true;
+        return true;
+    }
+
+    bool recoverDevice() {
+        HRESULT reason = d3d_device ? d3d_device->GetDeviceRemovedReason() : E_FAIL;
+        printf("[dx_bridge] D3D11 Device removed / TDR detected (reason: 0x%08X). Attempting recovery...\n", (unsigned int)reason);
+
+        // Wait for in-flight buffers
+        {
+            std::unique_lock<std::mutex> lock(buffer_mutex);
+            cv_buffer_freed.wait_for(lock, std::chrono::milliseconds(500), [this]() {
+                for (int i = 0; i < NUM_BUFFERS; i++) {
+                    if (buffers[i].in_use.load(std::memory_order_acquire)) return false;
+                }
+                return true;
+            });
+        }
+
+        cleanupD3D11();
+
+        wglMakeCurrent(dummy_hdc, dummy_hglrc);
+        if (!initD3D11()) {
+            printf("[dx_bridge] Device recovery: initD3D11 failed\n");
+            return false;
+        }
+
+        int target_w = current_width > 0 ? current_width : 1280;
+        int target_h = current_height > 0 ? current_height : 720;
+        if (!allocateBuffers(target_w, target_h)) {
+            printf("[dx_bridge] Device recovery: allocateBuffers(%d, %d) failed\n", target_w, target_h);
+            return false;
+        }
+
+        printf("[dx_bridge] D3D11 Device successfully recovered (%dx%d).\n", target_w, target_h);
+        return true;
     }
 
     bool initMpvRender(mpv_handle* handle) {
@@ -501,23 +601,40 @@ public:
     void renderLoop() {
         wglMakeCurrent(dummy_hdc, dummy_hglrc);
 
-        while (running.load()) {
+        while (running.load(std::memory_order_relaxed)) {
             DWORD waitRes = WaitForSingleObject(hWakeEvent, 16);
-            if (!running.load()) break;
+            if (!running.load(std::memory_order_relaxed)) break;
 
-            int req_w = pending_resize_width.exchange(0);
-            int req_h = pending_resize_height.exchange(0);
-            if (req_w > 0 && req_h > 0 && (req_w != current_width || req_h != current_height)) {
-                allocateBuffers(req_w, req_h);
+            // BUG #3: Check for DXGI device removed / TDR
+            if (d3d_device) {
+                HRESULT removedReason = d3d_device->GetDeviceRemovedReason();
+                if (FAILED(removedReason)) {
+                    printf("[dx_bridge] Device removed detected: 0x%08X\n", (unsigned int)removedReason);
+                    if (!recoverDevice()) {
+                        Sleep(50);
+                        continue;
+                    }
+                }
             }
 
-            if (!mpv_gl_ctx) continue;
+            // BUG #10: Atomic single 64-bit exchange for width/height
+            uint64_t packed_resize = pending_resize.exchange(0, std::memory_order_acq_rel);
+            int req_w = (int)(packed_resize >> 32);
+            int req_h = (int)(packed_resize & 0xFFFFFFFF);
+            if (req_w > 0 && req_h > 0 && (req_w != current_width || req_h != current_height || !buffers_allocated)) {
+                // BUG #4: Checked allocateBuffers call
+                if (!allocateBuffers(req_w, req_h)) {
+                    printf("[dx_bridge] allocateBuffers(%d, %d) failed\n", req_w, req_h);
+                }
+            }
+
+            if (!buffers_allocated || !mpv_gl_ctx) continue;
 
             uint64_t update_flags = fn_mpv_render_context_update(mpv_gl_ctx);
             if (update_flags & MPV_RENDER_UPDATE_FRAME) {
                 int buf_idx = -1;
                 for (int i = 0; i < NUM_BUFFERS; i++) {
-                    if (!buffers[i].in_use.load()) {
+                    if (!buffers[i].in_use.load(std::memory_order_acquire)) {
                         buf_idx = i;
                         break;
                     }
@@ -528,7 +645,7 @@ public:
                     std::unique_lock<std::mutex> bufLock(buffer_mutex);
                     cv_buffer_freed.wait_for(bufLock, std::chrono::milliseconds(12), [this, &buf_idx]() {
                         for (int i = 0; i < NUM_BUFFERS; i++) {
-                            if (!buffers[i].in_use.load()) {
+                            if (!buffers[i].in_use.load(std::memory_order_acquire)) {
                                 buf_idx = i;
                                 return true;
                             }
@@ -541,7 +658,12 @@ public:
                     auto& buf = buffers[buf_idx];
 
                     BOOL locked = wglDXLockObjectsNV(gl_hDevice, 1, &buf.gl_registered_obj);
-                    if (locked) {
+                    if (!locked) {
+                        if (d3d_device && FAILED(d3d_device->GetDeviceRemovedReason())) {
+                            printf("[dx_bridge] Lock failed due to device removal, recovering...\n");
+                            recoverDevice();
+                        }
+                    } else {
                         mpv_opengl_fbo fbo = {
                             (int)buf.gl_fbo,
                             current_width,
@@ -563,17 +685,17 @@ public:
                             d3d_context->Flush();
                         }
 
-                        buf.in_use.store(true);
+                        buf.in_use.store(true, std::memory_order_release);
 
                         if (tsfn) {
-                            FramePayload* p = new FramePayload{ buf_idx, current_width, current_height };
+                            FramePayload* p = new FramePayload{ buf_idx, current_width, current_height, current_generation.load(std::memory_order_acquire) };
                             napi_status s = napi_call_threadsafe_function(tsfn, p, napi_tsfn_nonblocking);
                             if (s != napi_ok) {
-                                buf.in_use.store(false);
+                                buf.in_use.store(false, std::memory_order_release);
                                 delete p;
                             }
                         } else {
-                            buf.in_use.store(false);
+                            buf.in_use.store(false, std::memory_order_release);
                         }
                     }
                 }
@@ -583,13 +705,14 @@ public:
         wglMakeCurrent(nullptr, nullptr);
     }
 
-    void releaseBuffer(int index) {
+    void releaseBuffer(int index, uint64_t generation = 0, bool check_generation = false) {
         if (index >= 0 && index < NUM_BUFFERS) {
-            buffers[index].in_use.store(false);
-            {
-                std::lock_guard<std::mutex> lock(buffer_mutex);
-                cv_buffer_freed.notify_one();
+            std::lock_guard<std::mutex> lock(buffer_mutex);
+            if (check_generation && generation != current_generation.load(std::memory_order_acquire)) {
+                return;
             }
+            buffers[index].in_use.store(false, std::memory_order_release);
+            cv_buffer_freed.notify_all();
             if (hWakeEvent) {
                 SetEvent(hWakeEvent);
             }
@@ -598,10 +721,10 @@ public:
 
     bool resize(int width, int height) {
         if (width <= 0 || height <= 0) return false;
-        if (width == current_width && height == current_height) return true;
+        if (width == current_width && height == current_height && buffers_allocated) return true;
 
-        pending_resize_width.store(width);
-        pending_resize_height.store(height);
+        uint64_t packed = ((uint64_t)(uint32_t)width << 32) | (uint32_t)height;
+        pending_resize.store(packed, std::memory_order_release);
         if (hWakeEvent) {
             SetEvent(hWakeEvent);
         }
@@ -612,7 +735,7 @@ public:
         if (mpv_gl_ctx && fn_mpv_render_context_set_update_callback) {
             fn_mpv_render_context_set_update_callback(mpv_gl_ctx, nullptr, nullptr);
         }
-        running.store(false);
+        running.store(false, std::memory_order_release);
         if (hWakeEvent) {
             SetEvent(hWakeEvent);
         }
@@ -631,14 +754,7 @@ public:
             mpv_gl_ctx = nullptr;
         }
 
-        for (int i = 0; i < NUM_BUFFERS; i++) {
-            cleanupBuffer(buffers[i]);
-        }
-
-        if (gl_hDevice && wglDXCloseDeviceNV) {
-            wglDXCloseDeviceNV(gl_hDevice);
-            gl_hDevice = nullptr;
-        }
+        cleanupD3D11();
 
         wglMakeCurrent(nullptr, nullptr);
 
@@ -655,15 +771,6 @@ public:
             dummy_hwnd = nullptr;
         }
 
-        if (d3d_context) {
-            d3d_context->Release();
-            d3d_context = nullptr;
-        }
-        if (d3d_device) {
-            d3d_device->Release();
-            d3d_device = nullptr;
-        }
-
         if (tsfn) {
             napi_release_threadsafe_function(tsfn, napi_tsfn_abort);
             tsfn = nullptr;
@@ -674,17 +781,22 @@ public:
 static DxBridge* g_bridge = nullptr;
 
 static void call_js_frame_cb(napi_env env, napi_value js_cb, void* context, void* data) {
-    if (!env || !js_cb || !data) return;
+    if (!data) return;
     FramePayload* p = static_cast<FramePayload*>(data);
+    if (!env || !js_cb) {
+        delete p;
+        return;
+    }
 
-    napi_value args[3];
+    napi_value args[4];
     napi_create_int32(env, p->buffer_index, &args[0]);
     napi_create_int32(env, p->width, &args[1]);
     napi_create_int32(env, p->height, &args[2]);
+    napi_create_int64(env, (int64_t)p->generation, &args[3]);
 
     napi_value undefined, result;
     napi_get_undefined(env, &undefined);
-    napi_call_function(env, undefined, js_cb, 3, args, &result);
+    napi_call_function(env, undefined, js_cb, 4, args, &result);
 
     delete p;
 }
@@ -834,6 +946,7 @@ static napi_value GetNtHandle(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
+    std::lock_guard<std::mutex> lock(g_bridge->buffer_mutex);
     HANDLE h = g_bridge->buffers[index].nt_handle;
     void* data = nullptr;
     napi_value buffer;
@@ -846,14 +959,29 @@ static napi_value GetNtHandle(napi_env env, napi_callback_info info) {
 static napi_value ReleaseBuffer(napi_env env, napi_callback_info info) {
     if (!g_bridge) return nullptr;
 
-    size_t argc = 1;
-    napi_value argv[1];
+    size_t argc = 2;
+    napi_value argv[2];
     napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
 
     if (argc >= 1) {
         int index = 0;
         napi_get_value_int32(env, argv[0], &index);
-        g_bridge->releaseBuffer(index);
+        uint64_t generation = 0;
+        bool has_generation = false;
+        if (argc >= 2) {
+            int64_t gen = 0;
+            if (napi_get_value_int64(env, argv[1], &gen) == napi_ok) {
+                generation = (uint64_t)gen;
+                has_generation = true;
+            } else {
+                bool lossless = false;
+                if (napi_get_value_bigint_int64(env, argv[1], &gen, &lossless) == napi_ok) {
+                    generation = (uint64_t)gen;
+                    has_generation = true;
+                }
+            }
+        }
+        g_bridge->releaseBuffer(index, generation, has_generation);
     }
 
     napi_value ret;

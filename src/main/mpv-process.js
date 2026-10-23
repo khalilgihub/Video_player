@@ -153,6 +153,14 @@ class MpvProcess extends EventEmitter {
     this._screenshotDir = screenshotDir;
     this._screenshotFormat = screenshotFormat === 'jpeg' ? 'jpg' : screenshotFormat;
 
+    const isMuteAudioRequested = Boolean(
+      opts.muteAudio ||
+      process.env.HYBRID_MUTE_AUDIO === '1' ||
+      process.env.NODE_ENV === 'test' ||
+      (Array.isArray(process.argv) && (process.argv.includes('--mute-audio') || process.argv.includes('--mpv-mute')))
+    );
+    this._isMuteAudioRequested = isMuteAudioRequested;
+
     // ── Generate input.conf that relays key/mouse to Electron via script-message ──
     const os = require('os');
     const inputConfDir = fs.mkdtempSync(path.join(os.tmpdir(), `hybrid-player-input-${process.pid}-`));
@@ -247,8 +255,11 @@ class MpvProcess extends EventEmitter {
         this._libmpv.setOptionString('input-conf', inputConfPath);
         this._libmpv.setOptionString('cursor-autohide', 'no');
         this._libmpv.setOptionString('hr-seek', 'yes');
-        this._libmpv.setOptionString('hr-seek-framedrop', 'yes');
-        this._libmpv.setOptionString('volume-max', '100');
+        this._libmpv.setOptionString('volume-max', '200');
+        this._libmpv.setOptionString('sub-codepage', 'auto');
+        if (isMuteAudioRequested) {
+          this._libmpv.setOptionString('ao', 'null');
+        }
 
         if (ytDlpPath) {
           const normalizedYtDlpPath = ytDlpPath.replace(/\\/g, '/');
@@ -261,6 +272,7 @@ class MpvProcess extends EventEmitter {
         };
         const ytdlRawOptions = [];
         if (opts.enableYtdlRawOptions === true) {
+          ytdlRawOptions.push(`extractor-args=${formatYtdlOptionValue('youtube:player_skip=webpage;player_client=tv,web_embedded,android,web')}`);
           if (opts.ytdlUserAgent) {
             ytdlRawOptions.push(`user-agent=${formatYtdlOptionValue(opts.ytdlUserAgent)}`);
           }
@@ -402,7 +414,9 @@ class MpvProcess extends EventEmitter {
       // High-precision frame-accurate exact seeking
       '--hr-seek=yes',
       '--hr-seek-framedrop=yes',
-      '--volume-max=100',
+      '--volume-max=200',
+      '--sub-codepage=auto',
+      ...(isMuteAudioRequested ? ['--ao=null'] : []),
     ];
 
     if (ytDlpPath) {
@@ -419,6 +433,7 @@ class MpvProcess extends EventEmitter {
     };
     const ytdlRawOptions = [];
     if (opts.enableYtdlRawOptions === true) {
+      ytdlRawOptions.push(`extractor-args=${formatYtdlOptionValue('youtube:player_skip=webpage;player_client=tv,web_embedded,android,web')}`);
       if (opts.ytdlUserAgent) {
         ytdlRawOptions.push(`user-agent=${formatYtdlOptionValue(opts.ytdlUserAgent)}`);
       }
@@ -961,40 +976,78 @@ class MpvProcess extends EventEmitter {
       return { inSubfolder: false, count: 0, folderName: '' };
     }
 
-    // Brief grace period to ensure the last in-flight async frame has flushed to disk
+    // Ensure all target frames are written to disk, have non-zero size, and file locks released
     const targetCount = Number(totalCount) || 0;
-    if (targetCount > 0) {
-      const startWait = Date.now();
-      while (Date.now() - startWait < 400) {
-        const currentCount = fs.readdirSync(burstDirPath).length;
-        if (currentCount >= targetCount) break;
-        await new Promise(r => setTimeout(r, 25));
+    const startWait = Date.now();
+    const waitTimeout = targetCount > 0 ? 2500 : 400;
+
+    while (Date.now() - startWait < waitTimeout) {
+      let files = [];
+      try {
+        files = fs.readdirSync(burstDirPath);
+      } catch (_) {
+        break;
       }
+      if (files.length >= targetCount && files.length > 0) {
+        let allReady = true;
+        for (const file of files) {
+          const fullPath = path.join(burstDirPath, file);
+          try {
+            const st = fs.statSync(fullPath);
+            if (st.size === 0) {
+              allReady = false;
+              break;
+            }
+            // Check if file is unlocked on Windows (r+ mode checks write exclusivity)
+            const fd = fs.openSync(fullPath, 'r+');
+            fs.closeSync(fd);
+          } catch (_) {
+            allReady = false;
+            break;
+          }
+        }
+        if (allReady) break;
+      }
+      await new Promise(r => setTimeout(r, 25));
     }
 
-    const files = fs.readdirSync(burstDirPath);
-    const count = Number.isInteger(Number(totalCount)) && Number(totalCount) > 0 ? Number(totalCount) : files.length;
+    let files = [];
+    try {
+      files = fs.readdirSync(burstDirPath);
+    } catch (_) {}
+
+    const count = files.length;
 
     // If fewer than 20 frames, keep in main screenshots folder
     if (count < 20) {
+      let movedCount = 0;
       for (const file of files) {
         const srcPath = path.join(burstDirPath, file);
         const destName = `hybrid-burst-${sessionId}_${file}`;
         const destPath = path.join(dir || '.', destName);
-        try {
-          fs.renameSync(srcPath, destPath);
-        } catch (e) {
+        let moved = false;
+        for (let attempt = 0; attempt < 5; attempt++) {
           try {
-            fs.copyFileSync(srcPath, destPath);
-            fs.unlinkSync(srcPath);
-          } catch (_) {}
+            fs.renameSync(srcPath, destPath);
+            moved = true;
+            break;
+          } catch (e) {
+            try {
+              fs.copyFileSync(srcPath, destPath);
+              fs.unlinkSync(srcPath);
+              moved = true;
+              break;
+            } catch (_) {}
+            await new Promise(r => setTimeout(r, 40));
+          }
         }
+        if (moved) movedCount++;
       }
       try {
         fs.rmdirSync(burstDirPath);
       } catch (_) {}
 
-      return { inSubfolder: false, count, folderName: '' };
+      return { inSubfolder: false, count: movedCount, folderName: '' };
     }
 
     return { inSubfolder: true, count, folderName: burstFolder };

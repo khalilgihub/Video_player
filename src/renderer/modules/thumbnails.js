@@ -59,7 +59,13 @@ class HybridThumbnails {
 
     try {
       thumbdbg('[thumbnails] capturing at', time.toFixed(2));
-      const result = await window.hybridAPI.mpv.captureThumbnail(time);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Thumbnail capture timed out')), 5000)
+      );
+      const result = await Promise.race([
+        window.hybridAPI.mpv.captureThumbnail(time),
+        timeoutPromise
+      ]);
 
       // Only apply if this token is still the latest
       if (token !== this._requestToken) {
@@ -102,11 +108,13 @@ class HybridThumbnails {
   destroy() {
     clearTimeout(this._debounceTimer);
     this._queuedCapture = null;
+    this._pending = false;
   }
 
   cancelPending() {
     this._requestToken++;
     this._queuedCapture = null;
+    this._pending = false;
     clearTimeout(this._debounceTimer);
     this.thumbEl?.classList.remove('is-loading');
   }

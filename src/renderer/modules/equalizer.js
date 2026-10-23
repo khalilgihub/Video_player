@@ -117,7 +117,8 @@ class HybridEqualizer {
 
   setBand(index, gainDb, { immediate = false, persist = true } = {}) {
     if (index >= 0 && index < this.bands.length) {
-      const normalized = Math.max(-12, Math.min(12, Number(gainDb) || 0));
+      const num = Number(gainDb);
+      const normalized = Number.isFinite(num) ? Math.max(-12, Math.min(12, num)) : 0;
       this.bands[index] = normalized;
       this._scheduleApply({ immediate, persist });
     }
@@ -164,6 +165,30 @@ class HybridEqualizer {
     });
   }
 
+  generateFilterString(customBands = this.bands) {
+    const rawBands = Array.isArray(customBands) ? customBands : this.bands;
+    const bands = [];
+    for (let i = 0; i < 10; i++) {
+      const val = Number(rawBands[i]);
+      bands.push(Number.isFinite(val) ? Math.max(-12, Math.min(12, val)) : 0);
+    }
+    const maxBandGain = Math.max(0, ...bands);
+    const gains = [];
+    for (let i = 0; i < 18; i++) {
+      const t = (i / 17) * 9;
+      const k = Math.floor(t);
+      const f = t - k;
+      const b0 = bands[k] ?? 0;
+      const b1 = bands[Math.min(k + 1, 9)] ?? b0;
+      const db = (1 - f) * b0 + f * b1;
+      const clampedDb = Math.max(-12, Math.min(12, db));
+      const attenuatedDb = clampedDb - maxBandGain;
+      const mult = Math.max(0, Math.min(20, Math.pow(10, attenuatedDb / 20)));
+      gains.push(mult.toFixed(2));
+    }
+    return `lavfi=[superequalizer=${gains.join(':')}]`;
+  }
+
   /**
    * Build an mpv `af` (audio filter) string and push to mpv.
    * Uses the `equalizer` lavfi filter which takes 10 band gains.
@@ -179,28 +204,7 @@ class HybridEqualizer {
       return;
     }
 
-    // Dynamic pre-amp attenuation:
-    // If any band has a positive gain, attenuate all bands by the peak positive gain
-    // so the filter output never exceeds 0 dBFS, preventing digital audio clipping.
-    const maxBandGain = Math.max(0, ...this.bands);
-
-    // FFmpeg's `superequalizer` filter requires 18 band multipliers (range 0..20, 1.0 = 0dB).
-    // Interpolate the 10 UI bands (-12dB..+12dB) across the 18 filter bands.
-    const gains = [];
-    for (let i = 0; i < 18; i++) {
-      const t = (i / 17) * 9;
-      const k = Math.floor(t);
-      const f = t - k;
-      const b0 = this.bands[k] ?? 0;
-      const b1 = this.bands[Math.min(k + 1, 9)] ?? b0;
-      const db = (1 - f) * b0 + f * b1;
-      const clampedDb = Math.max(-12, Math.min(12, db));
-      // Attenuate by peak positive gain to prevent exceeding 0 dBFS
-      const attenuatedDb = clampedDb - maxBandGain;
-      const mult = Math.max(0, Math.min(20, Math.pow(10, attenuatedDb / 20)));
-      gains.push(mult.toFixed(2));
-    }
-    const filterStr = `lavfi=[superequalizer=${gains.join(':')}]`;
+    const filterStr = this.generateFilterString(this.bands);
     window.hybridAPI.mpv.setProperty('af', filterStr).catch((err) => {
       console.error('[eq] failed to apply filter:', { filterStr, error: err?.message || err });
     });

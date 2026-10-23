@@ -55,6 +55,16 @@ class HybridSubtitles {
         this.setSyncOffset(val, { apply: true, persist: true, updateSlider: false });
       }
     });
+    syncSlider?.addEventListener('change', (e) => {
+      const val = parseFloat(e.target.value);
+      if (Number.isFinite(val) && this.player?.currentFilePath) {
+        if (this._subDelayPersistTimer) {
+          clearTimeout(this._subDelayPersistTimer);
+          this._subDelayPersistTimer = null;
+        }
+        window.hybridAPI?.subtitleDelay?.save?.(this.player.currentFilePath, Math.round(val * 1000));
+      }
+    });
 
     // Sync step buttons (seconds)
     document.getElementById('subSyncMinusLarge')?.addEventListener('click', () => this.adjustSync(-0.5));
@@ -145,11 +155,21 @@ class HybridSubtitles {
     }
 
     if (persist && this.player.currentFilePath) {
-      // Persist in ms for database clamp consistency
-      window.hybridAPI?.subtitleDelay?.save?.(this.player.currentFilePath, Math.round(this.syncOffset * 1000));
+      // Persist in ms for database clamp consistency (debounced to avoid IPC flood during slider drags)
+      this._persistSubtitleDelay(this.player.currentFilePath, Math.round(this.syncOffset * 1000));
     }
 
     return this.syncOffset;
+  }
+
+  _persistSubtitleDelay(filePath, delayMs) {
+    if (this._subDelayPersistTimer) {
+      clearTimeout(this._subDelayPersistTimer);
+    }
+    this._subDelayPersistTimer = setTimeout(() => {
+      this._subDelayPersistTimer = null;
+      window.hybridAPI?.subtitleDelay?.save?.(filePath, delayMs);
+    }, 120);
   }
 
   disable() {

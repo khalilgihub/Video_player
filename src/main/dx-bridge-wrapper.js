@@ -84,8 +84,8 @@ class DxBridgeManager {
         width,
         height,
         flipY: 0,
-        onFrame: (bufferIndex, w, h) => {
-          this.onFrameReady(bufferIndex, w, h);
+        onFrame: (bufferIndex, w, h, generation) => {
+          this.onFrameReady(bufferIndex, w, h, generation);
         }
       });
 
@@ -99,14 +99,14 @@ class DxBridgeManager {
     }
   }
 
-  async onFrameReady(bufferIndex, width, height) {
+  async onFrameReady(bufferIndex, width, height, generation) {
     if (!this.initialized || !this.targetWindow || this.targetWindow.isDestroyed()) {
-      if (this.addon) this.addon.releaseBuffer(bufferIndex);
+      if (this.addon) this.addon.releaseBuffer(bufferIndex, generation);
       return;
     }
 
     if (!this.rendererReady || !sharedTexture || typeof sharedTexture.importSharedTexture !== 'function') {
-      if (this.addon) this.addon.releaseBuffer(bufferIndex);
+      if (this.addon) this.addon.releaseBuffer(bufferIndex, generation);
       return;
     }
 
@@ -116,7 +116,7 @@ class DxBridgeManager {
       const ntHandleBuffer = this.addon.getNtHandle(bufferIndex);
       if (!ntHandleBuffer || ntHandleBuffer.length < 8) {
         releasedManually = true;
-        if (this.addon) this.addon.releaseBuffer(bufferIndex);
+        if (this.addon) this.addon.releaseBuffer(bufferIndex, generation);
         return;
       }
 
@@ -129,7 +129,9 @@ class DxBridgeManager {
         },
         allReferencesReleased: () => {
           if (this.addon) {
-            this.addon.releaseBuffer(bufferIndex);
+            try {
+              this.addon.releaseBuffer(bufferIndex, generation);
+            } catch (_) {}
           }
         }
       });
@@ -148,7 +150,7 @@ class DxBridgeManager {
         imported.release();
       } else if (!releasedManually) {
         if (this.addon) {
-          this.addon.releaseBuffer(bufferIndex);
+          this.addon.releaseBuffer(bufferIndex, generation);
         }
       }
     }

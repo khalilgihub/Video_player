@@ -153,6 +153,7 @@ contextBridge.exposeInMainWorld('hybridAPI', {
 
   resume: {
     save: (filePath, time, options) => ipcRenderer.invoke('resume:save', filePath, time, options),
+    saveSync: (filePath, time) => ipcRenderer.sendSync('resume:saveSync', filePath, time),
     get: (filePath) => ipcRenderer.invoke('resume:get', filePath),
     clear: (filePath) => ipcRenderer.invoke('resume:clear', filePath)
   },

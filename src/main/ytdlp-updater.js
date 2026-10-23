@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
-const { app, ipcMain } = require('electron');
+const { app, ipcMain, BrowserWindow } = require('electron');
 const { resolveYtDlpBinary } = require('./binary-resolver');
 
 let isUpdating = false;
@@ -31,7 +31,8 @@ async function getLatestYtDlpReleaseTag() {
   try {
     const res = await fetch('https://github.com/yt-dlp/yt-dlp/releases/latest', {
       redirect: 'manual',
-      headers: { 'User-Agent': 'HybridPlayer' }
+      headers: { 'User-Agent': 'HybridPlayer' },
+      signal: AbortSignal.timeout(10000)
     });
     const location = res.headers.get('location');
     if (location) {
@@ -44,7 +45,8 @@ async function getLatestYtDlpReleaseTag() {
 
   try {
     const res = await fetch('https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest', {
-      headers: { 'User-Agent': 'HybridPlayer' }
+      headers: { 'User-Agent': 'HybridPlayer' },
+      signal: AbortSignal.timeout(10000)
     });
     if (res.ok) {
       const data = await res.json();
@@ -143,7 +145,21 @@ async function runYtDlpSelfUpdate() {
   }
 }
 
+let ipcInitialized = false;
+let activeWindow = null;
+
 function setupYtDlpUpdaterIpc(win) {
+  if (win) {
+    activeWindow = win;
+  }
+  if (ipcInitialized) return;
+  ipcInitialized = true;
+
+  if (!ipcMain) return;
+
+  if (typeof ipcMain.removeHandler === 'function') {
+    ipcMain.removeHandler('ytdlp:get-status');
+  }
   ipcMain.handle('ytdlp:get-status', async () => {
     const binary = getYtDlpPath();
     const currentVersion = await getYtDlpVersion(binary);
@@ -155,14 +171,23 @@ function setupYtDlpUpdaterIpc(win) {
     };
   });
 
+  if (typeof ipcMain.removeHandler === 'function') {
+    ipcMain.removeHandler('ytdlp:check-update');
+  }
   ipcMain.handle('ytdlp:check-update', async () => {
     return await checkForYtDlpUpdate();
   });
 
-  ipcMain.handle('ytdlp:update', async () => {
+  if (typeof ipcMain.removeHandler === 'function') {
+    ipcMain.removeHandler('ytdlp:update');
+  }
+  ipcMain.handle('ytdlp:update', async (event) => {
     const result = await runYtDlpSelfUpdate();
-    if (result.success && win && !win.isDestroyed()) {
-      win.webContents.send('ytdlp:updated', result);
+    const targetWin = (event?.sender ? BrowserWindow.fromWebContents(event.sender) : null)
+      || (activeWindow && !activeWindow.isDestroyed() ? activeWindow : null)
+      || BrowserWindow.getFocusedWindow();
+    if (result.success && targetWin && !targetWin.isDestroyed()) {
+      targetWin.webContents.send('ytdlp:updated', result);
     }
     return result;
   });

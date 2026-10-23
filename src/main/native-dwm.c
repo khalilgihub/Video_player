@@ -53,6 +53,8 @@
 #endif
 #ifndef WS_CLIPSIBLINGS
 #define WS_CLIPSIBLINGS 0x04000000L
+#endif
+
 static BOOL CALLBACK EnumChildProc(HWND childHwnd, LPARAM lParam) {
     LONG_PTR cStyle = GetWindowLongPtrW(childHwnd, GWL_STYLE);
     cStyle |= (WS_CLIPCHILDREN | WS_CLIPSIBLINGS);

@@ -3,7 +3,7 @@
  * Secure IPC communication between main and renderer
  */
 
-const { app, dialog, screen } = require('electron');
+const { app, dialog, screen, BrowserWindow } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -88,7 +88,7 @@ function sanitizeEqualizerBands(value) {
 
 function sanitizeBackgroundOptions(value, key) {
   if (typeof value === 'string') {
-    const maxLength = key === 'bgOpts_gridmotion' ? 10 * 1024 * 1024 : 8192;
+    const maxLength = key === 'bgOpts_gridmotion' ? 30 * 1024 * 1024 : 8192;
     if (value.length > maxLength) return INVALID_PREF;
     try {
       const parsed = JSON.parse(value);
@@ -1004,14 +1004,20 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
   ipcMain.handle('window:isMaximized', () => isWindowMaximized(win));
 
   // ─── File Operations ───────────────────────────────────
-  ipcMain.handle('dialog:openSubtitle', async () => {
-    const result = await dialog.showOpenDialog(win, {
+  ipcMain.handle('dialog:openSubtitle', async (event) => {
+    const targetWin = (event?.sender ? BrowserWindow.fromWebContents(event.sender) : null)
+      || (win && !win.isDestroyed() ? win : null)
+      || BrowserWindow.getFocusedWindow();
+    const options = {
       title: 'Load Subtitle File',
       properties: ['openFile'],
       filters: [
         { name: 'Subtitle Files', extensions: ['srt', 'vtt', 'ass', 'ssa', 'sub', 'idx', 'sup'] }
       ]
-    });
+    };
+    const result = targetWin && !targetWin.isDestroyed()
+      ? await dialog.showOpenDialog(targetWin, options)
+      : await dialog.showOpenDialog(options);
     return result.canceled ? null : result.filePaths[0];
   });
 
@@ -1045,9 +1051,11 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
     // entry: { path, name, duration, timestamp }
     const cleanEntry = sanitizeHistoryEntry(entry);
     if (!cleanEntry) return false;
+    if (!Array.isArray(db.history)) db.history = [];
+    if (!Array.isArray(db.recentFiles)) db.recentFiles = [];
     db.history = db.history.filter(h => h.path !== cleanEntry.path);
     db.history.unshift({ ...cleanEntry, timestamp: Date.now() });
-    if (db.history.length > 200) db.history = db.history.slice(0, 200);
+    if (db.history.length > 100) db.history = db.history.slice(0, 100);
     // Also update recent files
     db.recentFiles = db.recentFiles.filter(r => r !== cleanEntry.path);
     db.recentFiles.unshift(cleanEntry.path);
@@ -1058,55 +1066,26 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
 
   ipcMain.handle('history:getRecent', async (_, count) => {
     const limit = Math.round(clampNumber(count || 20, 1, 100, 20));
-    const historySnapshot = db.history.slice();
-    const recentSnapshot = db.recentFiles.slice();
+    const historySnapshot = Array.isArray(db?.history) ? db.history.slice() : [];
     const historyChecks = await Promise.all(
       historySnapshot.map(async (entry) => ({
         entry,
         available: await isAvailableHistoryEntryAsync(entry),
       }))
     );
-    const unavailableHistoryPaths = new Set(
-      historyChecks.filter((item) => !item.available).map((item) => item.entry.path)
-    );
-    let pruned = false;
+    const availableHistory = historyChecks
+      .filter((item) => item.available)
+      .map((item) => item.entry);
 
-    if (unavailableHistoryPaths.size > 0) {
-      const nextHistory = db.history.filter((entry) => !unavailableHistoryPaths.has(entry.path));
-      if (nextHistory.length !== db.history.length) {
-        db.history = nextHistory;
-        pruned = true;
-      }
-
-      const recentChecks = await Promise.all(
-        recentSnapshot.map(async (mediaPath) => ({
-          mediaPath,
-          available: await isAvailableHistoryEntryAsync({ path: mediaPath }),
-        }))
-      );
-      const unavailableRecentPaths = new Set(
-        recentChecks.filter((item) => !item.available).map((item) => item.mediaPath)
-      );
-      const nextRecent = db.recentFiles.filter((mediaPath) => !unavailableRecentPaths.has(mediaPath));
-      if (nextRecent.length !== db.recentFiles.length) {
-        db.recentFiles = nextRecent;
-        pruned = true;
-      }
-    }
-
-    if (pruned) {
-      try {
-        saveDatabase(db);
-      } catch (error) {
-        console.warn('Failed to persist recently played cleanup:', error);
-      }
-    }
-    return db.history.slice(0, limit);
+    return availableHistory.slice(0, limit);
   });
 
   ipcMain.handle('resume:save', async (_, filePath, time, options = {}) => {
     const mediaPath = sanitizeMediaKey(filePath);
     if (!mediaPath) return false;
+    if (!db.resumePositions || typeof db.resumePositions !== 'object') {
+      db.resumePositions = {};
+    }
     setBoundedMemoryValue(
       db.resumePositions,
       mediaPath,
@@ -1114,6 +1093,24 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
     );
     saveDatabase(db, options?.immediate ? { immediate: true } : undefined);
     return true;
+  });
+
+  ipcMain.on('resume:saveSync', (event, filePath, time) => {
+    const mediaPath = sanitizeMediaKey(filePath);
+    if (!mediaPath) {
+      event.returnValue = false;
+      return;
+    }
+    if (!db.resumePositions || typeof db.resumePositions !== 'object') {
+      db.resumePositions = {};
+    }
+    setBoundedMemoryValue(
+      db.resumePositions,
+      mediaPath,
+      clampNumber(time, 0, 30 * 24 * 60 * 60, 0)
+    );
+    saveDatabase(db, { immediate: true });
+    event.returnValue = true;
   });
 
   ipcMain.handle('resume:get', async (_, filePath) => {

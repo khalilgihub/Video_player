@@ -150,17 +150,30 @@ class HybridControls {
       this.toggleFullscreen();
     };
 
-    // Play/Pause button on control bar
-    document.getElementById('btnPlay').addEventListener('click', () => {
-      if (!this.player.currentFilePath) return;
-      this.player.togglePlay();
-    });
-
     // Click video container to toggle play (mpv renders natively, not a <video> element)
     const videoCanvas = document.getElementById('videoCanvas');
     const mpvContainer = document.getElementById('mpvContainer');
     const videoContainer = document.getElementById('videoContainer');
     let clickTimeout = null;
+    const cancelVideoClickTimer = () => {
+      if (clickTimeout) {
+        clearTimeout(clickTimeout);
+        clickTimeout = null;
+      }
+    };
+
+    // Cancel pending clickTimeout when interacting with controls, scrub bar, or playlist (BUG #13)
+    document.querySelector('.controls-wrapper')?.addEventListener('pointerdown', cancelVideoClickTimer, true);
+    document.querySelector('.scrub-bar-container')?.addEventListener('pointerdown', cancelVideoClickTimer, true);
+    document.getElementById('scrubBar')?.addEventListener('pointerdown', cancelVideoClickTimer, true);
+    document.getElementById('sidebarPlaylist')?.addEventListener('pointerdown', cancelVideoClickTimer, true);
+
+    // Play/Pause button on control bar
+    document.getElementById('btnPlay').addEventListener('click', () => {
+      cancelVideoClickTimer();
+      if (!this.player.currentFilePath) return;
+      this.player.togglePlay();
+    });
 
     const handleVideoClick = (e) => {
       // If UI is locked, ignore all video surface clicks (prevent play/pause toggle when locked)
@@ -294,12 +307,20 @@ class HybridControls {
     });
 
     // Volume slider input
-    this.volumeSlider.addEventListener('mousedown', () => {
+    this.volumeSlider.addEventListener('mousedown', (e) => {
+      if (this.isLocked || window.HybridApp?.isLocked || document.body.classList.contains('is-locked')) {
+        e.preventDefault();
+        return;
+      }
       this.isDraggingVolume = true;
     });
-    this.volumeSlider.addEventListener('touchstart', () => {
+    this.volumeSlider.addEventListener('touchstart', (e) => {
+      if (this.isLocked || window.HybridApp?.isLocked || document.body.classList.contains('is-locked')) {
+        e.preventDefault();
+        return;
+      }
       this.isDraggingVolume = true;
-    }, { passive: true });
+    }, { passive: false });
     this.volumeSlider.addEventListener('touchend', () => {
       this.isDraggingVolume = false;
     }, { passive: true });
@@ -500,7 +521,7 @@ class HybridControls {
       window.hybridAPI.window.titlebarDragEnd().catch(() => {});
     };
 
-    dragSurface.addEventListener('mousedown', async (event) => {
+    dragSurface.addEventListener('mousedown', (event) => {
       if (event.button !== 0) return;
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest('.titlebar-controls, .titlebar-btn, button, input, select, textarea, a, [role="button"]')) {
@@ -512,23 +533,46 @@ class HybridControls {
       const isMax = document.body.classList.contains('is-maximized') || !!window.HybridApp?._windowVisualState?.isMaximized;
       if (!isMax) return;
 
-      const response = await window.hybridAPI.window.titlebarDragStart({
-        screenX: Math.round(event.screenX),
-        screenY: Math.round(event.screenY),
-      });
+      const startX = Math.round(event.screenX);
+      const startY = Math.round(event.screenY);
+      let started = false;
 
-      if (!response?.handled) return;
+      const onCandidateMove = async (moveEvt) => {
+        if ((moveEvt.buttons & 1) !== 1) {
+          cleanCandidate();
+          return;
+        }
+        const curX = Math.round(moveEvt.screenX);
+        const curY = Math.round(moveEvt.screenY);
+        // Drag threshold of 4px before restoring
+        if (!started && Math.hypot(curX - startX, curY - startY) >= 4) {
+          started = true;
+          cleanCandidate();
+          const response = await window.hybridAPI.window.titlebarDragStart({
+            screenX: curX,
+            screenY: curY,
+          });
+          if (!response?.handled) return;
 
-      event.preventDefault();
-      this._titlebarDragSession.active = true;
-      this._titlebarDragSession.framePending = false;
-      this._titlebarDragSession.lastPoint = {
-        screenX: Math.round(event.screenX),
-        screenY: Math.round(event.screenY),
+          this._titlebarDragSession.active = true;
+          this._titlebarDragSession.framePending = false;
+          this._titlebarDragSession.lastPoint = { screenX: curX, screenY: curY };
+          window.addEventListener('mousemove', onMouseMove, true);
+          window.addEventListener('mouseup', onMouseUp, true);
+        }
       };
 
-      window.addEventListener('mousemove', onMouseMove, true);
-      window.addEventListener('mouseup', onMouseUp, true);
+      const onCandidateUp = () => {
+        cleanCandidate();
+      };
+
+      const cleanCandidate = () => {
+        window.removeEventListener('mousemove', onCandidateMove, true);
+        window.removeEventListener('mouseup', onCandidateUp, true);
+      };
+
+      window.addEventListener('mousemove', onCandidateMove, true);
+      window.addEventListener('mouseup', onCandidateUp, true);
     });
 
     dragSurface.addEventListener('dblclick', async (event) => {
@@ -619,7 +663,10 @@ class HybridControls {
     this.player.onTimeUpdate = (currentTime, duration) => {
       if (!this.isDraggingProgress) {
         this.currentTimeEl.textContent = this.player.formatTime(currentTime);
-        if (duration > 0) {
+        if (this.player.isLive) {
+          this.totalTimeEl.textContent = 'LIVE';
+          this.progressFill.style.width = '100%';
+        } else if (duration > 0) {
           const percent = (currentTime / duration) * 100;
           this.progressFill.style.width = percent + '%';
           if (this.showRemainingTime) {
@@ -633,7 +680,10 @@ class HybridControls {
     };
 
     this.player.onMetadataLoaded = () => {
-      if (this.showRemainingTime && this.player.duration > 0) {
+      if (this.player.isLive) {
+        this.totalTimeEl.textContent = 'LIVE';
+        this.progressFill.style.width = '100%';
+      } else if (this.showRemainingTime && this.player.duration > 0) {
         const remaining = Math.max(0, this.player.duration - (this.player.currentTime || 0));
         this.totalTimeEl.textContent = '-' + this.player.formatTime(remaining);
       } else {
@@ -656,8 +706,8 @@ class HybridControls {
     };
 
     this.player.onVolumeChange = (volume, meta) => {
-      // volume from mpv is 0-100 scale
-      const clamped = Math.max(0, Math.min(100, typeof volume === 'number' ? volume : 0));
+      // volume from mpv is 0-200 scale
+      const clamped = Math.max(0, Math.min(200, typeof volume === 'number' ? volume : 0));
       const pct = Math.round(clamped);
       const previousPct = this._lastVolumePct;
       this._lastVolumePct = pct;
@@ -722,7 +772,45 @@ class HybridControls {
         return;
       }
 
-      window.HybridApp?.openFiles(paths);
+      const SUB_EXTS = ['.srt', '.ass', '.ssa', '.vtt', '.sub', '.idx', '.sup', '.smi', '.rt'];
+      const isSubFile = (p) => {
+        const ext = p.substring(p.lastIndexOf('.')).toLowerCase();
+        return SUB_EXTS.includes(ext);
+      };
+
+      const hasMediaLoaded = Boolean(this.player.currentFilePath || this.player.isPlaying || (this.player.duration > 0));
+      const subFiles = paths.filter(isSubFile);
+      const mediaFiles = paths.filter((p) => !isSubFile(p));
+
+      // 1. Only subtitle files dropped while media is active: attach subtitles
+      if (hasMediaLoaded && subFiles.length > 0 && mediaFiles.length === 0) {
+        for (const subPath of subFiles) {
+          await this.player.loadExternalSubtitle(subPath);
+        }
+        return;
+      }
+
+      // 2. Only subtitle files dropped while player is idle: do not put subtitles in playlist
+      if (!hasMediaLoaded && subFiles.length > 0 && mediaFiles.length === 0) {
+        window.HybridToast?.show('Open a video first before loading subtitles');
+        return;
+      }
+
+      // 3. Both media files and subtitle files dropped together: open media and load companion subs
+      if (mediaFiles.length > 0 && subFiles.length > 0) {
+        await window.HybridApp?.openFiles(mediaFiles, { replacePlaylist: true, playFirst: true });
+        setTimeout(async () => {
+          for (const subPath of subFiles) {
+            await this.player.loadExternalSubtitle(subPath);
+          }
+        }, 300);
+        return;
+      }
+
+      // 4. Media files only
+      if (mediaFiles.length > 0) {
+        window.HybridApp?.openFiles(mediaFiles);
+      }
     };
   }
 
@@ -730,6 +818,7 @@ class HybridControls {
   _setupAutoHide() {
     this._mouseOverControls = false;   // safe-zone flag
     this._isDragging = false;          // drag lock (progress + volume)
+    const HIDE_TIMEOUT_MS = 2500;
 
     const isDraggingAny = () => {
       return Boolean(this.isDraggingProgress || this.isDraggingVolume || this._isDragging);
@@ -740,6 +829,12 @@ class HybridControls {
       // Never hide the chrome while a modal is open or the user is typing —
       // the controls would vanish behind the modal / mid-search.
       if (document.querySelector('.modal-overlay:not([hidden])')) return false;
+      if (document.querySelector('.modal:not([hidden])')) return false;
+      const ytDropdown = document.getElementById('youtubeQualityDropdown');
+      if (ytDropdown && !ytDropdown.hidden && ytDropdown.style.display !== 'none') return false;
+      if (document.querySelector('.custom-select-dropdown:not([hidden])')) return false;
+      if (document.querySelector('.dropdown:not([hidden])')) return false;
+      if (document.querySelector('.dropdown.open, .dropdown.active')) return false;
       const active = document.activeElement;
       if (active && (
         active.tagName === 'INPUT' ||
@@ -771,7 +866,7 @@ class HybridControls {
       clearTimeout(this.hideTimeout);
       // Don't start the hide countdown while mouse is inside controls
       if (!this._mouseOverControls && canHideChrome()) {
-        this.hideTimeout = setTimeout(hideControls, 2000);
+        this.hideTimeout = setTimeout(hideControls, HIDE_TIMEOUT_MS);
       }
     };
 
@@ -810,7 +905,7 @@ class HybridControls {
       this._mouseOverUnlock = false;
       if (canHideChrome() && !isDraggingAny()) {
         clearTimeout(this.hideTimeout);
-        this.hideTimeout = setTimeout(hideControls, 2000);
+        this.hideTimeout = setTimeout(hideControls, HIDE_TIMEOUT_MS);
       }
     });
 
@@ -824,7 +919,7 @@ class HybridControls {
     this.controlsWrapper.addEventListener('mouseleave', () => {
       this._mouseOverControls = false;
       if (canHideChrome() && !isDraggingAny()) {
-        this.hideTimeout = setTimeout(hideControls, 2000);
+        this.hideTimeout = setTimeout(hideControls, HIDE_TIMEOUT_MS);
       }
     });
 
@@ -838,7 +933,7 @@ class HybridControls {
     this.titlebar.addEventListener('mouseleave', () => {
       this._mouseOverControls = false;
       if (canHideChrome() && !isDraggingAny()) {
-        this.hideTimeout = setTimeout(hideControls, 2000);
+        this.hideTimeout = setTimeout(hideControls, HIDE_TIMEOUT_MS);
       }
     });
 
@@ -851,7 +946,7 @@ class HybridControls {
         requestAnimationFrame(() => {
           if (!this._mouseOverControls && canHideChrome()) {
             clearTimeout(this.hideTimeout);
-            this.hideTimeout = setTimeout(hideControls, 2000);
+            this.hideTimeout = setTimeout(hideControls, HIDE_TIMEOUT_MS);
           }
         });
       }
@@ -1079,6 +1174,10 @@ class HybridControls {
     this.isDraggingVolume = false;
 
     customSlider.addEventListener('pointerdown', (e) => {
+      if (this.isLocked || window.HybridApp?.isLocked) {
+        e.preventDefault();
+        return;
+      }
       e.preventDefault();
       customSlider.setPointerCapture(e.pointerId);
       this.isDraggingVolume = true;
@@ -1371,6 +1470,7 @@ class HybridControls {
   }
 
   togglePlaylist(force) {
+    if (this.isLocked || window.HybridApp?.isLocked) return false;
     const sidebar = document.getElementById('sidebarPlaylist');
     if (!sidebar) return false;
     const willOpen = typeof force === 'boolean' ? force : sidebar.classList.contains('collapsed');
@@ -1743,6 +1843,7 @@ class HybridControls {
   }
 
   toggleModal(modalId) {
+    if (this.isLocked || window.HybridApp?.isLocked) return;
     const welcomeScreen = document.getElementById('welcomeScreen');
     const isMediaActive = !welcomeScreen || welcomeScreen.classList.contains('hidden') || !!this.player?.currentFilePath || !!window.HybridApp?._loadSpinnerPending;
 

@@ -23,7 +23,7 @@ const BG_DEFAULTS = Object.freeze({
   dither: { speed: 0.05, frequency: 3, amplitude: 0.3, color: '#808080', bgColor: '#000000', pixelSize: 1, colorNum: 4 },
   particles: { count: 300, speed: 0.1, spread: 10, color: '#ffffff', size: 100, alpha: false },
   faulty: { scale: 1.2, glitch: 1, scanlines: 0.7, flicker: 1, aberration: 0, curvature: 0.2, tint: '#A7EF9E', brightness: 0.8 },
-  gridmotion: { gradientColor: '#000000', speed: 1.0, maxMove: 300, customPictures: [] },
+  gridmotion: { gradientColor: '#000000', speed: 1.0, maxMove: 300, scale: 1.0, aspectRatio: '16:9', autoMove: false, customPictures: [] },
 });
 
 // Preset options for each quality level
@@ -32,19 +32,19 @@ const BG_QUALITY_PRESETS = Object.freeze({
     dither: { speed: 0.05, frequency: 2.55, amplitude: 0.26, color: '#808080', bgColor: '#000000', pixelSize: 4, colorNum: 4 },
     particles: { count: 135, speed: 0.09, spread: 9, color: '#ffffff', size: 85, alpha: false },
     faulty: { scale: 0.8, glitch: 0.65, scanlines: 0.46, flicker: 0.65, aberration: 0, curvature: 0.16, tint: '#A7EF9E', brightness: 0.8 },
-    gridmotion: { gradientColor: '#000000', speed: 0.5, maxMove: 150, customPictures: [] },
+    gridmotion: { gradientColor: '#000000', speed: 0.5, maxMove: 150, scale: 1.0, aspectRatio: '16:9', autoMove: false, customPictures: [] },
   },
   medium: {
     dither: { speed: 0.05, frequency: 2.85, amplitude: 0.29, color: '#808080', bgColor: '#000000', pixelSize: 3, colorNum: 4 },
     particles: { count: 210, speed: 0.1, spread: 10, color: '#ffffff', size: 95, alpha: false },
     faulty: { scale: 1.2, glitch: 0.85, scanlines: 0.6, flicker: 0.85, aberration: 0, curvature: 0.18, tint: '#A7EF9E', brightness: 0.8 },
-    gridmotion: { gradientColor: '#000000', speed: 1.0, maxMove: 300, customPictures: [] },
+    gridmotion: { gradientColor: '#000000', speed: 1.0, maxMove: 300, scale: 1.0, aspectRatio: '16:9', autoMove: false, customPictures: [] },
   },
   high: {
     dither: { speed: 0.05, frequency: 3, amplitude: 0.3, color: '#808080', bgColor: '#000000', pixelSize: 1, colorNum: 4 },
     particles: { count: 300, speed: 0.1, spread: 10, color: '#ffffff', size: 100, alpha: false },
     faulty: { scale: 1.4, glitch: 1, scanlines: 0.7, flicker: 1, aberration: 0, curvature: 0.2, tint: '#A7EF9E', brightness: 0.8 },
-    gridmotion: { gradientColor: '#000000', speed: 1.5, maxMove: 450, customPictures: [] },
+    gridmotion: { gradientColor: '#000000', speed: 1.5, maxMove: 450, scale: 1.0, aspectRatio: '16:9', autoMove: false, customPictures: [] },
   },
 });
 
@@ -75,6 +75,9 @@ const BG_CONTROLS = [
   { id: 'bgFaultyTint', bg: 'faulty', opt: 'tint', type: 'color' },
   { id: 'bgFaultyBrightness', bg: 'faulty', opt: 'brightness', type: 'range', parse: parseFloat },
   // Grid Motion
+  { id: 'bgGridmotionAutoMove', bg: 'gridmotion', opt: 'autoMove', type: 'checkbox' },
+  { id: 'bgGridmotionScale', bg: 'gridmotion', opt: 'scale', type: 'range', parse: parseFloat },
+  { id: 'bgGridmotionAspectRatio', bg: 'gridmotion', opt: 'aspectRatio', type: 'select' },
   { id: 'bgGridmotionSpeed', bg: 'gridmotion', opt: 'speed', type: 'range', parse: parseFloat },
   { id: 'bgGridmotionMaxMove', bg: 'gridmotion', opt: 'maxMove', type: 'range', parse: parseInt },
   { id: 'bgGridmotionGradientColor', bg: 'gridmotion', opt: 'gradientColor', type: 'color' },
@@ -84,29 +87,49 @@ const WELCOME_QUALITY_LEVELS = Object.freeze(['low', 'medium', 'high', 'custom']
 const WELCOME_QUALITY_DEFAULT = 'medium';
 const WELCOME_BACKGROUNDS = Object.freeze(['none', 'dither', 'particles', 'faulty', 'gridmotion']);
 
-function resizeGridmotionImage(file, maxDim = 400) {
+function resizeGridmotionImage(file, maxDim = 1440) {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        let w = img.width;
-        let h = img.height;
-        if (w > maxDim || h > maxDim) {
-          if (w > h) {
-            h = Math.round((h * maxDim) / w);
-            w = maxDim;
-          } else {
-            w = Math.round((w * maxDim) / h);
-            h = maxDim;
+        try {
+          let w = img.naturalWidth || img.width;
+          let h = img.naturalHeight || img.height;
+          if (!w || !h) {
+            resolve('');
+            return;
           }
+          if (w > maxDim || h > maxDim) {
+            if (w > h) {
+              h = Math.round((h * maxDim) / w);
+              w = maxDim;
+            } else {
+              w = Math.round((w * maxDim) / h);
+              h = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve('');
+            return;
+          }
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, w, h);
+
+          // Use WebP for sharp edges and compact size; fallback to high-quality JPEG
+          let dataUrl = canvas.toDataURL('image/webp', 0.92);
+          if (!dataUrl || !dataUrl.startsWith('data:image/webp')) {
+            dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+          }
+          resolve(dataUrl);
+        } catch (_) {
+          resolve('');
         }
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL('image/jpeg', 0.85));
       };
       img.onerror = () => resolve('');
       img.src = e.target.result;
@@ -159,6 +182,18 @@ class HybridSettings {
         <section class="bg-subsection">
           <h5>Motion</h5>
           <div class="bg-setting-row">
+            <label for="bgGridmotionAutoMove">Auto Move</label>
+            <label class="bg-toggle">
+              <input type="checkbox" id="bgGridmotionAutoMove" aria-label="Auto move grid left and right">
+              <span class="bg-toggle-slider"></span>
+            </label>
+          </div>
+          <div class="bg-setting-row">
+            <label for="bgGridmotionScale">Zoom</label>
+            <input type="range" id="bgGridmotionScale" min="0.4" max="1.4" step="0.05" value="1.0">
+            <span class="bg-setting-value">1.0</span>
+          </div>
+          <div class="bg-setting-row">
             <label for="bgGridmotionSpeed">Speed</label>
             <input type="range" id="bgGridmotionSpeed" min="0.1" max="3.0" step="0.1" value="1.0">
             <span class="bg-setting-value">1.0</span>
@@ -171,6 +206,16 @@ class HybridSettings {
         </section>
         <section class="bg-subsection">
           <h5>Render</h5>
+          <div class="bg-setting-row">
+            <label for="bgGridmotionAspectRatio">Card Ratio</label>
+            <select id="bgGridmotionAspectRatio" class="bg-setting-select" aria-label="Card aspect ratio">
+              <option value="16:9">16:9 Widescreen</option>
+              <option value="1:1">1:1 Square</option>
+              <option value="3:4">3:4 Portrait</option>
+              <option value="4:3">4:3 Standard</option>
+              <option value="auto">Auto Fill</option>
+            </select>
+          </div>
           <div class="bg-setting-row">
             <label for="bgGridmotionGradientColor">Background Color</label>
             <div class="bg-color-control">
@@ -937,6 +982,7 @@ class HybridSettings {
         if (!isOpen) {
           const bgSelect = document.getElementById('welcomeBackgroundSelect');
           this._showBgSettingsGroupFor(bgSelect?.value || 'dither');
+          this._refreshBgControls({ syncInputValues: true });
         }
       });
 
@@ -989,6 +1035,7 @@ class HybridSettings {
         } else {
           value = ctrl.parse ? ctrl.parse(el.value) : el.value;
           this._updateValueSpan(el, this._formatRangeDisplayValue(ctrl, value));
+          this._setRangeFill(el);
         }
 
         const switchingToCustom = this.welcomeQuality !== 'custom';
@@ -999,6 +1046,14 @@ class HybridSettings {
         }
 
         this._bgOpts[ctrl.bg][ctrl.opt] = value;
+
+        // Instant visual feedback for Grid Motion scale while dragging
+        if (ctrl.id === 'bgGridmotionScale') {
+          window.HybridGridMotion?.setScale?.(value);
+        }
+        if (ctrl.id === 'bgGridmotionAspectRatio') {
+          window.HybridGridMotion?.setAspectRatio?.(value);
+        }
 
         // Any manual background tweak exits quality presets and becomes custom.
         if (switchingToCustom) {
@@ -1013,9 +1068,10 @@ class HybridSettings {
         clearTimeout(this._bgDebounceTimers[ctrl.bg]);
         this._bgDebounceTimers[ctrl.bg] = setTimeout(() => {
           this._applyBgOpts(ctrl.bg, { persist: true });
-        }, ctrl.type === 'checkbox' ? 0 : 250);
+        }, (ctrl.type === 'checkbox' || ctrl.type === 'select') ? 0 : 250);
       });
     }
+
 
     // Custom uploader bindings for Grid Motion custom pictures
     const fileInput = document.getElementById('bgGridmotionFileInput');
@@ -1030,43 +1086,42 @@ class HybridSettings {
 
     if (fileInput) {
       fileInput.addEventListener('change', async (e) => {
-        const files = Array.from(e.target.files);
-        if (files.length === 0) {
+        try {
+          const files = Array.from(e.target.files);
+          if (files.length === 0) return;
+
+          const resizePromises = files.map(file => resizeGridmotionImage(file));
+          const dataUrls = await Promise.all(resizePromises);
+          const validUrls = dataUrls.filter(url => !!url);
+
+          if (validUrls.length === 0) return;
+
+          const switchingToCustom = this.welcomeQuality !== 'custom';
+          if (switchingToCustom) {
+            this._captureAllEffectiveBgOpts();
+          }
+
+          const currentPics = Array.isArray(this._bgOpts.gridmotion.customPictures)
+            ? this._bgOpts.gridmotion.customPictures
+            : [];
+          this._bgOpts.gridmotion.customPictures = [...currentPics, ...validUrls];
+
+          if (switchingToCustom) {
+            this._applyWelcomeQuality('custom', {
+              persist: true,
+              reapply: false,
+              syncInputs: true,
+            });
+          } else {
+            this._refreshBgControls({ syncInputValues: false });
+          }
+
+          this._applyBgOpts('gridmotion', { persist: true });
+        } catch (err) {
+          console.error('[settings] gridmotion image upload failed:', err);
+        } finally {
           fileInput.value = '';
-          return;
         }
-
-        const resizePromises = files.map(file => resizeGridmotionImage(file));
-        const dataUrls = await Promise.all(resizePromises);
-        const validUrls = dataUrls.filter(url => !!url);
-
-        if (validUrls.length === 0) {
-          fileInput.value = '';
-          return;
-        }
-
-        const switchingToCustom = this.welcomeQuality !== 'custom';
-        if (switchingToCustom) {
-          this._captureAllEffectiveBgOpts();
-        }
-
-        const currentPics = Array.isArray(this._bgOpts.gridmotion.customPictures)
-          ? this._bgOpts.gridmotion.customPictures
-          : [];
-        this._bgOpts.gridmotion.customPictures = [...currentPics, ...validUrls];
-
-        if (switchingToCustom) {
-          this._applyWelcomeQuality('custom', {
-            persist: true,
-            reapply: false,
-            syncInputs: true,
-          });
-        } else {
-          this._refreshBgControls({ syncInputValues: false });
-        }
-
-        this._applyBgOpts('gridmotion', { persist: true });
-        fileInput.value = '';
       });
     }
 
@@ -1133,9 +1188,9 @@ class HybridSettings {
   _getEffectiveBgOpts(bg) {
     const quality = this.welcomeQuality;
     if (quality === 'custom') {
-      return { ...BG_DEFAULTS[bg], ...this._bgOpts[bg] };
+      return { ...BG_DEFAULTS[bg], ...(this._bgOpts?.[bg] || {}) };
     }
-    return { ...BG_QUALITY_PRESETS[quality]?.[bg] };
+    return { ...(BG_QUALITY_PRESETS[quality]?.[bg] || BG_DEFAULTS[bg]) };
   }
 
   _getControlDisplayValue(ctrl) {
@@ -1147,6 +1202,19 @@ class HybridSettings {
   _captureAllEffectiveBgOpts() {
     for (const bgKey of Object.keys(BG_DEFAULTS)) {
       this._bgOpts[bgKey] = this._getEffectiveBgOpts(bgKey);
+    }
+  }
+
+  updateGridmotionScale(newScale) {
+    const scale = Math.max(0.4, Math.min(1.4, Number(newScale) || 1.0));
+    if (this._bgOpts?.gridmotion) {
+      this._bgOpts.gridmotion.scale = scale;
+    }
+    const scaleInput = document.getElementById('bgGridmotionScale');
+    if (scaleInput) {
+      scaleInput.value = String(scale);
+      this._updateValueSpan(scaleInput, this._formatRangeDisplayValue({ parse: parseFloat }, scale));
+      this._setRangeFill(scaleInput);
     }
   }
 
@@ -1187,8 +1255,11 @@ class HybridSettings {
 
       if (ctrl.type === 'range') {
         this._updateValueSpan(el, this._formatRangeDisplayValue(ctrl, effectiveValue));
+        this._setRangeFill(el);
       }
     }
+
+
     this._updateGridmotionUploaderUI();
   }
 
@@ -2399,7 +2470,24 @@ class HybridSettings {
         if (switchingToCustom) {
           this._captureAllEffectiveBgOpts();
         }
+
+        // Preserve uploaded pictures when resetting Grid Motion so users don't have to find/re-upload them
+        const existingPictures = bg === 'gridmotion'
+          ? (this._bgOpts.gridmotion?.customPictures || window.__hybridWelcomeEffectsState?.bgOpts_gridmotion?.customPictures || [])
+          : null;
+
         this._bgOpts[bg] = { ...BG_DEFAULTS[bg] };
+
+        if (existingPictures && existingPictures.length > 0) {
+          this._bgOpts.gridmotion.customPictures = [...existingPictures];
+        }
+
+        // Update __hybridWelcomeEffectsState immediately so nothing reads stale state
+        const stateKey = `bgOpts_${bg}`;
+        window.__hybridWelcomeEffectsState = {
+          ...(window.__hybridWelcomeEffectsState || {}),
+          [stateKey]: { ...this._bgOpts[bg] },
+        };
 
         if (switchingToCustom) {
           this._applyWelcomeQuality('custom', {
@@ -2409,9 +2497,16 @@ class HybridSettings {
           });
         }
 
-        this._refreshBgControls({ syncInputValues: true });
         this._applyBgOpts(bg, { persist: true });
+        this._refreshBgControls({ syncInputValues: true });
+
+        if (bg === 'gridmotion') {
+          window.HybridGridMotion?.resetScroll?.();
+          window.HybridGridMotion?.setScale?.(BG_DEFAULTS.gridmotion?.scale || 1.0);
+          window.HybridGridMotion?.setAspectRatio?.(BG_DEFAULTS.gridmotion?.aspectRatio || '16:9');
+        }
         this._syncColorHexLabels(bg);
+        window.HybridToast?.show(`${bg === 'gridmotion' ? 'Grid Motion' : bg} reset to default`);
       });
     });
   }

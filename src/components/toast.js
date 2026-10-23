@@ -8,6 +8,13 @@ class Toast {
     this._activeToasts = [];
   }
 
+  clear() {
+    if (this.container) {
+      this.container.innerHTML = '';
+    }
+    this._activeToasts = [];
+  }
+
   show(message, duration = 2000) {
     const toast = document.createElement('div');
     toast.className = 'toast';
