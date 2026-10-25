@@ -1940,6 +1940,16 @@ class HybridControls {
     toggleButton('btnShuffle', !noMediaLoaded);
     toggleButton('btnLock', !noMediaLoaded);
 
+    const ytControl = document.getElementById('youtubeQualityControl');
+    if (ytControl) {
+      const isYoutube = window.HybridApp?.currentPlaybackType === 'youtube' && !noMediaLoaded;
+      ytControl.hidden = !isYoutube;
+      if (!isYoutube) {
+        const ytDropdown = document.getElementById('youtubeQualityDropdown');
+        if (ytDropdown) ytDropdown.hidden = true;
+      }
+    }
+
     if (!noMediaLoaded) {
       const bgModal = document.getElementById('bgSettingsModal');
       if (bgModal && !bgModal.hidden) bgModal.hidden = true;

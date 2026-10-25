@@ -92,8 +92,14 @@ export function initGridMotion(containerElement, customOptions = {}) {
 
   const options = { ...DEFAULT_OPTIONS, ...customOptions };
 
+  const isMiniature = Boolean(options.miniature);
+  const NUM_ROWS = Math.max(1, Number(options.rows) || (isMiniature ? 6 : 10));
+  const NUM_COLS = Math.max(2, Number(options.cols) || (isMiniature ? 10 : 18));
+  const containerWidthPct = isMiniature ? '320%' : `${Math.round((NUM_COLS / 3) * 100)}%`;
+
+  const instanceId = 'gm-' + Math.random().toString(36).slice(2, 9);
   const section = document.createElement('section');
-  section.className = 'grid-motion-section';
+  section.className = `grid-motion-section ${instanceId} ${isMiniature ? 'is-miniature' : 'is-main'}`;
   section.style.cssText = 'display:flex;align-items:center;justify-content:center;height:100%;width:100%;position:relative;overflow:hidden;background:#000;';
 
   const styleEl = document.createElement('style');
@@ -107,7 +113,7 @@ export function initGridMotion(containerElement, customOptions = {}) {
       pointer-events: none;
       overflow: hidden;
     }
-    .grid-motion-section {
+    .${instanceId} {
       width: 100%;
       height: 100%;
       overflow: hidden;
@@ -116,12 +122,13 @@ export function initGridMotion(containerElement, customOptions = {}) {
       align-items: center;
       justify-content: center;
       background: #000;
+      contain: strict;
     }
-    .grid-motion-container {
-      gap: 0.5rem;
+    .${instanceId} .grid-motion-container {
+      gap: ${isMiniature ? '0.35rem' : '0.5rem'};
       flex: none;
       position: relative;
-      width: 1600%;
+      width: ${containerWidthPct};
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -130,39 +137,42 @@ export function initGridMotion(containerElement, customOptions = {}) {
       transform-origin: center center;
       transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
       z-index: 2;
+      contain: layout paint;
     }
-    .grid-motion-row {
+    .${instanceId} .grid-motion-row {
       display: grid;
-      gap: 0.5rem;
-      grid-template-columns: repeat(48, 1fr);
+      gap: ${isMiniature ? '0.35rem' : '0.5rem'};
+      grid-template-columns: repeat(${NUM_COLS}, 1fr);
       width: 100%;
       will-change: transform;
+      contain: layout paint;
     }
-    .grid-motion-item {
+    .${instanceId} .grid-motion-item {
       position: relative;
       overflow: hidden;
       width: 100%;
       aspect-ratio: var(--grid-card-aspect-ratio, 16 / 9);
+      contain: layout paint;
     }
-    .grid-motion-item-inner {
+    .${instanceId} .grid-motion-item-inner {
       position: relative;
       width: 100%;
       height: 100%;
       overflow: hidden;
-      border-radius: 12px;
+      border-radius: ${isMiniature ? '6px' : '12px'};
       background-color: #111;
       display: flex;
       align-items: center;
       justify-content: center;
       color: rgba(255, 255, 255, 0.85);
-      font-size: clamp(10px, 1.3vw, 20px);
+      font-size: ${isMiniature ? '10px' : 'clamp(10px, 1.3vw, 20px)'};
       font-weight: 700;
       letter-spacing: 0.05em;
       border: 1px solid rgba(255, 255, 255, 0.06);
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
       transition: border-color 0.3s, transform 0.3s;
     }
-    .grid-motion-item-img {
+    .${instanceId} .grid-motion-item-img {
       width: 100%;
       height: 100%;
       background-size: cover;
@@ -174,12 +184,12 @@ export function initGridMotion(containerElement, customOptions = {}) {
       image-rendering: auto;
       transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), filter 0.3s ease;
     }
-    .grid-motion-item-inner:hover .grid-motion-item-img {
+    .${instanceId} .grid-motion-item-inner:hover .grid-motion-item-img {
       transform: scale(1.06);
       filter: brightness(1.08);
     }
-    .grid-motion-item-content {
-      padding: 1rem;
+    .${instanceId} .grid-motion-item-content {
+      padding: ${isMiniature ? '0.25rem' : '1rem'};
       text-align: center;
       z-index: 1;
       text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
@@ -191,19 +201,16 @@ export function initGridMotion(containerElement, customOptions = {}) {
   const container = document.createElement('div');
   container.className = 'grid-motion-container';
   section.appendChild(container);
-  containerElement.appendChild(section);
 
   const rowElements = [];
   const cardElements = [];
-  const NUM_ROWS = 10;
-  const NUM_COLS = 48;
+  const hasInitialPics = Array.isArray(options.customPictures) && options.customPictures.length > 0;
+  const initialNumPics = hasInitialPics ? options.customPictures.length : Math.min(NUM_COLS, 7);
 
-  // Build rows with NUM_COLS columns each
-  for (let r = 0; r < NUM_ROWS; r++) {
+  const buildRow = (r) => {
     const row = document.createElement('div');
     row.className = 'grid-motion-row';
-    container.appendChild(row);
-    rowElements.push(row);
+    const rowFragment = document.createDocumentFragment();
 
     for (let c = 0; c < NUM_COLS; c++) {
       const itemIndex = r * NUM_COLS + c;
@@ -215,28 +222,62 @@ export function initGridMotion(containerElement, customOptions = {}) {
 
       const imgDiv = document.createElement('div');
       imgDiv.className = 'grid-motion-item-img';
-      inner.appendChild(imgDiv);
 
       const textDiv = document.createElement('div');
       textDiv.className = 'grid-motion-item-content';
-      inner.appendChild(textDiv);
 
+      if (hasInitialPics) {
+        const picIndex = (c + r * 2) % initialNumPics;
+        const pic = options.customPictures[picIndex];
+        imgDiv.style.backgroundImage = `url(${pic})`;
+        imgDiv.style.display = 'block';
+        inner.style.background = '#111';
+      } else {
+        const textIdx = (c + r * 3) % 7;
+        imgDiv.style.display = 'none';
+        textDiv.textContent = CARD_TEXTS[textIdx % CARD_TEXTS.length];
+        inner.style.background = DEFAULT_GRADIENTS[textIdx % DEFAULT_GRADIENTS.length];
+      }
+
+      inner.appendChild(imgDiv);
+      inner.appendChild(textDiv);
       item.appendChild(inner);
-      row.appendChild(item);
+      rowFragment.appendChild(item);
       cardElements.push({ inner, imgDiv, textDiv, index: itemIndex, rowIdx: r, colIdx: c });
     }
-  }
 
+    row.appendChild(rowFragment);
+    return row;
+  };
+
+  let destroyed = false;
   let mouseX = window.innerWidth / 2;
   let targetScrollOffset = 0;
   const rowScrollOffsets = new Array(NUM_ROWS).fill(0);
   let autoOffset = 0;
   let lastTime = performance.now();
-  let destroyed = false;
-  let cardPitch = 0;
-  let loopWidth = 0;
+  const estimatedContainerWidth = isMiniature ? 400 * 3.2 : (typeof window !== 'undefined' ? window.innerWidth * 6 : 1920 * 6);
+  let cardPitch = Math.max(1, estimatedContainerWidth / NUM_COLS);
+  let loopWidth = Math.max(1, initialNumPics * cardPitch);
+  let measureRafId = 0;
+  let measureTimerId = 0;
+  let chunkRafId = 0;
+  let chunkTimerId = 0;
+  let tickerActive = false;
+
+  const isMainMount = containerElement.id === 'gridMotionMount' ||
+                      containerElement.parentElement?.id === 'welcomeScreen' ||
+                      containerElement.closest('#welcomeScreen');
+
+  let isPaused = false;
+  let lastFpsTime = 0;
+  const fpsInterval = options.fpsLimit ? (1000 / options.fpsLimit) : 0;
 
   const applyScale = () => {
+    if (isMiniature) {
+      container.style.transform = 'rotate(-12deg) scale(1)';
+      return;
+    }
     const s = Math.max(0.35, Math.min(1.6, Number(options.scale) || 1.0));
     container.style.transform = `rotate(-12deg) scale(${s})`;
   };
@@ -250,21 +291,48 @@ export function initGridMotion(containerElement, customOptions = {}) {
   applyAspectRatio();
 
   const measureLoop = () => {
-    if (!rowElements[0] || !rowElements[0].children[1]) return;
-    const c0 = rowElements[0].children[0];
-    const c1 = rowElements[0].children[1];
-    cardPitch = c1.offsetLeft - c0.offsetLeft;
-    if (cardPitch <= 0) {
-      cardPitch = container.clientWidth / NUM_COLS;
+    if (destroyed) return;
+    const containerWidth = container.clientWidth || containerElement.clientWidth;
+    let pitch = 0;
+    if (containerWidth > 0) {
+      pitch = containerWidth / NUM_COLS;
+    } else if (rowElements[0] && rowElements[0].children[1]) {
+      const c0 = rowElements[0].children[0];
+      const c1 = rowElements[0].children[1];
+      pitch = Math.abs(c1.offsetLeft - c0.offsetLeft);
     }
-    const hasPics = Array.isArray(options.customPictures) && options.customPictures.length > 0;
-    const numPics = hasPics ? options.customPictures.length : 7;
-    loopWidth = Math.max(1, numPics * cardPitch);
+    if (pitch > 0) {
+      cardPitch = pitch;
+      const hasPics = Array.isArray(options.customPictures) && options.customPictures.length > 0;
+      const numPics = hasPics ? options.customPictures.length : Math.min(NUM_COLS, 7);
+      loopWidth = Math.max(1, numPics * cardPitch);
+    }
   };
 
-  const isMainMount = containerElement.id === 'gridMotionMount' ||
-                      containerElement.parentElement?.id === 'welcomeScreen' ||
-                      containerElement.closest('#welcomeScreen');
+  const scheduleMeasureLoop = () => {
+    if (measureRafId || measureTimerId || destroyed) return;
+    const runMeasure = () => {
+      if (measureRafId) {
+        cancelAnimationFrame(measureRafId);
+        measureRafId = 0;
+      }
+      if (measureTimerId) {
+        clearTimeout(measureTimerId);
+        measureTimerId = 0;
+      }
+      measureLoop();
+    };
+    measureTimerId = setTimeout(runMeasure, 32);
+    measureRafId = requestAnimationFrame(runMeasure);
+  };
+
+  const initialFragment = document.createDocumentFragment();
+  for (let r = 0; r < NUM_ROWS; r++) {
+    const row = buildRow(r);
+    initialFragment.appendChild(row);
+    rowElements.push(row);
+  }
+  container.appendChild(initialFragment);
 
   let persistScaleTimer = null;
 
@@ -345,14 +413,62 @@ export function initGridMotion(containerElement, customOptions = {}) {
     window.addEventListener('wheel', handleWheel, { passive: false });
   }
 
+  const startTicker = () => {
+    if (tickerActive || destroyed || isPaused) return;
+    if (options.pauseWhenUnfocused && !isAppInteractive()) return;
+    tickerActive = true;
+    lastTime = performance.now();
+    gsap.ticker.add(updateMotion);
+  };
+
+  const stopTicker = () => {
+    if (!tickerActive) return;
+    tickerActive = false;
+    gsap.ticker.remove(updateMotion);
+  };
+
+  const pause = () => {
+    isPaused = true;
+    stopTicker();
+  };
+
+  const resume = () => {
+    isPaused = false;
+    startTicker();
+  };
+
+  const onPauseEvent = (e) => {
+    if (!isMainMount) return;
+    if (e?.detail?.paused) {
+      pause();
+    } else {
+      resume();
+    }
+  };
+  if (isMainMount) {
+    window.addEventListener('hybrid:background-motion-pause', onPauseEvent);
+  }
+
+  const onFocusOrVisibility = () => {
+    if (!destroyed && !isPaused && isAppInteractive()) {
+      if (isMainMount) {
+        const curBg = window.__hybridWelcomeEffectsState?.welcomeBackground || 'dither';
+        if (curBg !== 'gridmotion') return;
+      }
+      startTicker();
+    }
+  };
+  window.addEventListener('focus', onFocusOrVisibility);
+  document.addEventListener('visibilitychange', onFocusOrVisibility);
+
   const handleResize = () => {
-    measureLoop();
+    scheduleMeasureLoop();
   };
   window.addEventListener('resize', handleResize, { passive: true });
 
   const updateCardContents = () => {
     const hasPics = Array.isArray(options.customPictures) && options.customPictures.length > 0;
-    const numPics = hasPics ? options.customPictures.length : 7;
+    const numPics = hasPics ? options.customPictures.length : Math.min(NUM_COLS, 7);
     cardElements.forEach(({ inner, imgDiv, textDiv, rowIdx, colIdx }) => {
       if (hasPics) {
         // Stagger rows slightly for visual variety
@@ -371,10 +487,10 @@ export function initGridMotion(containerElement, customOptions = {}) {
       }
     });
 
-    measureLoop();
+    scheduleMeasureLoop();
   };
 
-  updateCardContents();
+  scheduleMeasureLoop();
 
   // Apply Radial Gradient Background
   const applyGradient = () => {
@@ -382,24 +498,36 @@ export function initGridMotion(containerElement, customOptions = {}) {
   };
   applyGradient();
 
+  // Attach complete, pre-styled section tree into the DOM in a single atomic operation
+  containerElement.appendChild(section);
+
   const handleMouseMove = (e) => {
     mouseX = e.clientX;
   };
   window.addEventListener('mousemove', handleMouseMove, { passive: true });
 
   const updateMotion = () => {
-    if (destroyed) return;
+    if (destroyed || isPaused) {
+      stopTicker();
+      return;
+    }
     if (options.pauseWhenUnfocused && !isAppInteractive()) {
       lastTime = performance.now();
+      stopTicker();
       return;
     }
 
     const now = performance.now();
+    if (fpsInterval > 0) {
+      const elapsedFps = now - lastFpsTime;
+      if (elapsedFps < fpsInterval) return;
+      lastFpsTime = now - (elapsedFps % fpsInterval);
+    }
     const dt = Math.min(0.1, (now - lastTime) / 1000);
     lastTime = now;
 
     if (loopWidth <= 0) {
-      measureLoop();
+      scheduleMeasureLoop();
     }
     const lw = loopWidth > 0 ? loopWidth : 2000;
 
@@ -431,7 +559,9 @@ export function initGridMotion(containerElement, customOptions = {}) {
     });
   };
 
-  gsap.ticker.add(updateMotion);
+  if (!isPaused) {
+    startTicker();
+  }
 
   const resetScroll = () => {
     targetScrollOffset = 0;
@@ -441,16 +571,26 @@ export function initGridMotion(containerElement, customOptions = {}) {
     }
   };
 
+  const arePicsEqual = (a, b) => {
+    if (a === b) return true;
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  };
+
   const updateOptions = (nextOptions = {}) => {
     if (!nextOptions || typeof nextOptions !== 'object' || destroyed) return;
-    const prevPicturesJson = JSON.stringify(options.customPictures);
+    const picsChanged = nextOptions.customPictures !== undefined && !arePicsEqual(options.customPictures, nextOptions.customPictures);
     const prevGradient = options.gradientColor;
     const prevScale = options.scale;
     const prevAspectRatio = options.aspectRatio;
 
     Object.assign(options, nextOptions);
 
-    if (prevPicturesJson !== JSON.stringify(options.customPictures)) {
+    if (picsChanged) {
       updateCardContents();
     }
     if (prevGradient !== options.gradientColor) {
@@ -461,7 +601,7 @@ export function initGridMotion(containerElement, customOptions = {}) {
     }
     if (prevAspectRatio !== options.aspectRatio) {
       applyAspectRatio();
-      measureLoop();
+      scheduleMeasureLoop();
     }
   };
 
@@ -480,11 +620,32 @@ export function initGridMotion(containerElement, customOptions = {}) {
       }
     }
 
-    gsap.ticker.remove(updateMotion);
+    if (measureRafId) {
+      cancelAnimationFrame(measureRafId);
+      measureRafId = 0;
+    }
+    if (measureTimerId) {
+      clearTimeout(measureTimerId);
+      measureTimerId = 0;
+    }
+
+    if (chunkRafId) {
+      cancelAnimationFrame(chunkRafId);
+      chunkRafId = 0;
+    }
+    if (chunkTimerId) {
+      clearTimeout(chunkTimerId);
+      chunkTimerId = 0;
+    }
+
+    stopTicker();
+    window.removeEventListener('focus', onFocusOrVisibility);
+    document.removeEventListener('visibilitychange', onFocusOrVisibility);
     window.removeEventListener('mousemove', handleMouseMove);
     window.removeEventListener('resize', handleResize);
     if (isMainMount) {
       window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('hybrid:background-motion-pause', onPauseEvent);
     }
 
     rowElements.forEach(row => gsap.killTweensOf(row));
@@ -496,8 +657,9 @@ export function initGridMotion(containerElement, customOptions = {}) {
   };
 
   const getOptions = () => ({ ...options });
+  const isTickerActive = () => tickerActive;
 
-  return { destroy, updateOptions, resetScroll, getOptions };
+  return { destroy, updateOptions, resetScroll, getOptions, pause, resume, isTickerActive };
 }
 
 function ensureMount() {
@@ -517,11 +679,37 @@ function ensureMount() {
 }
 
 export async function createGridMotion(options = {}) {
-  if (activeInstance) return activeInstance;
-  if (createPromise) return createPromise;
+  if (activeInstance) {
+    activeInstance.updateOptions(options);
+    return activeInstance;
+  }
+  if (createPromise) {
+    createPromise.then((inst) => {
+      inst?.updateOptions?.(options);
+    });
+    return createPromise;
+  }
   destroyAfterCreate = false;
 
   createPromise = (async () => {
+    // If the accordion gallery popover is open, defer building the massive main DOM tree
+    // until after the 0.35s CSS flex expansion transition finishes (or browser is idle),
+    // ensuring clicking/picking Grid Motion runs at a flawless 60 FPS without jank.
+    // Yield execution to the next frame via requestAnimationFrame with a timer fallback so the click handler
+    // and UI thread complete synchronously in <16ms without dropping frames, while never stalling in headless/occluded tests.
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 20);
+      requestAnimationFrame(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+
+    if (destroyAfterCreate) {
+      destroyAfterCreate = false;
+      return null;
+    }
+
     const mount = options.mount || ensureMount();
     if (!mount) throw new Error('Could not find #welcomeScreen to mount grid motion.');
 
@@ -585,6 +773,11 @@ async function syncLifecycleState() {
     if (userOpts.aspectRatio !== undefined) mapped.aspectRatio = userOpts.aspectRatio;
     if (userOpts.autoMove !== undefined) mapped.autoMove = Boolean(userOpts.autoMove);
     if (userOpts.customPictures !== undefined) mapped.customPictures = userOpts.customPictures;
+
+    const fallbackPics = window.HybridApp?.settingsModule?._bgOpts?.gridmotion?.customPictures;
+    if ((!mapped.customPictures || mapped.customPictures.length === 0) && Array.isArray(fallbackPics) && fallbackPics.length > 0) {
+      mapped.customPictures = fallbackPics;
+    }
     mapped.pauseWhenUnfocused = true;
 
     if (activeInstance?.updateOptions) {
@@ -602,6 +795,7 @@ async function syncLifecycleState() {
 
   // Fade-out grace period for smooth crossfading
   if (!teardownTimer && activeInstance) {
+    activeInstance.pause?.();
     teardownTimer = setTimeout(() => {
       teardownTimer = null;
       const ws = document.getElementById('welcomeScreen');
@@ -687,6 +881,9 @@ if (typeof window !== 'undefined') {
       activeInstance.updateOptions({ autoMove: !cur });
       return !cur;
     },
+    pauseGridMotion: () => activeInstance?.pause?.(),
+    resumeGridMotion: () => activeInstance?.resume?.(),
+    isTickerActive: () => activeInstance?.isTickerActive?.() || false,
   };
 
   if (document.readyState === 'loading') {

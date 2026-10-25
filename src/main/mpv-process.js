@@ -139,6 +139,7 @@ class MpvProcess extends EventEmitter {
     const cookiesPath = cookiesCandidates.find((candidate) => fs.existsSync(candidate)) || cookiesCandidates[0] || '';
     const defaultUserAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36';
+    const effectiveUserAgent = opts.userAgent || opts.ytdlUserAgent || defaultUserAgent;
     const fallbackScreenshotDir = (app?.isPackaged && app?.getPath)
       ? path.join(app.getPath('userData'), 'screenshots')
       : path.join(__dirname, '../../screenshots');
@@ -256,6 +257,7 @@ class MpvProcess extends EventEmitter {
           ctx.setOptionString('hr-seek', 'yes');
           ctx.setOptionString('volume-max', '200');
           ctx.setOptionString('sub-codepage', 'auto');
+          ctx.setOptionString('user-agent', effectiveUserAgent);
           if (isMuteAudioRequested) {
             ctx.setOptionString('ao', 'null');
           }
@@ -272,8 +274,8 @@ class MpvProcess extends EventEmitter {
           const ytdlRawOptions = [];
           if (opts.enableYtdlRawOptions === true) {
             ytdlRawOptions.push(`extractor-args=${formatYtdlOptionValue('youtube:player_skip=webpage;player_client=tv,web_embedded,android,web')}`);
-            if (opts.ytdlUserAgent) {
-              ytdlRawOptions.push(`user-agent=${formatYtdlOptionValue(opts.ytdlUserAgent)}`);
+            if (effectiveUserAgent) {
+              ytdlRawOptions.push(`user-agent=${formatYtdlOptionValue(effectiveUserAgent)}`);
             }
             if (cookiesPath && fs.existsSync(cookiesPath)) {
               ytdlRawOptions.push(`cookies=${formatYtdlOptionValue(cookiesPath)}`);
@@ -440,6 +442,7 @@ class MpvProcess extends EventEmitter {
       '--hr-seek-framedrop=yes',
       '--volume-max=200',
       '--sub-codepage=auto',
+      `--user-agent=${effectiveUserAgent}`,
       ...(isMuteAudioRequested ? ['--ao=null'] : []),
     ];
 
@@ -458,8 +461,8 @@ class MpvProcess extends EventEmitter {
     const ytdlRawOptions = [];
     if (opts.enableYtdlRawOptions === true) {
       ytdlRawOptions.push(`extractor-args=${formatYtdlOptionValue('youtube:player_skip=webpage;player_client=tv,web_embedded,android,web')}`);
-      if (opts.ytdlUserAgent) {
-        ytdlRawOptions.push(`user-agent=${formatYtdlOptionValue(opts.ytdlUserAgent)}`);
+      if (effectiveUserAgent) {
+        ytdlRawOptions.push(`user-agent=${formatYtdlOptionValue(effectiveUserAgent)}`);
       }
       if (cookiesPath && fs.existsSync(cookiesPath)) {
         ytdlRawOptions.push(`cookies=${formatYtdlOptionValue(cookiesPath)}`);

@@ -355,10 +355,33 @@ export function initParticles(containerElement, customOptions = {}) {
   let lastTime = performance.now();
   let elapsed = 0;
 
-  let isPaused = false;
   let contextLost = false;
+  const isMainMount = containerElement.id === 'particlesMount' ||
+                      containerElement.parentElement?.id === 'welcomeScreen' ||
+                      containerElement.closest('#welcomeScreen');
+
+  let isMotionPaused = false;
+  let isPaused = false;
+  let lastFrameTime = 0;
+  const fpsInterval = options.fpsLimit ? (1000 / options.fpsLimit) : 0;
+  const onMotionPause = (e) => {
+    if (!isMainMount) return;
+    isMotionPaused = Boolean(e?.detail?.paused);
+    if (!isMotionPaused && isPaused && !destroyed && !contextLost) {
+      resumeLoop();
+    }
+  };
+  if (isMainMount) {
+    window.addEventListener('hybrid:background-motion-pause', onMotionPause);
+  }
+
   const update = t => {
     if (destroyed || contextLost) return;
+    if (isMotionPaused) {
+      isPaused = true;
+      rafId = 0;
+      return;
+    }
     if (options.pauseWhenUnfocused && !isAppInteractive()) {
       isPaused = true;
       rafId = 0;
@@ -366,6 +389,13 @@ export function initParticles(containerElement, customOptions = {}) {
     }
     isPaused = false;
     rafId = requestAnimationFrame(update);
+
+    if (fpsInterval > 0) {
+      const now = performance.now();
+      const elapsed = now - lastFrameTime;
+      if (elapsed < fpsInterval) return;
+      lastFrameTime = now - (elapsed % fpsInterval);
+    }
 
     const delta = t - lastTime;
     lastTime = t;
@@ -395,8 +425,22 @@ export function initParticles(containerElement, customOptions = {}) {
     window.HybridPerfMonitor?.markFrame?.('effect:particles');
   };
 
+  const pause = () => {
+    isPaused = true;
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+  };
+
   const resumeLoop = () => {
-    if (destroyed || contextLost) return;
+    if (destroyed || contextLost || isMotionPaused) return;
+    if (isMainMount) {
+      const popover = document.getElementById('bgAccordionPopover');
+      if (popover && !popover.hidden) return;
+      const curBg = window.__hybridWelcomeEffectsState?.welcomeBackground || 'dither';
+      if (curBg !== 'particles') return;
+    }
     if (isPaused && isAppInteractive()) {
       isPaused = false;
       if (!rafId) {
@@ -486,6 +530,9 @@ export function initParticles(containerElement, customOptions = {}) {
     window.removeEventListener('resize', onWindowResize, false);
     window.removeEventListener('focus', resumeLoop);
     document.removeEventListener('visibilitychange', resumeLoop);
+    if (isMainMount) {
+      window.removeEventListener('hybrid:background-motion-pause', onMotionPause);
+    }
     clearTimeout(resizeTimeout);
     if (resizeObserver) {
       resizeObserver.disconnect();
@@ -512,6 +559,7 @@ export function initParticles(containerElement, customOptions = {}) {
 
   return {
     destroy,
+    pause,
     applyOptions,
     resize,
     renderer,
@@ -630,6 +678,7 @@ async function syncLifecycleState() {
 
   // Fade-out grace period for smooth crossfading
   if (!teardownTimer && activeInstance) {
+    activeInstance.pause?.();
     teardownTimer = setTimeout(() => {
       teardownTimer = null;
       const ws = document.getElementById('welcomeScreen');

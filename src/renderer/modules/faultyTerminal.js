@@ -259,6 +259,102 @@ let destroyAfterCreate = false;
 let lifecycleObserver = null;
 let lifecycleBooted = false;
 let welcomeSettingsListener = null;
+let prewarmPromise = null;
+let isPrewarmed = false;
+
+export function prewarmFaultyShader() {
+  if (isPrewarmed || prewarmPromise) return prewarmPromise || Promise.resolve();
+
+  prewarmPromise = new Promise((resolve) => {
+    try {
+      if (typeof document === 'undefined') {
+        resolve();
+        return;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      const gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true }) ||
+                 canvas.getContext('webgl', { preserveDrawingBuffer: true });
+      if (!gl) {
+        resolve();
+        return;
+      }
+
+      const vs = gl.createShader(gl.VERTEX_SHADER);
+      gl.shaderSource(vs, vertexShader);
+      gl.compileShader(vs);
+
+      const fs = gl.createShader(gl.FRAGMENT_SHADER);
+      gl.shaderSource(fs, fragmentShader);
+      gl.compileShader(fs);
+
+      const program = gl.createProgram();
+      gl.attachShader(program, vs);
+      gl.attachShader(program, fs);
+      gl.linkProgram(program);
+
+      const ext = gl.getExtension('KHR_parallel_shader_compile');
+      let cleanedUp = false;
+
+      const cleanup = () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        try {
+          gl.deleteShader(vs);
+          gl.deleteShader(fs);
+          gl.deleteProgram(program);
+          gl.getExtension('WEBGL_lose_context')?.loseContext();
+        } catch (_) {}
+        isPrewarmed = true;
+        resolve();
+      };
+
+      const startTime = performance.now();
+      const MAX_PREWARM_MS = 4000;
+
+      if (ext) {
+        const checkStatus = () => {
+          try {
+            if (gl.isContextLost() || (performance.now() - startTime) > MAX_PREWARM_MS) {
+              cleanup();
+              return;
+            }
+            if (gl.getProgramParameter(program, ext.COMPLETION_STATUS_KHR)) {
+              cleanup();
+            } else {
+              if (typeof requestIdleCallback === 'function') {
+                requestIdleCallback(checkStatus, { timeout: 100 });
+              } else {
+                setTimeout(checkStatus, 30);
+              }
+            }
+          } catch (_) {
+            cleanup();
+          }
+        };
+        setTimeout(checkStatus, 16);
+      } else {
+        const fallbackCheck = () => {
+          try {
+            gl.getProgramParameter(program, gl.LINK_STATUS);
+          } catch (_) {}
+          cleanup();
+        };
+        if (typeof requestIdleCallback === 'function') {
+          requestIdleCallback(fallbackCheck, { timeout: 1000 });
+        } else {
+          setTimeout(fallbackCheck, 200);
+        }
+      }
+    } catch (err) {
+      console.warn(`${LOG_TAG} Shader pre-warming encountered an error:`, err);
+      resolve();
+    }
+  });
+
+  return prewarmPromise;
+}
 
 function getWelcomeQuality(welcomeState = null) {
   const state = welcomeState || window.__hybridWelcomeEffectsState || {};
@@ -284,6 +380,12 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
   if (!(containerElement instanceof HTMLElement)) {
     throw new Error(`${LOG_TAG} initFaultyTerminal requires a valid container HTMLElement.`);
   }
+
+  isPrewarmed = true;
+
+  const isMainMount = containerElement.id === 'faultyMount' ||
+                      containerElement.parentElement?.id === 'welcomeScreen' ||
+                      containerElement.closest('#welcomeScreen');
 
   const options = { ...DEFAULT_OPTIONS, ...customOptions };
   if (customOptions.dpr == null) {
@@ -470,10 +572,30 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
     renderCurrentFrame();
   };
 
+  let isMotionPaused = false;
   let isPaused = false;
+  let lastFrameTime = 0;
+  const fpsInterval = options.fpsLimit ? (1000 / options.fpsLimit) : 0;
   let contextLost = false;
+
+  const onMotionPause = (e) => {
+    if (!isMainMount) return;
+    isMotionPaused = Boolean(e?.detail?.paused);
+    if (!isMotionPaused && isPaused && !destroyed && !contextLost) {
+      resumeLoop();
+    }
+  };
+  if (isMainMount) {
+    window.addEventListener('hybrid:background-motion-pause', onMotionPause);
+  }
+
   const update = (t) => {
     if (destroyed || contextLost) return;
+    if (isMotionPaused) {
+      isPaused = true;
+      rafId = 0;
+      return;
+    }
     if (options.pauseWhenUnfocused && !isAppInteractive()) {
       isPaused = true;
       rafId = 0;
@@ -481,6 +603,13 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
     }
     isPaused = false;
     rafId = requestAnimationFrame(update);
+
+    if (fpsInterval > 0) {
+      const now = performance.now();
+      const elapsed = now - lastFrameTime;
+      if (elapsed < fpsInterval) return;
+      lastFrameTime = now - (elapsed % fpsInterval);
+    }
 
     if (options.pageLoadAnimation && loadAnimationStart === 0) {
       loadAnimationStart = t;
@@ -515,8 +644,22 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
     window.HybridPerfMonitor?.markFrame?.('effect:faulty');
   };
 
+  const pause = () => {
+    isPaused = true;
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+  };
+
   const resumeLoop = () => {
-    if (destroyed || contextLost) return;
+    if (destroyed || contextLost || isMotionPaused) return;
+    if (isMainMount) {
+      const popover = document.getElementById('bgAccordionPopover');
+      if (popover && !popover.hidden) return;
+      const curBg = window.__hybridWelcomeEffectsState?.welcomeBackground || 'dither';
+      if (curBg !== 'faulty') return;
+    }
     if (isPaused && isAppInteractive()) {
       isPaused = false;
       if (!rafId) {
@@ -624,6 +767,9 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
     window.removeEventListener('resize', onWindowResize);
     window.removeEventListener('focus', resumeLoop);
     document.removeEventListener('visibilitychange', resumeLoop);
+    if (isMainMount) {
+      window.removeEventListener('hybrid:background-motion-pause', onMotionPause);
+    }
     clearTimeout(resizeTimeout);
     if (resizeObserver) {
       resizeObserver.disconnect();
@@ -653,6 +799,7 @@ export function initFaultyTerminal(containerElement, customOptions = {}) {
 
   return {
     destroy,
+    pause,
     updateOptions,
     resize,
     renderer,
@@ -772,6 +919,7 @@ async function syncLifecycleState() {
 
   // Fade-out grace period for smooth crossfading
   if (!teardownTimer && activeInstance) {
+    activeInstance.pause?.();
     teardownTimer = setTimeout(() => {
       teardownTimer = null;
       const ws = document.getElementById('welcomeScreen');
@@ -830,6 +978,16 @@ function bootLifecycle() {
   });
 
   syncLifecycleState();
+
+  const welcomeState = window.__hybridWelcomeEffectsState || {};
+  const background = welcomeState.welcomeBackground || 'dither';
+  if (background !== 'faulty') {
+    if (typeof requestIdleCallback === 'function') {
+      requestIdleCallback(() => prewarmFaultyShader(), { timeout: 800 });
+    } else {
+      setTimeout(() => prewarmFaultyShader(), 80);
+    }
+  }
 }
 
 if (typeof window !== 'undefined') {
@@ -837,6 +995,7 @@ if (typeof window !== 'undefined') {
     createFaultyTerminal,
     destroyFaultyTerminal,
     initFaultyTerminal,
+    prewarmFaultyShader,
   };
 
   if (document.readyState === 'loading') {

@@ -1487,6 +1487,20 @@ body[data-welcome-background='gridmotion'] .bg-settings-panel {
   border-radius: 12px;
 }
 
+.bg-accordion-live-mount .grid-motion-section {
+  position: absolute !important;
+  left: 50% !important;
+  top: 0 !important;
+  transform: translateX(-50%) !important;
+  width: 400px !important;
+  height: 240px !important;
+  max-width: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 12px;
+}
+
 .bg-accordion-preview {
   position: absolute;
   inset: 0;

@@ -484,6 +484,7 @@ class HybridSettings {
       const accordionPopover = document.getElementById('bgAccordionPopover');
       if (accordionPopover) accordionPopover.hidden = true;
       this._stopAccordionLivePreviews?.();
+      this._setMainBackgroundPaused?.(false);
     }
   }
 
@@ -524,6 +525,7 @@ class HybridSettings {
             const accordionPopover = document.getElementById('bgAccordionPopover');
             if (accordionPopover) accordionPopover.hidden = true;
             this._stopAccordionLivePreviews?.();
+            this._setMainBackgroundPaused?.(false);
             const gearBtn = document.getElementById('bgSettingsToggle');
             if (gearBtn) {
               gearBtn.classList.remove('active');
@@ -966,6 +968,7 @@ class HybridSettings {
       const popover = document.getElementById('bgAccordionPopover');
       if (popover) popover.hidden = true;
       this._stopAccordionLivePreviews();
+      this._setMainBackgroundPaused?.(false);
     };
 
     if (gearBtn && panel) {
@@ -973,17 +976,19 @@ class HybridSettings {
         // stopPropagation so the document outside-click listener (below)
         // doesn't immediately re-close the panel on the same click.
         e.stopPropagation();
-        const isOpen = !panel.hidden;
-        panel.hidden = isOpen;
-        gearBtn.classList.toggle('active', !isOpen);
-        gearBtn.setAttribute('aria-expanded', String(!isOpen));
-        wrapper?.classList.toggle('bg-panel-open', !isOpen);
-
-        if (!isOpen) {
-          const bgSelect = document.getElementById('welcomeBackgroundSelect');
-          this._showBgSettingsGroupFor(bgSelect?.value || 'dither');
-          this._refreshBgControls({ syncInputValues: true });
+        if (!panel.hidden) {
+          closePanel();
+          return;
         }
+        panel.hidden = false;
+        gearBtn.classList.add('active');
+        gearBtn.setAttribute('aria-expanded', 'true');
+        wrapper?.classList.add('bg-panel-open');
+
+        const bgSelect = document.getElementById('welcomeBackgroundSelect');
+        this._showBgSettingsGroupFor(bgSelect?.value || 'dither');
+        this._refreshBgControls({ syncInputValues: true });
+        window.HybridFaultyTerminal?.prewarmFaultyShader?.();
       });
 
       // Outside-click dismissal. Keep clicks inside the modal alive so sliders,
@@ -1117,6 +1122,9 @@ class HybridSettings {
           }
 
           this._applyBgOpts('gridmotion', { persist: true });
+          window.HybridGridMotion?.updateOptions?.({
+            customPictures: this._bgOpts.gridmotion.customPictures,
+          });
         } catch (err) {
           console.error('[settings] gridmotion image upload failed:', err);
         } finally {
@@ -1145,6 +1153,9 @@ class HybridSettings {
         }
 
         this._applyBgOpts('gridmotion', { persist: true });
+        window.HybridGridMotion?.updateOptions?.({
+          customPictures: [],
+        });
       });
     }
   }
@@ -1190,7 +1201,14 @@ class HybridSettings {
     if (quality === 'custom') {
       return { ...BG_DEFAULTS[bg], ...(this._bgOpts?.[bg] || {}) };
     }
-    return { ...(BG_QUALITY_PRESETS[quality]?.[bg] || BG_DEFAULTS[bg]) };
+    const preset = BG_QUALITY_PRESETS[quality]?.[bg] || BG_DEFAULTS[bg];
+    if (bg === 'gridmotion') {
+      const userPics = Array.isArray(this._bgOpts?.gridmotion?.customPictures) && this._bgOpts.gridmotion.customPictures.length > 0
+        ? this._bgOpts.gridmotion.customPictures
+        : (window.__hybridWelcomeEffectsState?.bgOpts_gridmotion?.customPictures || []);
+      return { ...preset, customPictures: [...userPics] };
+    }
+    return { ...preset };
   }
 
   _getControlDisplayValue(ctrl) {
@@ -1201,7 +1219,13 @@ class HybridSettings {
 
   _captureAllEffectiveBgOpts() {
     for (const bgKey of Object.keys(BG_DEFAULTS)) {
+      const existingPics = bgKey === 'gridmotion' && Array.isArray(this._bgOpts?.gridmotion?.customPictures)
+        ? [...this._bgOpts.gridmotion.customPictures]
+        : null;
       this._bgOpts[bgKey] = this._getEffectiveBgOpts(bgKey);
+      if (existingPics && existingPics.length > 0) {
+        this._bgOpts.gridmotion.customPictures = existingPics;
+      }
     }
   }
 
@@ -1279,7 +1303,17 @@ class HybridSettings {
       if (fileInput) fileInput.value = '';
     }
 
+    const isSamePics = Array.isArray(this._lastRenderedGridmotionPics) &&
+      this._lastRenderedGridmotionPics.length === customPics.length &&
+      this._lastRenderedGridmotionPics.every((pic, i) => pic === customPics[i]);
+
+    if (isSamePics && thumbGrid.children.length === customPics.length) {
+      return;
+    }
+    this._lastRenderedGridmotionPics = [...customPics];
+
     thumbGrid.innerHTML = '';
+    const fragment = document.createDocumentFragment();
     customPics.forEach((pic, index) => {
       const item = document.createElement('div');
       item.className = 'bg-thumbnail-item';
@@ -1315,11 +1349,15 @@ class HybridSettings {
         }
 
         this._applyBgOpts('gridmotion', { persist: true });
+        window.HybridGridMotion?.updateOptions?.({
+          customPictures: this._bgOpts.gridmotion.customPictures,
+        });
       });
       item.appendChild(removeBtn);
 
-      thumbGrid.appendChild(item);
+      fragment.appendChild(item);
     });
+    thumbGrid.appendChild(fragment);
   }
 
   _showBgSettingsGroupFor(bg) {
@@ -2218,7 +2256,18 @@ class HybridSettings {
     }
   }
 
+  _setMainBackgroundPaused(paused) {
+    if (paused) {
+      window.HybridGridMotion?.pauseGridMotion?.();
+    } else {
+      window.HybridGridMotion?.resumeGridMotion?.();
+    }
+    window.dispatchEvent(new CustomEvent('hybrid:background-motion-pause', { detail: { paused: Boolean(paused) } }));
+  }
+
   _initAccordionGallery() {
+    window.HybridFaultyTerminal?.prewarmFaultyShader?.();
+
     const pickerBtn = document.getElementById('bgEffectPickerBtn');
     const popover = document.getElementById('bgAccordionPopover');
     const closeBtn = document.getElementById('bgAccordionPopoverClose');
@@ -2319,11 +2368,11 @@ class HybridSettings {
     const mountMap = {
       dither: {
         el: document.getElementById('bgLiveMount_dither'),
-        init: () => window.HybridDitherWaves?.initDitherWaves?.(document.getElementById('bgLiveMount_dither'), { dpr: 1.0, renderWidth: 400, renderHeight: 240, waveSpeed: 0.1, waveFrequency: 2.2, waveAmplitude: 0.35, pixelSize: 1 }),
+        init: () => window.HybridDitherWaves?.initDitherWaves?.(document.getElementById('bgLiveMount_dither'), { dpr: 1.0, renderWidth: 400, renderHeight: 240, waveSpeed: 0.1, waveFrequency: 2.2, waveAmplitude: 0.35, pixelSize: 2, fpsLimit: 30 }),
       },
       particles: {
         el: document.getElementById('bgLiveMount_particles'),
-        init: () => window.HybridParticlesBg?.initParticles?.(document.getElementById('bgLiveMount_particles'), { pixelRatio: 1.0, renderWidth: 400, renderHeight: 240, particleBaseSize: 32, particleCount: 75, particleSpread: 7, speed: 0.4, cameraDistance: 13 }),
+        init: () => window.HybridParticlesBg?.initParticles?.(document.getElementById('bgLiveMount_particles'), { pixelRatio: 1.0, renderWidth: 400, renderHeight: 240, particleBaseSize: 32, particleCount: 45, particleSpread: 7, speed: 0.4, cameraDistance: 13, fpsLimit: 30 }),
       },
       faulty: {
         el: document.getElementById('bgLiveMount_faulty'),
@@ -2346,6 +2395,7 @@ class HybridSettings {
             chromaticAberration: userOpts.aberration !== undefined ? Number(userOpts.aberration) : 0,
             brightness: userOpts.brightness !== undefined ? Number(userOpts.brightness) : 0.9,
             tint: userOpts.tint || '#A7EF9E',
+            fpsLimit: 30,
           });
         },
       },
@@ -2353,7 +2403,17 @@ class HybridSettings {
         el: document.getElementById('bgLiveMount_gridmotion'),
         init: () => {
           const userPics = this._bgOpts?.gridmotion?.customPictures || window.__hybridWelcomeEffectsState?.bgOpts_gridmotion?.customPictures || [];
-          return window.HybridGridMotion?.initGridMotion?.(document.getElementById('bgLiveMount_gridmotion'), { dpr: 1.0, maxMove: 40, speed: 1.2, customPictures: userPics });
+          return window.HybridGridMotion?.initGridMotion?.(document.getElementById('bgLiveMount_gridmotion'), {
+            dpr: 1.0,
+            maxMove: 40,
+            speed: 1.2,
+            autoMove: true,
+            customPictures: userPics,
+            miniature: true,
+            rows: 6,
+            cols: 10,
+            fpsLimit: 30,
+          });
         },
       },
     };

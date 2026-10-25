@@ -731,6 +731,13 @@ class HybridApp {
           this._isMpvPaused = false;
           this._stopPausedFrameHeartbeat();
           this._hidePausedFrameOverlay(`event:${event}`);
+          if (event === 'error' || (event === 'end-file' && (data?.reason === 'error' || data?.error))) {
+            this.currentStreamUrl = null;
+            this.currentPlaybackType = 'local';
+            this.youtubeQualityHeights = [];
+            this.currentStreamQuality = 'auto';
+            this._renderControlBarQualityMenu([], 'auto');
+          }
         }
       });
 
@@ -873,6 +880,16 @@ class HybridApp {
 
   _handlePlaybackError(data) {
     this._cancelVideoLoadSpinner?.();
+    this.currentStreamUrl = null;
+    this.currentPlaybackType = 'local';
+    this.youtubeQualityHeights = [];
+    this.currentStreamQuality = 'auto';
+    this._renderControlBarQualityMenu([], 'auto');
+    const wrap = document.getElementById('youtubeQualityControl');
+    if (wrap) wrap.hidden = true;
+    const dropdown = document.getElementById('youtubeQualityDropdown');
+    if (dropdown) dropdown.hidden = true;
+    this.resetToIdleState();
     const payload = data && typeof data === 'object' ? data : {};
     const candidateMsg = payload.message || payload.error || payload.file_error || (payload.reason === 'error' ? 'Stream or file failed to load' : payload.reason);
     const message = typeof candidateMsg === 'string' && candidateMsg.trim()
@@ -1428,10 +1445,17 @@ class HybridApp {
   }
 
   _mapQualityLabel(height) {
-    if (height === 4320) return '8K';
-    if (height === 2160) return '4K';
-    if (height === 1440) return '1440p (HD)';
-    return `${height}p`;
+    const num = Number(height);
+    if (!Number.isFinite(num) || num <= 0) return 'Auto';
+    if (num >= 3200) return '8K';
+    if (num >= 1800) return '4K';
+    if (num >= 1200) return '1440p (HD)';
+    if (num >= 900) return '1080p';
+    if (num >= 576) return '720p';
+    if (num >= 400) return '480p';
+    if (num >= 300) return '360p';
+    if (num >= 180) return '240p';
+    return '144p';
   }
 
   _renderControlBarQualityMenu(heights, selected = 'auto') {
@@ -1522,6 +1546,10 @@ class HybridApp {
 
     this.currentPlaybackType = 'youtube';
     const heights = await this._fetchYoutubeQualityHeights(url);
+    if (this.currentStreamUrl !== url || this.currentPlaybackType !== 'youtube') {
+      this._renderControlBarQualityMenu([], 'auto');
+      return;
+    }
     this.youtubeQualityHeights = heights;
     ytdbg('refresh quality UI', { url, heightsCount: heights.length, heights });
     const selected = heights.includes(Number(this.currentStreamQuality))
@@ -1591,6 +1619,9 @@ class HybridApp {
       }, 6000);
     }
 
+    if (this.currentStreamUrl !== targetUrl || this.currentPlaybackType !== 'youtube') {
+      return;
+    }
     this.currentStreamQuality = selectedHeight || 'auto';
     this._renderControlBarQualityMenu(this.youtubeQualityHeights, this.currentStreamQuality);
     ytdbg('apply quality done', { currentStreamQuality: this.currentStreamQuality });
@@ -1673,6 +1704,7 @@ class HybridApp {
             await this._loadMediaReplace(url);
           } catch (err) {
             ytdbg('youtube load fallback failed', { url, error: err });
+            this.resetToIdleState();
           }
         }
       } else {
@@ -1960,6 +1992,13 @@ class HybridApp {
 
     this.currentStreamUrl = null;
     this.currentPlaybackType = 'local';
+    this.youtubeQualityHeights = [];
+    this.currentStreamQuality = 'auto';
+    this._renderControlBarQualityMenu([], 'auto');
+    const ytControl = document.getElementById('youtubeQualityControl');
+    if (ytControl) ytControl.hidden = true;
+    const ytDropdown = document.getElementById('youtubeQualityDropdown');
+    if (ytDropdown) ytDropdown.hidden = true;
     this.controlsModule?.updateToolbarVisibility?.();
   }
 

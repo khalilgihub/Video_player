@@ -410,9 +410,33 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     updateSize(true);
   };
 
+  const isMainMount = containerElement.id === 'ditherMount' ||
+                      containerElement.parentElement?.id === 'welcomeScreen' ||
+                      containerElement.closest('#welcomeScreen');
+
+  let isMotionPaused = false;
   let isPaused = false;
+  let lastFrameTime = 0;
+  const fpsInterval = options.fpsLimit ? (1000 / options.fpsLimit) : 0;
+
+  const onMotionPause = (e) => {
+    if (!isMainMount) return;
+    isMotionPaused = Boolean(e?.detail?.paused);
+    if (!isMotionPaused && isPaused && !destroyed && !contextLost) {
+      resumeLoop();
+    }
+  };
+  if (isMainMount) {
+    window.addEventListener('hybrid:background-motion-pause', onMotionPause);
+  }
+
   const renderLoop = () => {
     if (destroyed || contextLost) return;
+    if (isMotionPaused) {
+      isPaused = true;
+      rafId = 0;
+      return;
+    }
     if (options.pauseWhenUnfocused && !isAppInteractive()) {
       isPaused = true;
       rafId = 0;
@@ -421,11 +445,32 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     isPaused = false;
     rafId = window.requestAnimationFrame(renderLoop);
 
+    if (fpsInterval > 0) {
+      const now = performance.now();
+      const elapsed = now - lastFrameTime;
+      if (elapsed < fpsInterval) return;
+      lastFrameTime = now - (elapsed % fpsInterval);
+    }
+
     renderFrame();
   };
 
+  const pause = () => {
+    isPaused = true;
+    if (rafId) {
+      window.cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+  };
+
   const resumeLoop = () => {
-    if (destroyed || contextLost) return;
+    if (destroyed || contextLost || isMotionPaused) return;
+    if (isMainMount) {
+      const popover = document.getElementById('bgAccordionPopover');
+      if (popover && !popover.hidden) return;
+      const curBg = window.__hybridWelcomeEffectsState?.welcomeBackground || 'dither';
+      if (curBg !== 'dither') return;
+    }
     if (isPaused && isAppInteractive()) {
       isPaused = false;
       if (!rafId) {
@@ -516,6 +561,9 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     window.removeEventListener('resize', onResize);
     window.removeEventListener('focus', resumeLoop);
     document.removeEventListener('visibilitychange', resumeLoop);
+    if (isMainMount) {
+      window.removeEventListener('hybrid:background-motion-pause', onMotionPause);
+    }
     if (resizeObserver) {
       resizeObserver.disconnect();
       resizeObserver = null;
@@ -547,6 +595,7 @@ export function initDitherWaves(containerElement, customOptions = {}) {
 
   const instance = {
     destroy,
+    pause,
     updateOptions,
     resize: (force = false) => (force ? updateSize(true) : onResize()),
     renderer,
@@ -672,6 +721,7 @@ async function syncLifecycleState() {
 
   // Fade-out grace period for smooth crossfading
   if (!teardownTimer && activeInstance) {
+    activeInstance.pause?.();
     teardownTimer = setTimeout(() => {
       teardownTimer = null;
       const ws = document.getElementById('welcomeScreen');

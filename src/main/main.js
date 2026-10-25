@@ -63,6 +63,7 @@ const YOUTUBE_HOSTS = new Set([
   'www.youtube-nocookie.com',
 ]);
 
+const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36';
 const YT_DLP_TIMEOUT_MS = 20000;
 const CLIP_EXPORT_TIMEOUT_MS = 5 * 60 * 1000;
 const CLIP_MAX_DURATION_SECONDS = 6 * 60 * 60;
@@ -393,6 +394,35 @@ async function clipMediaSegment({ filePath, startTime, duration }) {
   });
 }
 
+function mapFormatToStandardHeight(format) {
+  if (!format || format.vcodec === 'none') return null;
+  const note = String(format.format_note || '').toLowerCase();
+  const noteMatch = note.match(/^(\d{3,4})p/);
+  if (noteMatch) {
+    const parsed = Number(noteMatch[1]);
+    if (parsed > 0) return parsed;
+  }
+  if (note.includes('4k') || note.includes('2160p')) return 2160;
+  if (note.includes('8k') || note.includes('4320p')) return 4320;
+
+  const rawHeight = Number(format.height);
+  const rawWidth = Number(format.width);
+  const h = Number.isFinite(rawHeight) && rawHeight > 0 ? rawHeight : 0;
+  const w = Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : 0;
+  const shortSide = (h > 0 && w > 0) ? Math.min(h, w) : (h || w);
+  if (!shortSide || shortSide <= 0) return null;
+
+  if (shortSide >= 3200) return 4320;
+  if (shortSide >= 1800) return 2160;
+  if (shortSide >= 1200) return 1440;
+  if (shortSide >= 900) return 1080;
+  if (shortSide >= 576) return 720;
+  if (shortSide >= 400) return 480;
+  if (shortSide >= 300) return 360;
+  if (shortSide >= 180) return 240;
+  return 144;
+}
+
 async function getYoutubeQualityHeights(url) {
   const target = normalizeYoutubeUrl(url);
   if (!target) {
@@ -442,6 +472,8 @@ async function getYoutubeQualityHeights(url) {
     '-J',
     '--no-warnings',
     '--no-playlist',
+    '--user-agent',
+    DEFAULT_USER_AGENT,
     '--extractor-args',
     'youtube:player_skip=webpage;player_client=tv,web_embedded,android,web'
   ];
@@ -491,10 +523,9 @@ async function getYoutubeQualityHeights(url) {
 
   const heights = new Set();
   for (const format of payload.formats) {
-    if (!format || format.vcodec === 'none') continue;
-    const value = Number(format.height);
-    if (Number.isFinite(value) && value > 0) {
-      heights.add(Math.round(value));
+    const stdHeight = mapFormatToStandardHeight(format);
+    if (stdHeight) {
+      heights.add(stdHeight);
     }
   }
 
@@ -1747,7 +1778,9 @@ function createMainWindow() {
         defaultScreenshotDir: defaultScreenshotDir,
         screenshotFormat: effectiveScreenshotFormat,
         autoOrganizeScreenshots: currentDb?.preferences?.autoOrganizeScreenshots !== false,
-        enableYtdlRawOptions: true
+        enableYtdlRawOptions: true,
+        userAgent: DEFAULT_USER_AGENT,
+        ytdlUserAgent: DEFAULT_USER_AGENT
       });
       maindbg('mpv engine ready (in-process or IPC bridge)');
     } catch (err) {
