@@ -325,6 +325,7 @@ function setupMpvIpc(win, mpv, options = {}) {
     'sub-back-color',
     'loop-file',
     'loop-playlist',
+    'options/start',
   ]);
 
   const seekFlagsAllowlist = new Set([
@@ -426,6 +427,15 @@ function setupMpvIpc(win, mpv, options = {}) {
       case 'loop-file':
       case 'loop-playlist':
         return (value === 'inf' || value === 'no' || value === 'force') ? value : null;
+      case 'options/start': {
+        // Start position applied to the next loaded file. '0' means normal
+        // playback from the beginning; otherwise a bounded second offset.
+        if (value === '0' || value === '') return '0';
+        const seconds = Number(value);
+        return Number.isFinite(seconds) && seconds > 0 && seconds <= 30 * 24 * 60 * 60
+          ? String(seconds)
+          : null;
+      }
       default:
         return null;
     }

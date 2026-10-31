@@ -536,6 +536,7 @@ class HybridSettings {
           this._activateModal(overlay);
           if (overlay.id === 'settingsModal') {
             this._refreshYtdlpStatus?.({ checkRemote: false });
+            this._refreshYtdlpCookiesStatus?.();
             this._renderShortcutList?.();
           }
           if (overlay.id === 'bgSettingsModal') {
@@ -752,12 +753,100 @@ class HybridSettings {
       await this._performYtdlpUpdate();
     });
 
+    document.getElementById('btnYtSigninCookies')?.addEventListener('click', async () => {
+      try {
+        await window.hybridAPI?.youtube?.openSignin?.();
+        window.HybridToast?.show('Sign-in window opened — complete sign-in and close it when done; cookies save automatically', 6000);
+      } catch (err) {
+        window.HybridToast?.show('Could not open the sign-in window');
+      }
+    });
+
+    document.getElementById('btnYtSwitchAccount')?.addEventListener('click', async () => {
+      try {
+        await window.hybridAPI?.youtube?.openSignin?.({ switchAccount: true });
+        window.HybridToast?.show('Sign-in window opened — sign in to switch account and close when done', 6000);
+      } catch (err) {
+        window.HybridToast?.show('Could not open the sign-in window');
+      }
+    });
+
+    document.getElementById('btnYtSignoutCookies')?.addEventListener('click', async () => {
+      try {
+        const res = await window.hybridAPI?.youtube?.signOut?.();
+        if (res?.success) {
+          window.HybridToast?.show('Signed out of YouTube — cookies cleared');
+        } else {
+          window.HybridToast?.show('YouTube cookies removed');
+        }
+        await this._refreshYtdlpCookiesStatus();
+      } catch (err) {
+        window.HybridToast?.show('Could not sign out of YouTube');
+      }
+    });
+
+    window.hybridAPI?.on?.('youtube:signin-success', () => {
+      window.HybridToast?.show('YouTube account linked — cookies saved and auto-refresh from now on', 5000);
+      this._refreshYtdlpCookiesStatus();
+    });
+
+    window.hybridAPI?.on?.('youtube:signout-success', () => {
+      this._refreshYtdlpCookiesStatus();
+    });
+
+    window.hybridAPI?.on?.('youtube:signin-blocked', () => {
+      window.HybridToast?.showError('Google blocked the sign-in window. Please try signing in again.');
+    });
+
     window.hybridAPI?.on?.('ytdlp:update-available', (info) => {
       this._handleYtdlpUpdateAvailable(info);
     });
 
+    this._refreshYtdlpCookiesStatus?.();
     // Welcome background quality — now a segmented radio group (see _bindQualityRadios).
     // Legacy select is removed from the DOM; this handler is a no-op safety net.
+  }
+
+  async _refreshYtdlpCookiesStatus() {
+    const el = document.getElementById('settYtdlpCookies');
+    const signinBtn = document.getElementById('btnYtSigninCookies');
+    const signedInActions = document.getElementById('ytSignedInActions');
+    const hint = document.getElementById('settYtdlpCookiesHint');
+    if (!el) return;
+
+    try {
+      const status = await window.hybridAPI?.youtube?.getCookiesStatus?.();
+      const isConnected = Boolean(status?.accountLinked);
+
+      if (isConnected) {
+        el.className = 'yt-status-badge yt-badge-connected';
+        el.innerHTML = '<span class="yt-status-dot"></span>Signed in';
+        if (signinBtn) signinBtn.style.display = 'none';
+        if (signedInActions) signedInActions.style.display = 'flex';
+        if (hint) {
+          hint.textContent = 'Signed in to YouTube. Authenticated session enables 4K streams, age-restricted videos, and prevents bot-detection throttling.';
+        }
+      } else {
+        el.className = 'yt-status-badge yt-badge-disconnected';
+        el.innerHTML = '<span class="yt-status-dot"></span>Not signed in';
+        if (signinBtn) {
+          signinBtn.style.display = '';
+          signinBtn.textContent = 'Sign in to YouTube';
+        }
+        if (signedInActions) signedInActions.style.display = 'none';
+        if (hint) {
+          hint.textContent = 'Click "Sign in to YouTube" to authenticate via a clean browser window. Session cookies sync automatically for 4K and restricted streams.';
+        }
+      }
+    } catch {
+      el.className = 'yt-status-badge yt-badge-disconnected';
+      el.innerHTML = '<span class="yt-status-dot"></span>Not signed in';
+      if (signinBtn) {
+        signinBtn.style.display = '';
+        signinBtn.textContent = 'Sign in to YouTube';
+      }
+      if (signedInActions) signedInActions.style.display = 'none';
+    }
   }
 
   async _refreshYtdlpStatus({ checkRemote = false, userTriggered = false } = {}) {
@@ -2159,6 +2248,7 @@ class HybridSettings {
       document.querySelectorAll('.has-custom-select').forEach(sel => {
         sel._customSelectRebuild?.();
       });
+      this._refreshYtdlpCookiesStatus?.();
     } catch (err) {
       console.warn('Failed to sync settings form state:', err);
     }

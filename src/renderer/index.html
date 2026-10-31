@@ -266,6 +266,7 @@
         </svg>
       </div>
       <span class="titlebar-title" id="titlebarText">Hybrid Player</span>
+      <span class="yt-live-badge" id="ytLiveBadge" hidden>LIVE</span>
     </div>
     <div class="titlebar-controls">
       <button class="titlebar-btn" id="btnMinimize" type="button" title="Minimize" aria-label="Minimize window">
@@ -996,6 +997,37 @@
                 <div class="setting-path-actions">
                   <button type="button" class="btn-secondary btn-compact" id="btnCheckYtdlpUpdate">Check for Updates</button>
                   <button type="button" class="btn-secondary btn-compact" id="btnUpdateYtdlp" style="display: none;">Update Engine</button>
+                </div>
+              </div>
+              <!-- Dedicated YouTube Obsidian Card -->
+              <div class="yt-cookies-card" id="ytCookiesCard">
+                <div class="yt-cookies-header">
+                  <div class="yt-cookies-title-wrap">
+                    <div class="yt-icon-badge" aria-hidden="true">
+                      <svg viewBox="0 0 28 20" class="yt-real-logo" fill="none">
+                        <path d="M27.438 3.125C27.117 1.93 26.176 0.988 24.98 0.668 22.809 0.082 14 0.082 14 0.082s-8.809 0-10.98.586C1.824 0.988 0.883 1.93 0.562 3.125 0 5.309 0 9.844 0 9.844s0 4.535.562 6.719c.321 1.195 1.262 2.137 2.458 2.457C5.191 19.605 14 19.605 14 19.605s8.809 0 10.98-.586c1.196-.32 2.137-1.262 2.458-2.457.562-2.184.562-6.719.562-6.719s0-4.535-.562-6.718z" fill="#FF0000"/>
+                        <polygon points="11.2,14.07 18.48,9.844 11.2,5.617" fill="#FFFFFF"/>
+                      </svg>
+                    </div>
+                    <div>
+                      <div class="yt-card-label">YouTube Account</div>
+                      <div class="yt-card-sublabel">Authentication &amp; Cookies</div>
+                    </div>
+                  </div>
+                  <span id="settYtdlpCookies" class="yt-status-badge yt-badge-disconnected"><span class="yt-status-dot"></span>Not signed in</span>
+                </div>
+
+                <div class="yt-cookies-body">
+                  <p class="setting-hint" id="settYtdlpCookiesHint">
+                    Click "Sign in to YouTube" to authenticate via a clean browser window. Session cookies sync automatically for 4K and restricted streams.
+                  </p>
+                  <div class="yt-cookies-actions">
+                    <button type="button" class="btn-primary-accent btn-compact" id="btnYtSigninCookies">Sign in to YouTube</button>
+                    <div class="yt-signed-in-actions" id="ytSignedInActions" style="display: none;">
+                      <button type="button" class="btn-secondary btn-compact" id="btnYtSwitchAccount">Switch Account</button>
+                      <button type="button" class="btn-secondary btn-compact btn-danger-soft" id="btnYtSignoutCookies">Sign Out</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

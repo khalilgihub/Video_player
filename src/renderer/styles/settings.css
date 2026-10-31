@@ -145,8 +145,20 @@
   color: rgba(255, 255, 255, 0.7);
 }
 
+.setting-hint {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+[data-theme="light"] .setting-hint {
+  color: rgba(20, 24, 36, 0.55);
+}
+
 .setting-path-actions {
   display: flex;
+  align-items: center;
   gap: 7px;
   justify-content: flex-end;
 }
@@ -173,6 +185,246 @@
   color: #fff;
   transform: translateY(-1px);
 }
+
+/* ─── YouTube Authentication Obsidian Card ─── */
+.yt-cookies-card {
+  margin-top: 10px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.012) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  padding: 13px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.yt-cookies-card:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.yt-cookies-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.yt-cookies-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.yt-icon-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+}
+
+.yt-icon-badge:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.yt-real-logo {
+  width: 22px;
+  height: 16px;
+  display: block;
+}
+
+.yt-card-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f4f4f5;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.yt-card-sublabel {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 1px;
+  line-height: 1.2;
+}
+
+.yt-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.yt-badge-connected {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  color: #4ade80;
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.1);
+}
+
+.yt-badge-disconnected {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.yt-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.yt-badge-connected .yt-status-dot {
+  background: #22c55e;
+  box-shadow: 0 0 6px #22c55e;
+  animation: yt-pulse 2s infinite ease-in-out;
+}
+
+.yt-badge-disconnected .yt-status-dot {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+@keyframes yt-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+.yt-cookies-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.yt-cookies-body .setting-hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.48;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.yt-cookies-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.yt-signed-in-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-primary-accent {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 15px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  outline: none !important;
+  background: linear-gradient(180deg, #ff0033 0%, #cc0000 100%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(204, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: all 0.16s ease;
+  letter-spacing: -0.01em;
+}
+
+.btn-primary-accent:hover {
+  background: linear-gradient(180deg, #ff1a44 0%, #dc0000 100%);
+  border-color: rgba(255, 255, 255, 0.26);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(204, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  transform: translateY(-1px);
+}
+
+.btn-primary-accent:active {
+  transform: translateY(0);
+  filter: brightness(0.95);
+}
+
+.btn-danger-soft {
+  color: #f87171 !important;
+  background: rgba(239, 68, 68, 0.08) !important;
+  border-color: rgba(239, 68, 68, 0.22) !important;
+}
+
+.btn-danger-soft:hover {
+  background: rgba(239, 68, 68, 0.16) !important;
+  border-color: rgba(239, 68, 68, 0.38) !important;
+  color: #fca5a5 !important;
+}
+
+/* Light theme overrides */
+[data-theme="light"] .yt-cookies-card {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+[data-theme="light"] .yt-icon-badge {
+  background: rgba(0, 0, 0, 0.035);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+[data-theme="light"] .yt-card-label {
+  color: #18181b;
+}
+[data-theme="light"] .yt-card-sublabel {
+  color: rgba(0, 0, 0, 0.5);
+}
+[data-theme="light"] .yt-cookies-body .setting-hint {
+  color: rgba(0, 0, 0, 0.6);
+}
+[data-theme="light"] .yt-badge-disconnected {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.6);
+}
+[data-theme="light"] .yt-badge-connected {
+  background: rgba(22, 163, 74, 0.1);
+  border-color: rgba(22, 163, 74, 0.25);
+  color: #16a34a;
+}
+
+/* OLED theme overrides */
+[data-theme="oled"] .yt-cookies-card {
+  background: #000000;
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+}
+[data-theme="oled"] .yt-icon-badge {
+  background: #080808;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+[data-theme="oled"] .yt-badge-disconnected {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+}
+
 
 .settings-actions-list {
   display: grid;

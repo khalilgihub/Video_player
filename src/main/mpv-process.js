@@ -18,6 +18,7 @@ const { resolveMpvBinary, resolveYtDlpBinary, resolveLibMpv } = require('./binar
 const { resolveScreenshotSubfolder } = require('./media-folder-resolver');
 const { LibmpvContext, koffi } = require('./libmpv-koffi');
 const { dxBridgeManager } = require('./dx-bridge-wrapper');
+const { YTDLP_EXTRACTOR_ARGS } = require('./youtube');
 
 // Fullscreen/input trace logging.
 const FS_DEBUG = false;
@@ -140,6 +141,10 @@ class MpvProcess extends EventEmitter {
     const defaultUserAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36';
     const effectiveUserAgent = opts.userAgent || opts.ytdlUserAgent || defaultUserAgent;
+    // Kept for refreshYtdlOptions(): re-apply ytdl-raw-options when cookies
+    // are imported mid-session.
+    this._ytDlpCookiePath = cookiesPath || '';
+    this._ytDlpUserAgent = effectiveUserAgent;
     const fallbackScreenshotDir = (app?.isPackaged && app?.getPath)
       ? path.join(app.getPath('userData'), 'screenshots')
       : path.join(__dirname, '../../screenshots');
@@ -273,7 +278,9 @@ class MpvProcess extends EventEmitter {
           };
           const ytdlRawOptions = [];
           if (opts.enableYtdlRawOptions === true) {
-            ytdlRawOptions.push(`extractor-args=${formatYtdlOptionValue('youtube:player_skip=webpage;player_client=tv,web_embedded,android,web')}`);
+            if (YTDLP_EXTRACTOR_ARGS) {
+              ytdlRawOptions.push(`extractor-args=${formatYtdlOptionValue(YTDLP_EXTRACTOR_ARGS)}`);
+            }
             if (effectiveUserAgent) {
               ytdlRawOptions.push(`user-agent=${formatYtdlOptionValue(effectiveUserAgent)}`);
             }
@@ -460,7 +467,9 @@ class MpvProcess extends EventEmitter {
     };
     const ytdlRawOptions = [];
     if (opts.enableYtdlRawOptions === true) {
-      ytdlRawOptions.push(`extractor-args=${formatYtdlOptionValue('youtube:player_skip=webpage;player_client=tv,web_embedded,android,web')}`);
+      if (YTDLP_EXTRACTOR_ARGS) {
+        ytdlRawOptions.push(`extractor-args=${formatYtdlOptionValue(YTDLP_EXTRACTOR_ARGS)}`);
+      }
       if (effectiveUserAgent) {
         ytdlRawOptions.push(`user-agent=${formatYtdlOptionValue(effectiveUserAgent)}`);
       }
@@ -822,7 +831,45 @@ class MpvProcess extends EventEmitter {
 
   loadFile(filePath) {
     this.filePath = filePath;
-    return this.command('loadfile', filePath, 'replace').then(() => true);
+    // Reset the `start` option so a pending resume offset from a previous
+    // load (set via options/start) cannot leak into this file.
+    return this.setProperty('options/start', '0')
+      .catch(() => {})
+      .then(() => this.command('loadfile', filePath, 'replace'))
+      .then(() => true);
+  }
+
+  /**
+   * Re-apply ytdl-raw-options on the live instance after cookies.txt was
+   * created or updated. ytdl_hook may read this option per file load, so
+   * playback can pick cookies up without a restart; when it does not,
+   * the next app start applies them regardless.
+   */
+  refreshYtdlOptions() {
+    const formatValue = (val) => {
+      const str = String(val || '');
+      return str.includes(',') ? `[${str}]` : str;
+    };
+    const raw = [];
+    if (this._ytDlpUserAgent) {
+      raw.push(`user-agent=${formatValue(this._ytDlpUserAgent)}`);
+    }
+    const cookiesPath = this._ytDlpCookiePath || path.join(app.getPath('userData'), 'cookies.txt');
+    if (cookiesPath && fs.existsSync(cookiesPath)) {
+      raw.push(`cookies=${formatValue(cookiesPath)}`);
+      this._ytDlpCookiePath = cookiesPath;
+    }
+    const value = raw.join(',');
+    try {
+      if (this.inProcess && this._libmpv) {
+        const res = this._libmpv.setPropertyString('ytdl-raw-options', value);
+        return Promise.resolve(res >= 0);
+      }
+      return this.command('set_property', 'ytdl-raw-options', value).then(() => true).catch(() => false);
+    } catch (err) {
+      mpverr('refreshYtdlOptions failed', err?.message || err);
+      return Promise.resolve(false);
+    }
   }
 
   play()  { return this.setProperty('pause', false); }

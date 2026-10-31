@@ -1,4 +1,4 @@
-/**
+cd/**
  * Hybrid Player - mpv Process Manager
  * Spawns and manages the mpv child process with IPC socket communication.
  *

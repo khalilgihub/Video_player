@@ -249,8 +249,22 @@ class HybridApp {
     this.currentStreamUrl = null;
     this.currentStreamQuality = 'auto';
     this.youtubeQualityHeights = [];
-    this.youtubeQualityCache = new Map();
-    this.youtubeQualityInFlight = new Map();
+    this.currentYoutubeInfo = null;
+    this._youtubeHeightsVideoId = null;
+    // yt-dlp extraction results keyed by video ID (30-min TTL); failures are
+    // not cached so a transient YouTube error retries on the next fetch.
+    this.youtubeInfoCache = new Map();
+    this.youtubeInfoInFlight = new Map();
+    this.youtubeInfoCacheTtlMs = 30 * 60 * 1000;
+    // Quality probe is deferred until playback has started so yt-dlp doesn't
+    // compete with the first video segments for bandwidth.
+    this._youtubeProbeTimer = null;
+    this._youtubeProbeUrl = null;
+    this._youtubePlaylistLoadId = 0;
+    this._lastYoutubeLoadUrl = null;
+    this._ytAutoRetryUsed = false;
+    this._activeYoutubePlaylistId = null;
+    this._lastFailedLoadUrl = null;
     this.youtubeQualityLookupTimer = null;
     this._loadSpinnerPending = false;
     this._loadSpinnerShownAt = 0;
@@ -735,7 +749,10 @@ class HybridApp {
             this.currentStreamUrl = null;
             this.currentPlaybackType = 'local';
             this.youtubeQualityHeights = [];
+            this.currentYoutubeInfo = null;
+            this._youtubeHeightsVideoId = null;
             this.currentStreamQuality = 'auto';
+            this._cancelScheduledYoutubeProbe();
             this._renderControlBarQualityMenu([], 'auto');
           }
         }
@@ -879,9 +896,17 @@ class HybridApp {
   }
 
   _handlePlaybackError(data) {
+    // Other mpv-event handlers may have already reset currentPlaybackType /
+    // currentStreamUrl by the time we run, so fall back to what was loading.
+    const wasYoutube = this.currentPlaybackType === 'youtube' || !!this._lastYoutubeLoadUrl;
+    const failedUrl = this.currentStreamUrl || (wasYoutube ? this._lastYoutubeLoadUrl : null);
+    this._lastYoutubeLoadUrl = null;
     this._cancelVideoLoadSpinner?.();
+    this._cancelScheduledYoutubeProbe();
     this.currentStreamUrl = null;
     this.currentPlaybackType = 'local';
+    this.currentYoutubeInfo = null;
+    this._youtubeHeightsVideoId = null;
     this.youtubeQualityHeights = [];
     this.currentStreamQuality = 'auto';
     this._renderControlBarQualityMenu([], 'auto');
@@ -896,22 +921,65 @@ class HybridApp {
       ? candidateMsg.trim()
       : (typeof data === 'string' && data.trim() ? data.trim() : 'Stream or file failed to load');
     const prefix = payload.fatal ? 'Playback engine unavailable' : 'Playback error';
-    window.HybridToast?.show(`${prefix}: ${message}`);
 
-    if (this.currentPlaybackType === 'youtube') {
-      window.hybridAPI?.ytdlp?.checkForUpdate?.().then((info) => {
-        if (info?.available) {
-          if (this.settingsModule?._handleYtdlpUpdateAvailable) {
-            this.settingsModule._handleYtdlpUpdateAvailable(info, { suppressToast: true });
-          }
-          setTimeout(() => {
-            window.HybridToast?.showUpdatePrompt(info, async () => {
-              return await this.settingsModule?._performYtdlpUpdate?.({ fromNotification: true }) || await window.hybridAPI?.ytdlp?.update?.();
-            });
-          }, 1200);
-        }
-      }).catch(() => {});
+    if (wasYoutube && failedUrl) {
+      this._lastFailedLoadUrl = failedUrl;
+
+      // YouTube bot-gating is transient per request — one automatic retry
+      // recovers most failures without user action. Anything after that
+      // falls through to the manual error UI.
+      if (!this._ytAutoRetryUsed && !payload.fatal) {
+        this._ytAutoRetryUsed = true;
+        window.HybridToast?.show('YouTube blocked the request — retrying automatically...', 3500);
+        setTimeout(() => {
+          if (this.currentPlaybackType !== 'local' || this.currentStreamUrl) return;
+          this._loadMediaReplace(failedUrl).catch((err) => {
+            ytdbg('auto-retry load failed', { failedUrl, error: String(err?.message || err) });
+          });
+        }, 1800);
+        this._runYtdlpUpdateCheck();
+        return;
+      }
+
+      const hint = /no audio or video data|sign in to confirm|bot|403/i.test(message)
+        ? " YouTube's anti-bot check is likely blocking this request — use \"Sign in to YouTube\" in Settings → Streaming Engine to make access reliable."
+        : '';
+      window.HybridToast?.showError(`YouTube playback failed: ${message}.${hint}`, {
+        actions: [
+          {
+            label: 'Retry',
+            onClick: () => {
+              const retryUrl = this._lastFailedLoadUrl;
+              if (!retryUrl) return;
+              window.HybridToast?.show('Retrying...');
+              this._loadMediaReplace(retryUrl).catch((err) => {
+                ytdbg('retry load failed', { retryUrl, error: String(err?.message || err) });
+                window.HybridToast?.show('Retry failed');
+              });
+            },
+          },
+        ],
+      });
+
+      this._runYtdlpUpdateCheck();
+    } else {
+      window.HybridToast?.show(`${prefix}: ${message}`);
     }
+  }
+
+  _runYtdlpUpdateCheck() {
+    window.hybridAPI?.ytdlp?.checkForUpdate?.().then((info) => {
+      if (info?.available) {
+        if (this.settingsModule?._handleYtdlpUpdateAvailable) {
+          this.settingsModule._handleYtdlpUpdateAvailable(info, { suppressToast: true });
+        }
+        setTimeout(() => {
+          window.HybridToast?.showUpdatePrompt(info, async () => {
+            return await this.settingsModule?._performYtdlpUpdate?.({ fromNotification: true }) || await window.hybridAPI?.ytdlp?.update?.();
+          });
+        }, 1200);
+      }
+    }).catch(() => {});
   }
 
   async openFiles(filePaths, { replacePlaylist = false, playFirst = false } = {}) {
@@ -1015,7 +1083,13 @@ class HybridApp {
     }
   }
 
-  async _loadMediaReplace(filePathOrUrl) {
+  async _loadMediaReplace(filePathOrUrl, { startAt = 0 } = {}) {
+    // Recorded before anything can reset playback state: mpv end-file error
+    // events and _handlePlaybackError race on currentPlaybackType.
+    if (this._isYoutubeUrl(filePathOrUrl)) {
+      this._lastYoutubeLoadUrl = filePathOrUrl;
+      this._ytAutoRetryUsed = false;
+    }
     this._closeSettingsModal();
     this._syncUiAfterDirectLoad(filePathOrUrl);
     this._beginVideoLoadSpinner();
@@ -1026,7 +1100,49 @@ class HybridApp {
       this.playlistModule._renderList();
     }
     await window.hybridAPI.mpv.setProperty('vid', 'auto');
+
+    let effectiveStart = Number(startAt) || 0;
+    if (!effectiveStart && this._isYoutubeUrl(filePathOrUrl)) {
+      effectiveStart = await this._resolveYoutubeResumeStart(filePathOrUrl);
+    }
+
+    // This mpv build rejects per-load options on the loadfile command itself
+    // (mpv_command returns INVALID_PARAMETER for both the flags form and the
+    // positional options form), so the start position rides on the `start`
+    // option instead: it is set before every load and applies to exactly the
+    // next loaded file. '0' resets it to normal playback from the beginning.
+    try {
+      await window.hybridAPI.mpv.setProperty(
+        'options/start',
+        effectiveStart > 0 ? String(Math.min(effectiveStart, 30 * 24 * 60 * 60)) : '0'
+      );
+    } catch (err) {
+      ytdbg('set options/start failed', { effectiveStart, error: String(err?.message || err) });
+    }
     await window.hybridAPI.mpv.command('loadfile', filePathOrUrl, 'replace');
+  }
+
+  async _resolveYoutubeResumeStart(url) {
+    try {
+      const prefs = await window.hybridAPI.db.getAllPreferences();
+      if (!prefs || !prefs.autoResume) return 0;
+      const resumeTime = Number(await window.hybridAPI.resume.get(url)) || 0;
+      if (resumeTime <= 5) return 0;
+      window.HybridToast?.show(`Resuming from ${this._formatTimestamp(resumeTime)}`);
+      return resumeTime;
+    } catch {
+      return 0;
+    }
+  }
+
+  _formatTimestamp(totalSeconds) {
+    const sec = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
+    const ss = String(s).padStart(2, '0');
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
   }
 
   async _loadMediaReplaceAppend(paths) {
@@ -1043,6 +1159,11 @@ class HybridApp {
       this.playlistModule._renderList();
     }
     await window.hybridAPI.mpv.setProperty('vid', 'auto');
+    try {
+      await window.hybridAPI.mpv.setProperty('options/start', '0');
+    } catch {
+      // Best-effort reset; a stale start option must not leak into this load.
+    }
     await window.hybridAPI.mpv.command('loadfile', clean[0], 'replace');
 
     window.HybridToast?.show(`Loaded ${clean.length} item(s)`);
@@ -1083,12 +1204,30 @@ class HybridApp {
     this.player.currentPlaybackType = this.currentPlaybackType;
 
     if (this.currentPlaybackType === 'youtube') {
-      this._refreshYoutubeQualityUi(filePathOrUrl).catch(() => {
-        this._renderControlBarQualityMenu([], 'auto');
+      this._setYoutubeLiveBadge(false);
+      // Keep cached heights when they belong to the same video; otherwise
+      // render just "Auto" now — the yt-dlp probe runs after playback has
+      // started so it doesn't compete with the first video segments
+      // (see _scheduleYoutubeProbe).
+      const videoId = this._extractYoutubeId(filePathOrUrl);
+      if (this._youtubeHeightsVideoId && this._youtubeHeightsVideoId !== videoId) {
+        this.youtubeQualityHeights = [];
+        this.currentStreamQuality = 'auto';
+        this.currentYoutubeInfo = null;
+        this._youtubeHeightsVideoId = null;
+      }
+      this._renderControlBarQualityMenu(this.youtubeQualityHeights, this.currentStreamQuality);
+      this._scheduleYoutubeProbe(filePathOrUrl);
+      this._populateYoutubePlaylist(filePathOrUrl).catch((err) => {
+        ytdbg('youtube playlist populate failed', { error: String(err?.message || err) });
       });
     } else {
+      this._cancelScheduledYoutubeProbe();
+      this._setYoutubeLiveBadge(false);
+      this._lastYoutubeLoadUrl = null;
       this.youtubeQualityHeights = [];
       this.currentStreamQuality = 'auto';
+      this.currentYoutubeInfo = null;
       this._renderControlBarQualityMenu([], 'auto');
     }
 
@@ -1097,6 +1236,38 @@ class HybridApp {
       : `${filePathOrUrl.split(/[/\\]/).pop()} — Hybrid Player`;
     const titleEl = document.getElementById('titlebarText');
     if (titleEl) titleEl.textContent = titleText;
+  }
+
+  _extractYoutubeId(url) {
+    const normalized = this._isYoutubeUrl(url) ? this._normalizeNetworkMediaUrl(url) : null;
+    if (!normalized) return null;
+    try {
+      const parsed = new URL(normalized);
+      const host = parsed.hostname.toLowerCase();
+      if (host === 'youtu.be') {
+        return parsed.pathname.split('/').filter(Boolean)[0] || null;
+      }
+      const vParam = parsed.searchParams.get('v');
+      if (vParam) return vParam;
+      const segments = parsed.pathname.split('/').filter(Boolean);
+      const markerIndex = segments.findIndex((seg) => ['embed', 'shorts', 'live', 'v'].includes(seg));
+      if (markerIndex !== -1 && segments[markerIndex + 1]) {
+        return segments[markerIndex + 1];
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  _extractYoutubePlaylistId(url) {
+    const normalized = this._isYoutubeUrl(url) ? this._normalizeNetworkMediaUrl(url) : null;
+    if (!normalized) return null;
+    try {
+      return new URL(normalized).searchParams.get('list') || null;
+    } catch {
+      return null;
+    }
   }
 
   _setNetworkLoading(visible) {
@@ -1445,6 +1616,7 @@ class HybridApp {
   }
 
   _mapQualityLabel(height) {
+    if (height === 'audio') return 'Audio only';
     const num = Number(height);
     if (!Number.isFinite(num) || num <= 0) return 'Auto';
     if (num >= 3200) return '8K';
@@ -1466,22 +1638,22 @@ class HybridApp {
     if (!wrap || !btn || !list || !dropdown) return;
 
     list.replaceChildren();
-    const options = ['auto', ...heights];
+    const options = ['auto', 'audio', ...heights];
 
     options.forEach((item) => {
-      const value = item === 'auto' ? 'auto' : String(item);
+      const value = item === 'auto' ? 'auto' : (item === 'audio' ? 'audio' : String(item));
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'quality-dropdown-item';
       button.dataset.quality = value;
-      button.textContent = item === 'auto' ? 'Auto' : this._mapQualityLabel(Number(item));
+      button.textContent = this._mapQualityLabel(item);
       if (String(selected) === value) {
         button.classList.add('active');
       }
       list.appendChild(button);
     });
 
-    const selectedText = selected === 'auto' ? 'Auto' : this._mapQualityLabel(Number(selected));
+    const selectedText = this._mapQualityLabel(selected);
     btn.textContent = selectedText;
 
     if (this.currentPlaybackType === 'youtube') {
@@ -1492,47 +1664,83 @@ class HybridApp {
     }
   }
 
-  async _fetchYoutubeQualityHeights(url) {
-    const key = String(url || '').trim();
-    if (!key) return [];
+  _youtubeInfoCacheKey(url) {
+    return this._extractYoutubeId(url) || String(url || '').trim();
+  }
 
-    if (this.youtubeQualityCache.has(key)) {
-      const cached = this.youtubeQualityCache.get(key) || [];
-      ytdbg('fetch qualities cache hit', { url: key, count: cached.length });
+  _readCachedYoutubeInfo(url) {
+    const key = this._youtubeInfoCacheKey(url);
+    const entry = this.youtubeInfoCache.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.fetchedAt > this.youtubeInfoCacheTtlMs) {
+      this.youtubeInfoCache.delete(key);
+      return null;
+    }
+    return entry.info;
+  }
+
+  async _fetchYoutubeInfo(url) {
+    const key = this._youtubeInfoCacheKey(url);
+    if (!key) return null;
+
+    const cached = this._readCachedYoutubeInfo(url);
+    if (cached) {
+      ytdbg('fetch info cache hit', { key, heights: cached.heights?.length || 0 });
       return cached;
     }
 
-    if (this.youtubeQualityInFlight.has(key)) {
-      ytdbg('fetch qualities join in-flight request', { url: key });
-      return this.youtubeQualityInFlight.get(key);
+    if (this.youtubeInfoInFlight.has(key)) {
+      ytdbg('fetch info join in-flight request', { key });
+      return this.youtubeInfoInFlight.get(key);
     }
 
     const request = (async () => {
-    try {
-      ytdbg('fetch qualities start', { url: key });
-      const heights = await window.hybridAPI.youtube.getQualityHeights(key);
-
-      if (!Array.isArray(heights)) return [];
-
-      const clean = heights
-        .map((height) => Number(height))
-        .filter((height) => Number.isFinite(height) && height > 0)
-        .map((height) => Math.round(height));
-
-      const result = Array.from(new Set(clean)).sort((a, b) => b - a);
-      ytdbg('fetch qualities success', { count: result.length, heights: result });
-      this.youtubeQualityCache.set(key, result);
-      return result;
-    } catch {
-      ytdbg('fetch qualities error');
-      return [];
-    } finally {
-      this.youtubeQualityInFlight.delete(key);
-    }
+      try {
+        ytdbg('fetch info start', { url, key });
+        const info = await window.hybridAPI.youtube.getInfo(url);
+        if (!info || !Array.isArray(info.heights)) return null;
+        this.youtubeInfoCache.set(key, { info, fetchedAt: Date.now() });
+        ytdbg('fetch info success', { key, heights: info.heights, title: info.title });
+        return info;
+      } catch {
+        ytdbg('fetch info error');
+        return null;
+      } finally {
+        this.youtubeInfoInFlight.delete(key);
+      }
     })();
 
-    this.youtubeQualityInFlight.set(key, request);
+    this.youtubeInfoInFlight.set(key, request);
     return request;
+  }
+
+  async _fetchYoutubeQualityHeights(url) {
+    const info = await this._fetchYoutubeInfo(url);
+    return Array.isArray(info?.heights) ? info.heights : [];
+  }
+
+  _scheduleYoutubeProbe(url) {
+    this._cancelScheduledYoutubeProbe();
+    this._youtubeProbeUrl = url;
+    // Let playback claim the network first; the probe feeds both the quality
+    // menu and the title/LIVE metadata.
+    this._youtubeProbeTimer = setTimeout(() => {
+      this._youtubeProbeTimer = null;
+      const target = this._youtubeProbeUrl;
+      this._youtubeProbeUrl = null;
+      if (!target || this.currentStreamUrl !== target || this.currentPlaybackType !== 'youtube') return;
+      this._refreshYoutubeQualityUi(target).catch(() => {
+        ytdbg('scheduled probe failed', { url: target });
+      });
+    }, 3500);
+  }
+
+  _cancelScheduledYoutubeProbe() {
+    if (this._youtubeProbeTimer) {
+      clearTimeout(this._youtubeProbeTimer);
+      this._youtubeProbeTimer = null;
+    }
+    this._youtubeProbeUrl = null;
   }
 
   async _refreshYoutubeQualityUi(url) {
@@ -1545,20 +1753,93 @@ class HybridApp {
     }
 
     this.currentPlaybackType = 'youtube';
-    const heights = await this._fetchYoutubeQualityHeights(url);
+    const info = await this._fetchYoutubeInfo(url);
     if (this.currentStreamUrl !== url || this.currentPlaybackType !== 'youtube') {
-      this._renderControlBarQualityMenu([], 'auto');
       return;
     }
+    const heights = Array.isArray(info?.heights) ? info.heights : [];
     this.youtubeQualityHeights = heights;
+    this.currentYoutubeInfo = info || null;
+    this._youtubeHeightsVideoId = info?.videoId || this._extractYoutubeId(url) || null;
+    if (info) {
+      this._applyYoutubeMetadata(info);
+    }
     ytdbg('refresh quality UI', { url, heightsCount: heights.length, heights });
-    const selected = heights.includes(Number(this.currentStreamQuality))
-      ? this.currentStreamQuality
+    const currentQuality = this.currentStreamQuality;
+    const selected = currentQuality === 'audio' || heights.includes(Number(currentQuality))
+      ? currentQuality
       : 'auto';
     this._renderControlBarQualityMenu(heights, selected);
   }
 
+  _applyYoutubeMetadata(info) {
+    if (!info) return;
+    const titleEl = document.getElementById('titlebarText');
+    if (titleEl) {
+      const parts = [];
+      if (info.title) parts.push(info.title);
+      if (info.uploader) parts.push(info.uploader);
+      if (parts.length > 0) {
+        titleEl.textContent = `${parts.join(' — ')} — Hybrid Player`;
+      }
+    }
+    this._setYoutubeLiveBadge(info.isLive === true);
+  }
+
+  _setYoutubeLiveBadge(visible) {
+    const badge = document.getElementById('ytLiveBadge');
+    if (badge) badge.hidden = !visible;
+  }
+
+  async _populateYoutubePlaylist(url) {
+    const playlistId = this._extractYoutubePlaylistId(url);
+    if (!playlistId) return;
+
+    if (this._activeYoutubePlaylistId === playlistId
+      && this.playlistModule?.items?.some((item) => this._extractYoutubeId(item.path) === this._extractYoutubeId(url))) {
+      ytdbg('youtube playlist already populated', { playlistId });
+      return;
+    }
+
+    const loadId = ++this._youtubePlaylistLoadId;
+    ytdbg('youtube playlist fetch start', { playlistId, url });
+    const playlist = await window.hybridAPI.youtube.getPlaylist(url);
+    if (loadId !== this._youtubePlaylistLoadId || !playlist || !Array.isArray(playlist.entries)) return;
+    if (this.currentPlaybackType !== 'youtube') return;
+
+    const currentVideoId = this._extractYoutubeId(url);
+    const items = playlist.entries.map((entry) => ({
+      path: entry.url,
+      name: entry.title || entry.id,
+      duration: entry.duration || null,
+    }));
+    if (items.length === 0) return;
+
+    // Keep the manually opened video in the queue even if yt-dlp's listing
+    // doesn't include it (e.g. private/unlisted first entry).
+    if (currentVideoId && !items.some((item) => this._extractYoutubeId(item.path) === currentVideoId)) {
+      items.unshift({ path: url, name: currentVideoId, duration: null });
+    }
+
+    const currentIndex = currentVideoId
+      ? items.findIndex((item) => this._extractYoutubeId(item.path) === currentVideoId)
+      : -1;
+
+    if (this.playlistModule) {
+      this.playlistModule.items = items;
+      this.playlistModule.currentIndex = currentIndex >= 0 ? currentIndex : 0;
+      this.playlistModule._playedShuffleIndices.clear();
+      this.playlistModule._renderList();
+    }
+    this._activeYoutubePlaylistId = playlistId;
+    window.HybridToast?.show(`Loaded ${items.length} playlist item${items.length === 1 ? '' : 's'}`);
+    ytdbg('youtube playlist populated', { playlistId, count: items.length, currentIndex });
+  }
+
   _buildYtdlFormat(selectedHeight) {
+    if (selectedHeight === 'audio') {
+      return 'bestaudio/best';
+    }
     if (!selectedHeight || selectedHeight === 'auto') {
       return 'bestvideo+bestaudio/best';
     }
@@ -1588,36 +1869,10 @@ class HybridApp {
     ytdbg('set ytdl-format', { format });
     await window.hybridAPI.mpv.setProperty('ytdl-format', format);
     ytdbg('reload stream', { targetUrl });
-    await this._loadMediaReplace(targetUrl);
-
-    if (playbackTime > 1) {
-      let restored = false;
-      let cleanup = null;
-      let timeoutTimer = null;
-
-      const restoreSeek = async () => {
-        if (restored) return;
-        restored = true;
-        if (timeoutTimer) clearTimeout(timeoutTimer);
-        if (typeof cleanup === 'function') cleanup();
-        try {
-          await window.hybridAPI.mpv.command('seek', playbackTime, 'absolute+exact');
-          ytdbg('seek restored on stream load', { playbackTime });
-        } catch (error) {
-          ytdbg('seek restore failed', { error: String(error?.message || error) });
-        }
-      };
-
-      cleanup = window.hybridAPI.mpv.onEvent((event) => {
-        if (event === 'playback-restart' || event === 'file-loaded') {
-          restoreSeek();
-        }
-      });
-
-      timeoutTimer = setTimeout(() => {
-        restoreSeek();
-      }, 6000);
-    }
+    // The position is carried on the `start` option (set inside
+    // _loadMediaReplace right before loadfile), so mpv opens the stream
+    // already at the right point — no post-load seek race.
+    await this._loadMediaReplace(targetUrl, { startAt: playbackTime });
 
     if (this.currentStreamUrl !== targetUrl || this.currentPlaybackType !== 'youtube') {
       return;
@@ -1637,16 +1892,25 @@ class HybridApp {
     button.addEventListener('click', (e) => {
       e.stopPropagation();
       if (this.currentPlaybackType !== 'youtube') return;
+      // The probe is deferred until playback starts; if the user opens the
+      // menu before it ran (or it found nothing), probe on demand now.
+      if (this.youtubeQualityHeights.length === 0 && this.currentStreamUrl) {
+        const url = this.currentStreamUrl;
+        this._refreshYoutubeQualityUi(url).catch(() => {
+          ytdbg('on-demand probe failed', { url });
+        });
+      }
       dropdown.hidden = !dropdown.hidden;
     });
 
     list.addEventListener('click', async (e) => {
       const target = e.target.closest('.quality-dropdown-item');
       if (!target) return;
-      const selected = target.dataset.quality === 'auto' ? 'auto' : Number(target.dataset.quality);
+      const raw = target.dataset.quality;
+      const selected = raw === 'auto' ? 'auto' : (raw === 'audio' ? 'audio' : Number(raw));
         try {
           await this._applyYoutubeQualityAndReload(selected, this.currentStreamUrl);
-          window.HybridToast?.show(selected === 'auto' ? 'Quality: Auto' : `Quality: ${this._mapQualityLabel(selected)}`);
+          window.HybridToast?.show(`Quality: ${this._mapQualityLabel(selected)}`);
         } catch {
           window.HybridToast?.show('Failed to switch quality');
         }
@@ -1993,6 +2257,10 @@ class HybridApp {
     this.currentStreamUrl = null;
     this.currentPlaybackType = 'local';
     this.youtubeQualityHeights = [];
+    this.currentYoutubeInfo = null;
+    this._youtubeHeightsVideoId = null;
+    this._cancelScheduledYoutubeProbe();
+    this._setYoutubeLiveBadge(false);
     this.currentStreamQuality = 'auto';
     this._renderControlBarQualityMenu([], 'auto');
     const ytControl = document.getElementById('youtubeQualityControl');

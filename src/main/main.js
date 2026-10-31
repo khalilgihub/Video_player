@@ -26,6 +26,18 @@ const { setupWindowsShellIntegration } = require('./windows-shell-integration');
 const { setupYtDlpUpdaterIpc, startYtDlpBackgroundCheck } = require('./ytdlp-updater');
 const { dxBridgeManager } = require('./dx-bridge-wrapper');
 const {
+  setupYouTubeAuthIpc,
+  writeCookiesFromPartition,
+  getYouTubeSessionState,
+  destroySignInWindow,
+} = require('./youtube-auth');
+const {
+  normalizeYoutubeUrl,
+  extractYoutubeId,
+  extractYoutubePlaylistId,
+  extractorArgPair,
+} = require('./youtube');
+const {
   initFullscreenLogger,
   logFs,
   getLogPaths,
@@ -53,39 +65,17 @@ const FOLDER_SCAN_MAX_DEPTH = 8;
 const FOLDER_SCAN_MAX_FILES = 2000;
 const FOLDER_SCAN_MAX_DIRS = 5000;
 
-const YOUTUBE_HOSTS = new Set([
-  'youtube.com',
-  'www.youtube.com',
-  'm.youtube.com',
-  'music.youtube.com',
-  'youtu.be',
-  'youtube-nocookie.com',
-  'www.youtube-nocookie.com',
-]);
-
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36';
 const YT_DLP_TIMEOUT_MS = 20000;
+const YT_DLP_PLAYLIST_TIMEOUT_MS = 45000;
+const YT_DLP_PLAYLIST_MAX_ENTRIES = 300;
+const YT_DLP_INFO_CACHE_TTL_MS = 30 * 60 * 1000;
 const CLIP_EXPORT_TIMEOUT_MS = 5 * 60 * 1000;
 const CLIP_MAX_DURATION_SECONDS = 6 * 60 * 60;
 const CLIP_MAX_START_SECONDS = 30 * 24 * 60 * 60;
 
 function isDevToolsEnabled() {
   return !app.isPackaged || process.env.HYBRID_ENABLE_DEVTOOLS === '1';
-}
-
-function normalizeYoutubeUrl(value) {
-  const target = typeof value === 'string' ? value.trim() : '';
-  if (!target || target.length > 4096) return null;
-
-  try {
-    const parsed = new URL(target);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-    const host = parsed.hostname.toLowerCase();
-    if (!YOUTUBE_HOSTS.has(host)) return null;
-    return parsed.href;
-  } catch {
-    return null;
-  }
 }
 
 function isTrustedRendererUrl(targetUrl) {
@@ -423,15 +413,29 @@ function mapFormatToStandardHeight(format) {
   return 144;
 }
 
-async function getYoutubeQualityHeights(url) {
-  const target = normalizeYoutubeUrl(url);
-  if (!target) {
-    ytdbg('getYoutubeQualityHeights skipped: invalid or non-YouTube URL');
-    return [];
+// Cache of yt-dlp extractions keyed by video ID so the quality menu,
+// metadata UI and repeated opens of the same video share one yt-dlp run.
+// Failures are not cached.
+const youtubeInfoCache = new Map();
+
+function getCachedYoutubeInfo(videoId) {
+  if (!videoId) return null;
+  const entry = youtubeInfoCache.get(videoId);
+  if (!entry) return null;
+  if (Date.now() - entry.fetchedAt > YT_DLP_INFO_CACHE_TTL_MS) {
+    youtubeInfoCache.delete(videoId);
+    return null;
   }
+  return entry.info;
+}
 
-  ytdbg('extract qualities start', { url: target });
+function cacheYoutubeInfo(videoId, info) {
+  if (!videoId || !info) return;
+  youtubeInfoCache.delete(videoId);
+  youtubeInfoCache.set(videoId, { info, fetchedAt: Date.now() });
+}
 
+function resolveYtDlpCandidates() {
   const resolvedYtDlp = resolveYtDlpBinary(process.resourcesPath, process.execPath, __dirname, {
     allowPathLookup: !app.isPackaged
   });
@@ -445,7 +449,7 @@ async function getYoutubeQualityHeights(url) {
       resolvedYtDlp,
       resolveBundledBinaryPath('yt-dlp')
     ];
-  const uniqueCandidates = Array.from(new Set(candidates.filter((candidate) => {
+  return Array.from(new Set(candidates.filter((candidate) => {
     if (!candidate) return false;
     try {
       return fs.statSync(candidate).isFile();
@@ -453,13 +457,9 @@ async function getYoutubeQualityHeights(url) {
       return false;
     }
   })));
+}
 
-  if (uniqueCandidates.length === 0) {
-    ytdbg('extract qualities failed: yt-dlp binary not found');
-    return [];
-  }
-
-  let payload = null;
+function resolveYtDlpCookiesPath() {
   const cookieCandidates = [
     path.join(app.getPath('userData'), 'cookies.txt'),
     process.resourcesPath ? path.join(process.resourcesPath, 'cookies.txt') : null,
@@ -467,41 +467,29 @@ async function getYoutubeQualityHeights(url) {
     path.join(__dirname, '../../cookies.txt').replace('app.asar', 'app.asar.unpacked'),
     !app.isPackaged ? path.join(__dirname, '../../cookies.txt') : null,
   ].filter(Boolean);
-  const cookiesPath = cookieCandidates.find((p) => !p.includes('app.asar\\') && !p.includes('app.asar/') && fs.existsSync(p)) || null;
-  const args = [
-    '-J',
-    '--no-warnings',
-    '--no-playlist',
-    '--user-agent',
-    DEFAULT_USER_AGENT,
-    '--extractor-args',
-    'youtube:player_skip=webpage;player_client=tv,web_embedded,android,web'
-  ];
-  if (cookiesPath) {
-    args.push('--cookies', cookiesPath);
-  }
-  args.push('--', target);
+  return cookieCandidates.find((p) => !p.includes('app.asar\\') && !p.includes('app.asar/') && fs.existsSync(p)) || null;
+}
 
-  for (const bin of uniqueCandidates) {
+async function runYtDlpJson(args, { timeoutMs = YT_DLP_TIMEOUT_MS } = {}) {
+  const bins = resolveYtDlpCandidates();
+  if (bins.length === 0) {
+    ytdbg('yt-dlp binary not found');
+    return null;
+  }
+
+  for (const bin of bins) {
     try {
       ytdbg('running yt-dlp', { bin, args });
       const { stdout, stderr } = await execFileAsync(bin, args, {
         windowsHide: true,
-        timeout: YT_DLP_TIMEOUT_MS,
-        maxBuffer: 25 * 1024 * 1024
+        timeout: timeoutMs,
+        maxBuffer: 64 * 1024 * 1024
       });
       if (stderr && String(stderr).trim()) {
         ytdbg('yt-dlp stderr', String(stderr).trim().slice(0, 800));
       }
-      payload = parseJsonObjectFromStdout(stdout);
-      if (payload) {
-        ytdbg('yt-dlp payload parsed', {
-          hasFormats: Array.isArray(payload.formats),
-          formatCount: Array.isArray(payload.formats) ? payload.formats.length : 0,
-          title: payload.title || null
-        });
-        break;
-      }
+      const payload = parseJsonObjectFromStdout(stdout);
+      if (payload) return payload;
       ytdbg('yt-dlp payload parse failed', { bin });
     } catch (error) {
       ytdbg('yt-dlp command error', {
@@ -515,11 +503,50 @@ async function getYoutubeQualityHeights(url) {
       }
     }
   }
+  return null;
+}
 
-  if (!payload || !Array.isArray(payload.formats)) {
-    ytdbg('extract qualities failed: no formats in payload');
-    return [];
+async function getYoutubeVideoInfo(url) {
+  const target = normalizeYoutubeUrl(url);
+  if (!target) {
+    ytdbg('getYoutubeVideoInfo skipped: invalid or non-YouTube URL');
+    return null;
   }
+
+  const videoId = extractYoutubeId(target);
+  const cached = getCachedYoutubeInfo(videoId);
+  if (cached) {
+    ytdbg('getYoutubeVideoInfo cache hit', { videoId });
+    return cached;
+  }
+
+  ytdbg('extract info start', { url: target, videoId });
+
+  const args = [
+    '-J',
+    '--no-warnings',
+    '--no-playlist',
+    '--user-agent',
+    DEFAULT_USER_AGENT,
+    ...extractorArgPair()
+  ];
+  const cookiesPath = resolveYtDlpCookiesPath();
+  if (cookiesPath) {
+    args.push('--cookies', cookiesPath);
+  }
+  args.push('--', target);
+
+  const payload = await runYtDlpJson(args);
+  if (!payload || !Array.isArray(payload.formats)) {
+    ytdbg('extract info failed: no formats in payload');
+    return null;
+  }
+
+  ytdbg('yt-dlp payload parsed', {
+    hasFormats: true,
+    formatCount: payload.formats.length,
+    title: payload.title || null
+  });
 
   const heights = new Set();
   for (const format of payload.formats) {
@@ -529,9 +556,82 @@ async function getYoutubeQualityHeights(url) {
     }
   }
 
-  const result = Array.from(heights).sort((a, b) => b - a);
-  ytdbg('extract qualities success', { count: result.length, heights: result });
-  return result;
+  const info = {
+    videoId: videoId || payload.id || null,
+    heights: Array.from(heights).sort((a, b) => b - a),
+    title: typeof payload.title === 'string' ? payload.title : null,
+    uploader: typeof payload.uploader === 'string' ? payload.uploader : (typeof payload.channel === 'string' ? payload.channel : null),
+    duration: Number(payload.duration) || null,
+    isLive: payload.is_live === true,
+    liveStatus: payload.live_status || null,
+    thumbnail: typeof payload.thumbnail === 'string' ? payload.thumbnail : null,
+    webpageUrl: target,
+  };
+
+  ytdbg('extract info success', {
+    heights: info.heights,
+    title: info.title,
+    uploader: info.uploader,
+    isLive: info.isLive,
+  });
+
+  cacheYoutubeInfo(info.videoId, info);
+  return info;
+}
+
+async function getYoutubePlaylist(url) {
+  const target = normalizeYoutubeUrl(url);
+  if (!target) return null;
+
+  const playlistId = extractYoutubePlaylistId(target);
+  if (!playlistId) {
+    ytdbg('getYoutubePlaylist skipped: no list= param');
+    return null;
+  }
+
+  const args = [
+    '-J',
+    '--no-warnings',
+    '--flat-playlist',
+    '--yes-playlist',
+    '--playlist-items',
+    `1-${YT_DLP_PLAYLIST_MAX_ENTRIES}`,
+    '--user-agent',
+    DEFAULT_USER_AGENT,
+    ...extractorArgPair()
+  ];
+  const cookiesPath = resolveYtDlpCookiesPath();
+  if (cookiesPath) {
+    args.push('--cookies', cookiesPath);
+  }
+  args.push('--', `https://www.youtube.com/playlist?list=${encodeURIComponent(playlistId)}`);
+
+  const payload = await runYtDlpJson(args, { timeoutMs: YT_DLP_PLAYLIST_TIMEOUT_MS });
+  if (!payload || !Array.isArray(payload.entries)) {
+    ytdbg('getYoutubePlaylist failed: no entries in payload');
+    return null;
+  }
+
+  const entries = payload.entries
+    .map((entry) => {
+      const id = entry && (entry.id || extractYoutubeId(entry.url || entry.webpage_url));
+      if (!id) return null;
+      return {
+        id,
+        url: `https://www.youtube.com/watch?v=${id}`,
+        title: typeof entry.title === 'string' ? entry.title : null,
+        duration: Number(entry.duration) || null,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, YT_DLP_PLAYLIST_MAX_ENTRIES);
+
+  ytdbg('getYoutubePlaylist success', { playlistId, count: entries.length });
+  return {
+    playlistId,
+    title: typeof payload.title === 'string' ? payload.title : null,
+    entries,
+  };
 }
 
 function registerSystemDialogHandlers(win) {
@@ -607,12 +707,77 @@ function registerSystemDialogHandlers(win) {
     return clipMediaSegment(payload || {});
   });
 
+  ipcMain.removeHandler('youtube:get-info');
+  ipcMain.handle('youtube:get-info', async (_, url) => {
+    ytdbg('ipc youtube:get-info request', { url: String(url || '') });
+    const info = await getYoutubeVideoInfo(url);
+    ytdbg('ipc youtube:get-info response', { heights: info?.heights || [], title: info?.title || null });
+    return info;
+  });
+
+  // Legacy channel kept for backwards compatibility; returns just the heights.
   ipcMain.removeHandler('youtube:get-quality-heights');
   ipcMain.handle('youtube:get-quality-heights', async (_, url) => {
     ytdbg('ipc youtube:get-quality-heights request', { url: String(url || '') });
-    const heights = await getYoutubeQualityHeights(url);
+    const info = await getYoutubeVideoInfo(url);
+    const heights = info ? info.heights : [];
     ytdbg('ipc youtube:get-quality-heights response', { heights });
     return heights;
+  });
+
+  ipcMain.removeHandler('youtube:get-playlist');
+  ipcMain.handle('youtube:get-playlist', async (_, url) => {
+    ytdbg('ipc youtube:get-playlist request', { url: String(url || '') });
+    const playlist = await getYoutubePlaylist(url);
+    ytdbg('ipc youtube:get-playlist response', { playlistId: playlist?.playlistId || null, count: playlist?.entries?.length || 0 });
+    return playlist;
+  });
+
+  ipcMain.removeHandler('youtube:cookies-status');
+  ipcMain.handle('youtube:cookies-status', async () => {
+    const dest = path.join(app.getPath('userData'), 'cookies.txt');
+    let accountLinked = false;
+    try {
+      accountLinked = (await getYouTubeSessionState()).loggedIn;
+    } catch (_) {}
+    return { present: fs.existsSync(dest), path: dest, accountLinked };
+  });
+
+  ipcMain.removeHandler('youtube:import-cookies');
+  ipcMain.handle('youtube:import-cookies', async (event) => {
+    const targetWin = getTargetWindow(event);
+    const result = targetWin
+      ? await dialog.showOpenDialog(targetWin, {
+        title: 'Import cookies.txt',
+        filters: [{ name: 'cookies.txt', extensions: ['txt'] }],
+        properties: ['openFile'],
+      })
+      : await dialog.showOpenDialog({
+        title: 'Import cookies.txt',
+        filters: [{ name: 'cookies.txt', extensions: ['txt'] }],
+        properties: ['openFile'],
+      });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+    const src = result.filePaths[0];
+    try {
+      const content = fs.readFileSync(src, 'utf8');
+      // Netscape cookie format: 7 whitespace-separated fields per line, one
+      // domain per line (e.g. ".youtube.com	TRUE	/	TRUE	0	NAME	VALUE").
+      const cookieTab = String.fromCharCode(9);
+      const looksLikeCookies = /# (Netscape )?HTTP Cookie File/i.test(content.slice(0, 512))
+        || content.split(/\r?\n/).some((line) => line.split(cookieTab).length === 7 && line.includes('.youtube'));
+      if (!looksLikeCookies) {
+        return { success: false, error: 'Not a cookies.txt file (expected Netscape cookie format, e.g. exported via a browser extension)' };
+      }
+      const dest = path.join(app.getPath('userData'), 'cookies.txt');
+      fs.copyFileSync(src, dest);
+      ytdbg('cookies imported', { dest });
+      return { success: true, path: dest };
+    } catch (err) {
+      return { success: false, error: err?.message || 'Failed to copy cookies file' };
+    }
   });
 
   ipcMain.removeHandler('dialog:selectScreenshotDir');
@@ -2155,6 +2320,10 @@ app.whenReady().then(() => {
   if (!gotLock) return;
   setupWindowsShellIntegration(app);
 
+  // Keep cookies.txt fresh from the persisted "Sign in to YouTube" session:
+  // a one-time sign-in re-syncs on every app start with no user action.
+  writeCookiesFromPartition({ silent: true }).catch(() => {});
+
   // Clean up orphaned temporary directories from previous crashed/closed runs
   cleanupTempFiles({ isShuttingDown: false });
 
@@ -2184,6 +2353,14 @@ app.whenReady().then(() => {
   });
   setupYtDlpUpdaterIpc(win);
   startYtDlpBackgroundCheck(win);
+  setupYouTubeAuthIpc({
+    getMainWindow: () => mainWindow,
+    onCookiesChanged: () => {
+      try {
+        mpvProcess?.refreshYtdlOptions?.();
+      } catch (_) {}
+    },
+  });
 
   initFullscreenLogger(__dirname);
   logFs('app:ready', {
@@ -2236,6 +2413,7 @@ app.whenReady().then(() => {
 });
 
 app.on('will-quit', () => {
+  destroySignInWindow();
   dxBridgeManager.destroy();
   if (pendingDb) {
     saveDatabase(pendingDb, { immediate: true });
