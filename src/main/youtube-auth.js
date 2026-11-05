@@ -1113,7 +1113,7 @@ function openSignInWindow({ onSuccess, onBlocked, mode = 'auto', switchAccount =
     backgroundColor: '#202124',
     webPreferences: {
       partition: AUTH_PARTITION,
-      contextIsolation: false,
+      contextIsolation: true,
       sandbox: false,
       nodeIntegration: false,
       preload: path.join(__dirname, 'youtube-auth-preload.js'),
@@ -1440,6 +1440,11 @@ function setupYouTubeAuthIpc({ getMainWindow, onCookiesChanged } = {}) {
 
   ipcMain.removeHandler('youtube:account-state');
   ipcMain.handle('youtube:account-state', async () => {
+    const state = await getYouTubeSessionState();
+    return { loggedIn: state.loggedIn, cookieCount: state.count };
+  });
+  ipcMain.removeHandler('youtube:get-account-state');
+  ipcMain.handle('youtube:get-account-state', async () => {
     const state = await getYouTubeSessionState();
     return { loggedIn: state.loggedIn, cookieCount: state.count };
   });

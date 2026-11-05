@@ -39,7 +39,8 @@ class HybridGestures {
       const vol = document.getElementById('volumeSlider');
       if (vol) {
         const delta = e.deltaY > 0 ? -5 : 5;
-        vol.value = Math.max(0, Math.min(100, parseInt(vol.value) + delta));
+        const maxVol = (this.player?.volumeBoostEnabled || Number(vol.max) > 100) ? 200 : 100;
+        vol.value = Math.max(0, Math.min(maxVol, parseInt(vol.value, 10) + delta));
         vol.dispatchEvent(new Event('input'));
       }
     }, { passive: false });

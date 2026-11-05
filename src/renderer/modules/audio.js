@@ -13,6 +13,10 @@ class HybridAudio {
     // Re-render audio tracks whenever track-list updates
     if (typeof this.player.addTrackListListener === 'function') {
       this.player.addTrackListListener((trackList) => {
+        if (this._lastFilePath !== this.player?.currentFilePath) {
+          this._lastFilePath = this.player?.currentFilePath;
+          this.setSyncOffset(0, { apply: false });
+        }
         this._updateTrackList(trackList);
       });
     } else {

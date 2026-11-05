@@ -124,13 +124,21 @@ function sanitizePreference(key, value) {
     case 'autoOrganizeScreenshots':
     case 'doubleClickFullscreen':
     case 'showUnlockButton':
+    case 'volumeBoost':
       return !!value;
     case 'volume': {
       const numericVol = Number(value);
       if (!Number.isFinite(numericVol)) return 1;
-      const normalizedVol = numericVol > 1 ? numericVol / 100 : numericVol;
-      return clampNumber(normalizedVol, 0, 1, 1);
+      const normalizedVol = numericVol > 2 ? numericVol / 100 : numericVol;
+      return clampNumber(normalizedVol, 0, 2, 1);
     }
+    case 'subFontSize':
+      return clampNumber(value, 12, 96, 28);
+    case 'subBgOpacity':
+      return clampNumber(value, 0, 1, 0.6);
+    case 'subFontColor':
+    case 'subBgColor':
+      return isHexColor(value) ? value : INVALID_PREF;
     case 'equalizerPreset':
       return EQ_PRESETS.has(value) ? value : INVALID_PREF;
     case 'equalizerBands':
@@ -449,6 +457,20 @@ function suppressWindowsNonClientBorder(win, source = 'ipc') {
 
 let timeBeginPeriodFn = null;
 let timeEndPeriodFn = null;
+let highResTimerActive = false;
+
+function setHighResTimer(active) {
+  if (!timeBeginPeriodFn || !timeEndPeriodFn) return;
+  try {
+    if (active && !highResTimerActive) {
+      timeBeginPeriodFn(1);
+      highResTimerActive = true;
+    } else if (!active && highResTimerActive) {
+      timeEndPeriodFn(1);
+      highResTimerActive = false;
+    }
+  } catch {}
+}
 
 if (process.platform === 'win32') {
   try {
@@ -456,10 +478,9 @@ if (process.platform === 'win32') {
     const winmm = koffi.load('winmm.dll');
     timeBeginPeriodFn = winmm.func('uint timeBeginPeriod(uint uPeriod)');
     timeEndPeriodFn = winmm.func('uint timeEndPeriod(uint uPeriod)');
-    timeBeginPeriodFn(1);
     if (app && typeof app.on === 'function') {
       app.on('will-quit', () => {
-        try { timeEndPeriodFn(1); } catch {}
+        setHighResTimer(false);
       });
     }
   } catch {}
@@ -468,6 +489,7 @@ if (process.platform === 'win32') {
 async function applyFakeMaximize(win) {
   if (!win || win.isDestroyed()) return false;
   logWindowIpcState(win, 'applyFakeMaximize:start');
+  setHighResTimer(true);
 
   if (win.isMinimized()) {
     win.restore();
@@ -498,6 +520,7 @@ async function applyFakeMaximize(win) {
   logWindowIpcState(win, 'applyFakeMaximize:end', { appliedBounds: workArea });
 
   setTimeout(() => {
+    setHighResTimer(false);
     try {
       if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
         win.webContents.send('window-maximize-transition-end');
@@ -511,6 +534,7 @@ async function applyFakeMaximize(win) {
 async function restoreFromMaximized(win) {
   if (!win || win.isDestroyed()) return false;
   logWindowIpcState(win, 'restoreFromMaximized:start');
+  setHighResTimer(true);
 
   const wasFakeMaximized = !!win.__hybridFakeMaximized;
   const wasNativeMaximized = win.isMaximized();
@@ -551,6 +575,7 @@ async function restoreFromMaximized(win) {
   logWindowIpcState(win, 'restoreFromMaximized:end');
 
   setTimeout(() => {
+    setHighResTimer(false);
     try {
       if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
         win.webContents.send('window-maximize-transition-end');
@@ -612,6 +637,7 @@ function beginTitlebarDragSession(win, payload) {
     return { handled: false, reason: 'not-maximized' };
   }
 
+  setHighResTimer(true);
   const display = screen.getDisplayNearestPoint(pointer) || screen.getPrimaryDisplay();
   const displayBounds = display?.bounds || screen.getPrimaryDisplay().bounds;
   const restoreSize = getRestoreBoundsForTitlebarDrag(win, display);
@@ -693,6 +719,7 @@ function moveTitlebarDragSession(win, payload) {
 }
 
 function endTitlebarDragSession(win) {
+  setHighResTimer(false);
   if (!win || win.isDestroyed()) return false;
   const session = win.__hybridTitlebarDragSession;
   if (!session || !session.active) {
@@ -1158,7 +1185,7 @@ function setupIpcHandlers(ipcMain, win, db, saveDatabase, options = {}) {
   registerHandler('speed:save', async (_, filePath, speed) => {
     const mediaPath = sanitizeMediaKey(filePath);
     if (!mediaPath) return false;
-    setBoundedMemoryValue(db.speedMemory, mediaPath, clampNumber(speed, 0.1, 4, 1));
+    setBoundedMemoryValue(db.speedMemory, mediaPath, clampNumber(speed, 0.1, 16, 1));
     saveDatabase(db);
     return true;
   });

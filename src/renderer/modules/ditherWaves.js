@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { EffectComposer, RenderPass, EffectPass, Effect } from 'postprocessing';
 
 const LOG_TAG = '[DitherWaves]';
 const DITHER_WAVES_DEBUG = false;
@@ -129,33 +128,6 @@ void main() {
 }
 `;
 
-class RetroEffectImpl extends Effect {
-  constructor(colorNum = 4, pixelSize = 2) {
-    const uniforms = new Map([
-      ['colorNum', new THREE.Uniform(colorNum)],
-      ['pixelSize', new THREE.Uniform(pixelSize)],
-    ]);
-    super('RetroEffect', 'void mainImage(in vec4 c, in vec2 u, out vec4 o) { o = c; }', { uniforms });
-    this.uniforms = uniforms;
-  }
-
-  set colorNum(v) {
-    this.uniforms.get('colorNum').value = v;
-  }
-
-  get colorNum() {
-    return this.uniforms.get('colorNum').value;
-  }
-
-  set pixelSize(v) {
-    this.uniforms.get('pixelSize').value = v;
-  }
-
-  get pixelSize() {
-    return this.uniforms.get('pixelSize').value;
-  }
-}
-
 const DEFAULT_OPTIONS = Object.freeze({
   waveSpeed: 0.05,
   waveFrequency: 3,
@@ -272,25 +244,14 @@ export function initDitherWaves(containerElement, customOptions = {}) {
   const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
   scene.add(planeMesh);
 
-  const renderPass = new RenderPass(scene, camera);
-  const retroEffect = new RetroEffectImpl(options.colorNum, options.pixelSize);
-  const effectPass = new EffectPass(camera, retroEffect);
-
+  // Dithering is fused into the fragment shader, so no postprocessing passes are needed.
+  // Keep a minimal composer-compatible facade for existing callers.
   const composer = {
-    passes: [renderPass, effectPass],
-    addPass: (p) => composer.passes.push(p),
-    removePass: (p) => {
-      const idx = composer.passes.indexOf(p);
-      if (idx !== -1) composer.passes.splice(idx, 1);
-    },
     setSize: () => {},
     render: () => {
       renderer.render(scene, camera);
     },
-    dispose: () => {
-      try { renderPass.dispose(); } catch (_) {}
-      try { effectPass.dispose(); } catch (_) {}
-    },
+    dispose: () => {},
   };
 
   containerElement.appendChild(renderer.domElement);
@@ -320,9 +281,6 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     waveUniforms.mouseIntensity.value = options.mouseIntensity;
     waveUniforms.colorNum.value = options.colorNum;
     waveUniforms.pixelSize.value = options.pixelSize;
-
-    retroEffect.colorNum = options.colorNum;
-    retroEffect.pixelSize = options.pixelSize;
 
     renderer.render(scene, camera);
     window.HybridPerfMonitor?.markFrame?.('effect:dither');
@@ -368,16 +326,8 @@ export function initDitherWaves(containerElement, customOptions = {}) {
 
     commitBufferResize(width, height, pixelWidth, pixelHeight, dpr);
     renderFrame();
-    const gl = renderer.getContext();
-    if (gl) {
-      try {
-        if (typeof gl.finish === 'function') {
-          gl.finish();
-        } else if (typeof gl.flush === 'function') {
-          gl.flush();
-        }
-      } catch (_) {}
-    }
+    try { renderer.getContext()?.flush?.(); } catch (_) {}
+
   };
 
   const flushMouse = () => {
@@ -466,6 +416,8 @@ export function initDitherWaves(containerElement, customOptions = {}) {
   const resumeLoop = () => {
     if (destroyed || contextLost || isMotionPaused) return;
     if (isMainMount) {
+      const ws = document.getElementById('welcomeScreen');
+      if ((ws && ws.classList.contains('hidden')) || window.__hybridWelcomeEffectsState?.paused) return;
       const popover = document.getElementById('bgAccordionPopover');
       if (popover && !popover.hidden) return;
       const curBg = window.__hybridWelcomeEffectsState?.welcomeBackground || 'dither';
@@ -517,7 +469,6 @@ export function initDitherWaves(containerElement, customOptions = {}) {
 
   ditherWavesdbg(`${LOG_TAG} init`, {
     container: containerElement.id || '(no-id)',
-    passes: composer.passes.map((pass) => pass.constructor.name),
     rendererSize: renderer.getSize(new THREE.Vector2()).toArray(),
   });
 
@@ -588,7 +539,6 @@ export function initDitherWaves(containerElement, customOptions = {}) {
 
     ditherWavesdbg(`${LOG_TAG} destroy`, {
       canvasRemoved: !canvas.parentNode,
-      passesDisposed: true,
       rendererDisposed: true,
     });
   };

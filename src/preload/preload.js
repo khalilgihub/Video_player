@@ -182,6 +182,7 @@ contextBridge.exposeInMainWorld('hybridAPI', {
     importCookies: () => ipcRenderer.invoke('youtube:import-cookies'),
     openSignin: (options) => ipcRenderer.invoke('youtube:open-signin', options),
     signOut: () => ipcRenderer.invoke('youtube:signout'),
+    getAccountState: () => ipcRenderer.invoke('youtube:account-state'),
     importBrowserCookies: () => ipcRenderer.invoke('youtube:import-browser-cookies'),
     getStatus: () => ipcRenderer.invoke('ytdlp:get-status'),
     checkForUpdate: () => ipcRenderer.invoke('ytdlp:check-update'),
@@ -215,7 +216,7 @@ contextBridge.exposeInMainWorld('hybridAPI', {
       'window-bounds-animating',
       'screenshot-ready',
       'mpv:property-change', 'mpv:event', 'keyboard-escape',
-      'ytdlp:update-available', 'ytdlp:updated', 'youtube:signin-success', 'youtube:signin-blocked'
+      'ytdlp:update-available', 'ytdlp:updated', 'youtube:signin-success', 'youtube:signout-success', 'youtube:signin-blocked'
     ];
     if (validChannels.includes(channel)) {
       const listener = (_, ...args) => callback(...args);

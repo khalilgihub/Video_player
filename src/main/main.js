@@ -773,6 +773,8 @@ function registerSystemDialogHandlers(win) {
       }
       const dest = path.join(app.getPath('userData'), 'cookies.txt');
       fs.copyFileSync(src, dest);
+      youtubeInfoCache.clear();
+      try { mpvProcess?.refreshYtdlOptions?.(); } catch (_) {}
       ytdbg('cookies imported', { dest });
       return { success: true, path: dest };
     } catch (err) {
@@ -1249,6 +1251,11 @@ function createDefaultDatabase() {
       accentColor: '#e50914',
       autoResume: true,
       volume: 1.0,
+      volumeBoost: false,
+      subFontSize: 28,
+      subFontColor: '#ffffff',
+      subBgColor: '#000000',
+      subBgOpacity: 0.6,
       equalizerPreset: 'flat',
       equalizerBands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       motionProfile: 'balanced',
@@ -1358,7 +1365,16 @@ async function flushDatabaseAsync() {
       await fs.promises.unlink(tmpPath).catch(() => {});
       return;
     }
-    fs.renameSync(tmpPath, DB_PATH);
+    try {
+      await fs.promises.rename(tmpPath, DB_PATH);
+    } catch (renameErr) {
+      if (renameErr && (renameErr.code === 'EPERM' || renameErr.code === 'EACCES')) {
+        await fs.promises.writeFile(DB_PATH, serialized, 'utf-8');
+        await fs.promises.unlink(tmpPath).catch(() => {});
+      } else {
+        throw renameErr;
+      }
+    }
   } catch (e) {
     if (tmpPath) {
       await fs.promises.unlink(tmpPath).catch(() => {});
@@ -2267,29 +2283,37 @@ function cleanupTempFiles({ isShuttingDown = false } = {}) {
           // Legacy directory without PID prefix from prior versions
           try { fs.rmSync(fullPath, { recursive: true, force: true }); } catch {}
         }
-      } else if (entry === 'hybrid-player-paused-frames' || entry === 'hybrid_screenshot_undo') {
-        try {
-          const children = fs.readdirSync(fullPath);
-          for (const child of children) {
-            const childPidMatch = child.match(/^pid-(\d+)[-_]/);
-            if (childPidMatch) {
-              const ownerPid = Number(childPidMatch[1]);
-              if ((isShuttingDown && ownerPid === process.pid) || (ownerPid !== process.pid && !isProcessRunning(ownerPid))) {
-                try { fs.unlinkSync(path.join(fullPath, child)); } catch {}
-              }
-            } else if (!isShuttingDown) {
-              // Legacy unprefixed file from prior runs: remove if older than 60s
-              const childPath = path.join(fullPath, child);
-              try {
-                const stat = fs.statSync(childPath);
-                if (Date.now() - stat.mtimeMs > 60000) {
-                  fs.unlinkSync(childPath);
-                }
-              } catch {}
-            }
+      } else if (entry.startsWith('hybrid-player-paused-frames') || entry.startsWith('hybrid_screenshot_undo')) {
+        const dirPidMatch = entry.match(/^(?:hybrid-player-paused-frames|hybrid_screenshot_undo)[-_](\d+)$/);
+        if (dirPidMatch) {
+          const ownerPid = Number(dirPidMatch[1]);
+          if ((isShuttingDown && ownerPid === process.pid) || (ownerPid !== process.pid && !isProcessRunning(ownerPid))) {
+            try { fs.rmSync(fullPath, { recursive: true, force: true }); } catch {}
           }
-          try { fs.rmdirSync(fullPath); } catch {}
-        } catch {}
+        } else {
+          try {
+            const children = fs.readdirSync(fullPath);
+            for (const child of children) {
+              const childPidMatch = child.match(/^pid-(\d+)[-_]/);
+              if (childPidMatch) {
+                const ownerPid = Number(childPidMatch[1]);
+                if ((isShuttingDown && ownerPid === process.pid) || (ownerPid !== process.pid && !isProcessRunning(ownerPid))) {
+                  try { fs.unlinkSync(path.join(fullPath, child)); } catch {}
+                }
+              } else if (!isShuttingDown) {
+                // Legacy unprefixed file from prior runs: remove if older than 60s
+                const childPath = path.join(fullPath, child);
+                try {
+                  const stat = fs.statSync(childPath);
+                  if (Date.now() - stat.mtimeMs > 60000) {
+                    fs.unlinkSync(childPath);
+                  }
+                } catch {}
+              }
+            }
+            try { fs.rmdirSync(fullPath); } catch {}
+          } catch {}
+        }
       }
     });
   } catch {}
@@ -2357,6 +2381,7 @@ app.whenReady().then(() => {
     getMainWindow: () => mainWindow,
     onCookiesChanged: () => {
       try {
+        youtubeInfoCache.clear();
         mpvProcess?.refreshYtdlOptions?.();
       } catch (_) {}
     },

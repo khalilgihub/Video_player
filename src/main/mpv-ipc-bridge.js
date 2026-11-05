@@ -323,6 +323,7 @@ function setupMpvIpc(win, mpv, options = {}) {
     'sub-font',
     'sub-color',
     'sub-back-color',
+    'sub-ass-override',
     'loop-file',
     'loop-playlist',
     'options/start',
@@ -424,6 +425,8 @@ function setupMpvIpc(win, mpv, options = {}) {
       case 'sub-color':
       case 'sub-back-color':
         return /^#(?:[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value) ? value : null;
+      case 'sub-ass-override':
+        return ['no', 'yes', 'scale', 'force', 'strip'].includes(value) ? value : null;
       case 'loop-file':
       case 'loop-playlist':
         return (value === 'inf' || value === 'no' || value === 'force') ? value : null;
@@ -455,8 +458,9 @@ function setupMpvIpc(win, mpv, options = {}) {
         return source ? ['loadfile', source, mode] : null;
       }
       case 'seek': {
-        const seconds = sanitizeNumber(args[1], 0, 30 * 24 * 60 * 60, null);
         const flags = seekFlagsAllowlist.has(args[2]) ? args[2] : 'absolute';
+        const minSeconds = flags.startsWith('relative') ? -(30 * 24 * 60 * 60) : 0;
+        const seconds = sanitizeNumber(args[1], minSeconds, 30 * 24 * 60 * 60, null);
         return seconds === null ? null : ['seek', seconds, flags];
       }
       case 'add': {

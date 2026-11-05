@@ -452,6 +452,8 @@ export function initGridMotion(containerElement, customOptions = {}) {
   const onFocusOrVisibility = () => {
     if (!destroyed && !isPaused && isAppInteractive()) {
       if (isMainMount) {
+        const ws = document.getElementById('welcomeScreen');
+        if ((ws && ws.classList.contains('hidden')) || window.__hybridWelcomeEffectsState?.paused) return;
         const curBg = window.__hybridWelcomeEffectsState?.welcomeBackground || 'dither';
         if (curBg !== 'gridmotion') return;
       }

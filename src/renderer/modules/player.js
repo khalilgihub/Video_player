@@ -62,7 +62,9 @@ class HybridPlayer {
     this._burstInFlight = false;
     this._singleScreenshotStack = [];
     this._deletedScreenshotStack = [];
-    this._sessionScreenshots = [];
+    this._screenshotSessionGen = 0;
+    this._inFlightScreenshotGen = null;
+    this.__sessionScreenshots = [];
     this._carouselIndex = 0;
     this._carouselEl = null;
     this._screenshotNoticeTimer = null;
@@ -91,6 +93,18 @@ class HybridPlayer {
     window.addEventListener('beforeunload', () => {
       this.destroySync();
     });
+  }
+
+  get _sessionScreenshots() {
+    return this.__sessionScreenshots;
+  }
+
+  set _sessionScreenshots(val) {
+    this.__sessionScreenshots = Array.isArray(val) ? val : [];
+    if (this.__sessionScreenshots.length === 0) {
+      this._screenshotSessionGen = (this._screenshotSessionGen || 0) + 1;
+      this._inFlightScreenshotGen = null;
+    }
   }
 
   addTrackListListener(fn) {
@@ -389,10 +403,11 @@ class HybridPlayer {
   }
 
   _checkAudioOnlyState() {
+    if (this._suppressAudioOnlyOverlay) return;
     if (!this.currentFilePath || !Array.isArray(this.trackList) || this.trackList.length === 0) {
       return;
     }
-    const hasVideo = this.trackList.some(t => t.type === 'video');
+    const hasVideo = this.trackList.some(t => t.type === 'video' && !t.albumart && !t.image);
     const hasAudio = this.trackList.some(t => t.type === 'audio');
     const isAudioOnly = hasAudio && !hasVideo;
     this.isAudioOnly = isAudioOnly;
@@ -676,6 +691,13 @@ class HybridPlayer {
 
   _setupScreenshotListeners() {
     window.hybridAPI.on('screenshot-ready', (payload) => {
+      if (this._inFlightScreenshotGen !== null && this._inFlightScreenshotGen !== this._screenshotSessionGen) {
+        return;
+      }
+      if (payload?.filePath) {
+        if (!this._recordedScreenshotPaths) this._recordedScreenshotPaths = new Set();
+        this._recordedScreenshotPaths.add(payload.filePath);
+      }
       this._recordSingleScreenshot(payload);
       this._showScreenshotPreview(payload);
     });
@@ -745,7 +767,14 @@ class HybridPlayer {
     const allowBoost = (typeof options === 'boolean' && options) ||
                        (typeof options === 'object' && options?.allowBoost) ||
                        Boolean(this.volumeBoostEnabled);
+    if (allowBoost) {
+      this.volumeBoostEnabled = true;
+    }
     const maxVol = allowBoost ? 200 : 100;
+    const slider = document.getElementById('volumeSlider');
+    if (slider) {
+      slider.max = String(maxVol);
+    }
     const clamped = Math.max(0, Math.min(maxVol, Math.round(target)));
     this.volume = clamped;
     window.hybridAPI.mpv.setVolume(clamped);
@@ -753,6 +782,19 @@ class HybridPlayer {
   }
 
   setVolumeBoost(value) {
+    if (typeof value === 'boolean') {
+      this.volumeBoostEnabled = value;
+      const slider = document.getElementById('volumeSlider');
+      if (slider) {
+        slider.max = value ? '200' : '100';
+      }
+      if (!value && this.volume > 100) {
+        this.setVolume(100, { allowBoost: false });
+      } else {
+        window.HybridApp?.controlsModule?._updateVolumeSliderFill?.();
+      }
+      return this.volumeBoostEnabled;
+    }
     this.volumeBoostEnabled = true;
     return this.setVolume(value, true);
   }
@@ -896,16 +938,28 @@ class HybridPlayer {
   // ── Screenshot ─────────────────────────────────────────
   async takeScreenshot(format = null) {
     screenshotdbg('takeScreenshot invoked', { format });
+    const gen = this._screenshotSessionGen || 0;
+    this._inFlightScreenshotGen = gen;
     try {
       const payload = typeof format === 'string' && format
         ? await window.hybridAPI?.mpv?.screenshot('video', { format })
         : await window.hybridAPI?.mpv?.screenshot('video');
       screenshotdbg('mpv.screenshot returned payload:', payload);
+      if ((this._screenshotSessionGen || 0) !== gen) {
+        return;
+      }
+      if (payload?.filePath && this._recordedScreenshotPaths?.has(payload.filePath)) {
+        return;
+      }
       this._recordSingleScreenshot(payload);
     } catch (err) {
       console.error('[SCREENSHOT][renderer] Screenshot failed:', err);
       if (this.currentFilePath) {
         window.HybridToast?.show('Screenshot failed');
+      }
+    } finally {
+      if (this._inFlightScreenshotGen === gen) {
+        this._inFlightScreenshotGen = null;
       }
     }
   }
@@ -1260,8 +1314,17 @@ class HybridPlayer {
       this._screenshotNoticeTimer = null;
     }
 
-    const iconHtml = icon ? `<span class="screenshot-notice-icon">${icon}</span>` : '';
-    notice.innerHTML = `${iconHtml}<span class="screenshot-notice-text">${message}</span>`;
+    notice.replaceChildren();
+    if (icon) {
+      const iconEl = document.createElement('span');
+      iconEl.className = 'screenshot-notice-icon';
+      iconEl.textContent = String(icon);
+      notice.appendChild(iconEl);
+    }
+    const textEl = document.createElement('span');
+    textEl.className = 'screenshot-notice-text';
+    textEl.textContent = String(message ?? '');
+    notice.appendChild(textEl);
     notice.classList.remove('hiding');
     notice.style.display = 'inline-flex';
 
@@ -1968,14 +2031,6 @@ class HybridPlayer {
       return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     }
     return `${m}:${s.toString().padStart(2, '0')}`;
-  }
-
-  _checkAudioOnlyState() {
-    const videoTracks = (this.trackList || []).filter(t => t.type === 'video');
-    const audioTracks = (this.trackList || []).filter(t => t.type === 'audio');
-    const isAudioOnly = videoTracks.length === 0 && audioTracks.length > 0;
-    this.isAudioOnly = isAudioOnly;
-    window.HybridApp?.setAudioOnlyMode?.(isAudioOnly);
   }
 
   destroySync() {

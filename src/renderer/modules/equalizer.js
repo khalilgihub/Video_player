@@ -172,7 +172,6 @@ class HybridEqualizer {
       const val = Number(rawBands[i]);
       bands.push(Number.isFinite(val) ? Math.max(-12, Math.min(12, val)) : 0);
     }
-    const maxBandGain = Math.max(0, ...bands);
     const gains = [];
     for (let i = 0; i < 18; i++) {
       const t = (i / 17) * 9;
@@ -182,8 +181,7 @@ class HybridEqualizer {
       const b1 = bands[Math.min(k + 1, 9)] ?? b0;
       const db = (1 - f) * b0 + f * b1;
       const clampedDb = Math.max(-12, Math.min(12, db));
-      const attenuatedDb = clampedDb - maxBandGain;
-      const mult = Math.max(0, Math.min(20, Math.pow(10, attenuatedDb / 20)));
+      const mult = Math.max(0.05, Math.min(20, Math.pow(10, clampedDb / 20)));
       gains.push(mult.toFixed(2));
     }
     return `lavfi=[superequalizer=${gains.join(':')}]`;

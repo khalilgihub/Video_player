@@ -840,6 +840,7 @@ class HybridShortcuts {
       'frame-backward',
       'toggle-stats',
       'toggle-subtitles',
+      'toggle-equalizer',
       'sub-delay-down',
       'sub-delay-up',
       'screenshot',
@@ -884,8 +885,9 @@ class HybridShortcuts {
       
       case 'volume-up': {
         const curVol = typeof this.player.volume === 'number' ? this.player.volume : 100;
-        const nextUp = Math.min(100, Math.round(curVol + 5));
-        this.player.setVolume(nextUp);
+        const maxVol = this.player?.volumeBoostEnabled ? 200 : 100;
+        const nextUp = Math.min(maxVol, Math.round(curVol + 5));
+        this.player.setVolume(nextUp, { allowBoost: Boolean(this.player?.volumeBoostEnabled) });
         this.controls.showVolumeOsd(nextUp);
         break;
       }
@@ -893,7 +895,7 @@ class HybridShortcuts {
       case 'volume-down': {
         const curVol = typeof this.player.volume === 'number' ? this.player.volume : 100;
         const nextDown = Math.max(0, Math.round(curVol - 5));
-        this.player.setVolume(nextDown);
+        this.player.setVolume(nextDown, { allowBoost: Boolean(this.player?.volumeBoostEnabled) });
         this.controls.showVolumeOsd(nextDown);
         break;
       }
@@ -1066,12 +1068,12 @@ class HybridShortcuts {
       }
       
       case 'show-about':
-        window.HybridToast?.show('Hybrid Player v1.0.0 — Next-gen media player');
+        window.HybridToast?.show('Hybrid Player v12.6.0 — Next-gen media player');
         break;
 
       // Number keys for seeking to percentage
       default:
-        if (action.startsWith('seek-')) {
+        if (/^seek-\d+$/.test(action)) {
           const pct = parseInt(action.split('-')[1]);
           this.player.seekPercent(pct);
         }

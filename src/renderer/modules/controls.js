@@ -1219,8 +1219,10 @@ class HybridControls {
         overflowVal = MAX_OVERFLOW * (1 - Math.exp(-diff / 30));
         position = overflowVal;
 
-        if (this.volumeSlider.value !== '100') {
-          this.volumeSlider.value = 100;
+        const maxVol = this.player?.volumeBoostEnabled ? 200 : 100;
+        this.volumeSlider.max = String(maxVol);
+        if (this.volumeSlider.value !== String(maxVol)) {
+          this.volumeSlider.value = maxVol;
           this.volumeSlider.dispatchEvent(new Event('input'));
         }
       } else {
@@ -1228,7 +1230,9 @@ class HybridControls {
         overflowVal = 0;
         position = 0;
 
-        const pct = Math.round(((x - left) / width) * 100);
+        const maxVol = this.player?.volumeBoostEnabled ? 200 : 100;
+        this.volumeSlider.max = String(maxVol);
+        const pct = Math.round(((x - left) / width) * maxVol);
         this.volumeSlider.value = pct;
         this.volumeSlider.dispatchEvent(new Event('input'));
       }
@@ -1263,7 +1267,9 @@ class HybridControls {
     this.volumeSlider.addEventListener('input', () => {
       const value = parseInt(this.volumeSlider.value);          // 0-100
       this.currentVolume = value / 100;                         // normalised 0-1
-      this.player.setVolume(value);
+      const allowBoost = Boolean(this.player?.volumeBoostEnabled);
+      this.volumeSlider.max = String(allowBoost ? 200 : 100);
+      this.player.setVolume(value, { allowBoost });
       if (this.volumeValue) {
         this.volumeValue.textContent = value + '%';
       }
@@ -1279,7 +1285,9 @@ class HybridControls {
     this.volumeContainer.addEventListener('wheel', (e) => {
       e.preventDefault();
       const delta = e.deltaY > 0 ? -5 : 5;
-      const newVal = Math.max(0, Math.min(100, parseInt(this.volumeSlider.value) + delta));
+      const maxVol = this.player?.volumeBoostEnabled ? 200 : 100;
+      this.volumeSlider.max = String(maxVol);
+      const newVal = Math.max(0, Math.min(maxVol, parseInt(this.volumeSlider.value) + delta));
       this.volumeSlider.value = newVal;
       this.volumeSlider.dispatchEvent(new Event('input'));
     });
@@ -1288,7 +1296,9 @@ class HybridControls {
   }
 
   _updateVolumeSliderFill() {
-    const pct = this.volumeSlider.value;
+    const rawVal = Number(this.volumeSlider.value) || 0;
+    const maxVol = (this.player?.volumeBoostEnabled || rawVal > 100 || Number(this.volumeSlider.max) > 100) ? 200 : 100;
+    const pct = Math.max(0, Math.min(100, (rawVal / maxVol) * 100));
     const customFill = document.getElementById('customVolumeFill');
     const customThumb = document.getElementById('customVolumeThumb');
 
@@ -1593,7 +1603,8 @@ class HybridControls {
     // Only surface the indicator once media is loaded; never on the welcome/startup screen.
     if (!this.player?.currentFilePath) return;
 
-    const clamped = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+    const maxVol = this.player?.volumeBoostEnabled ? 200 : 100;
+    const clamped = Math.max(0, Math.min(maxVol, Math.round(Number(percent) || 0)));
     val.textContent = clamped;
     osd.classList.add('visible');
 
@@ -1872,7 +1883,7 @@ class HybridControls {
     }
 
     // Media-only modals cannot be accessed when no media is loaded
-    const mediaModals = ['subtitleModal', 'audioModal', 'speedModal'];
+    const mediaModals = ['subtitleModal', 'audioModal', 'speedModal', 'equalizerModal'];
     if (mediaModals.includes(modalId) && !isMediaActive) {
       const modal = document.getElementById(modalId);
       if (modal) modal.hidden = true;

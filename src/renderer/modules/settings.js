@@ -573,6 +573,20 @@ class HybridSettings {
       if (!activeModal) return;
 
       if (e.key === 'Escape') {
+        const openSelect = document.querySelector('.custom-select-container.open');
+        if (openSelect) {
+          openSelect.classList.remove('open');
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        const bgPopover = document.getElementById('bgAccordionPopover');
+        if (bgPopover && !bgPopover.hidden) {
+          this._closeBgPopover?.();
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         this._closeModal(activeModal);
         e.preventDefault();
         e.stopPropagation();
@@ -787,10 +801,12 @@ class HybridSettings {
 
     window.hybridAPI?.on?.('youtube:signin-success', () => {
       window.HybridToast?.show('YouTube account linked — cookies saved and auto-refresh from now on', 5000);
+      window.HybridApp?.youtubeInfoCache?.clear?.();
       this._refreshYtdlpCookiesStatus();
     });
 
     window.hybridAPI?.on?.('youtube:signout-success', () => {
+      window.HybridApp?.youtubeInfoCache?.clear?.();
       this._refreshYtdlpCookiesStatus();
     });
 
@@ -1807,8 +1823,17 @@ class HybridSettings {
         if (volSlider) {
           if (controls) controls._isApplyingSavedVolume = true;
           try {
-            const normalizedVol = Number(prefs.volume) > 1 ? Number(prefs.volume) / 100 : Number(prefs.volume);
-            volSlider.value = Math.round(Math.max(0, Math.min(1, normalizedVol)) * 100);
+            const boostEnabled = Boolean(prefs.volumeBoost) || Number(prefs.volume) > 1;
+            if (prefs.volumeBoost !== undefined) {
+              this.player?.setVolumeBoost?.(Boolean(prefs.volumeBoost));
+              const settVolumeBoost = document.getElementById('settVolumeBoost');
+              if (settVolumeBoost) settVolumeBoost.checked = Boolean(prefs.volumeBoost);
+            }
+            const rawVol = Number(prefs.volume);
+            const normalizedVol = rawVol > 2 ? rawVol / 100 : rawVol;
+            const maxNorm = boostEnabled ? 2 : 1;
+            volSlider.max = boostEnabled ? '200' : '100';
+            volSlider.value = Math.round(Math.max(0, Math.min(maxNorm, normalizedVol)) * 100);
             volSlider.dispatchEvent(new Event('input'));
           } finally {
             if (controls) controls._isApplyingSavedVolume = false;
@@ -2377,6 +2402,8 @@ class HybridSettings {
         this._stopAccordionLivePreviews();
       }
     };
+
+    this._closeBgPopover = () => togglePopover(false);
 
     if (pickerBtn) {
       pickerBtn.addEventListener('click', (e) => {

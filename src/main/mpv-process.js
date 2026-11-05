@@ -337,8 +337,12 @@ class MpvProcess extends EventEmitter {
         // Relay events from in-process context
         this._libmpv.on('property-change', (name, value, id) => {
           if (name === 'video-params' && value && typeof value === 'object') {
-            const w = value.w || value.width;
-            const h = value.h || value.height;
+            const rot = Number(value.rotate) || 0;
+            const isRotated = (rot % 180) !== 0;
+            const rawW = value.dw || value.w || value.width;
+            const rawH = value.dh || value.h || value.height;
+            const w = isRotated ? rawH : rawW;
+            const h = isRotated ? rawW : rawH;
             if (w && h && this._ownsDxBridge && dxBridgeManager.isSupported()) {
               dxBridgeManager.resize(w, h);
             }
@@ -703,20 +707,25 @@ class MpvProcess extends EventEmitter {
    * @returns {Promise<any>}
    */
   command(...args) {
+    const rawArgs = args[0] === 'async' ? args.slice(1) : args;
     if (this.inProcess && this._libmpv) {
-      if (args[0] === 'get_property') {
-        return this.getProperty(args[1]);
+      if (rawArgs[0] === 'get_property') {
+        return this.getProperty(rawArgs[1]);
       }
-      if (args[0] === 'set_property') {
-        return this.setProperty(args[1], args[2]);
+      if (rawArgs[0] === 'set_property') {
+        return this.setProperty(rawArgs[1], rawArgs[2]);
       }
-      if (args[0] === 'observe_property') {
-        return this.observeProperty(args[2]);
+      if (rawArgs[0] === 'observe_property') {
+        return this.observeProperty(rawArgs[2]);
       }
       try {
-        const res = this._libmpv.command(...args);
+        const asyncCommands = new Set(['loadfile', 'seek', 'screenshot-to-file', 'stop']);
+        const cmdArgs = (args[0] === 'async' || asyncCommands.has(rawArgs[0]))
+          ? ['async', ...rawArgs]
+          : rawArgs;
+        const res = this._libmpv.command(...cmdArgs);
         if (res < 0) {
-          return Promise.reject(new Error(`mpv command failed: ${args[0]}`));
+          return Promise.reject(new Error(`mpv command failed: ${rawArgs[0]}`));
         }
         return Promise.resolve(null);
       } catch (err) {
@@ -738,7 +747,7 @@ class MpvProcess extends EventEmitter {
         }, 10000);
 
         this._pending.set(id, { resolve, reject, timer });
-        const payload = JSON.stringify({ command: args, request_id: id }) + '\n';
+        const payload = JSON.stringify({ command: rawArgs, request_id: id }) + '\n';
         this.socket.write(payload);
       };
 
@@ -851,13 +860,18 @@ class MpvProcess extends EventEmitter {
       return str.includes(',') ? `[${str}]` : str;
     };
     const raw = [];
+    if (YTDLP_EXTRACTOR_ARGS) {
+      raw.push(`extractor-args=${formatValue(YTDLP_EXTRACTOR_ARGS)}`);
+    }
     if (this._ytDlpUserAgent) {
       raw.push(`user-agent=${formatValue(this._ytDlpUserAgent)}`);
     }
-    const cookiesPath = this._ytDlpCookiePath || path.join(app.getPath('userData'), 'cookies.txt');
+    const cookiesPath = path.join(app.getPath('userData'), 'cookies.txt');
     if (cookiesPath && fs.existsSync(cookiesPath)) {
       raw.push(`cookies=${formatValue(cookiesPath)}`);
       this._ytDlpCookiePath = cookiesPath;
+    } else {
+      this._ytDlpCookiePath = null;
     }
     const value = raw.join(',');
     try {

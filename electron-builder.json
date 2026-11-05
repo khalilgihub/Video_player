@@ -9,6 +9,11 @@
     "src/**/*",
     "assets/**/*",
     "!assets/**/*.mkv",
+    "!assets/**/*.mp4",
+    "!assets/**/*.webm",
+    "!assets/perf-baselines/**/*",
+    "!assets/test-results/**/*",
+    "!src/native/dx_bridge/build/**",
     "package.json",
     "!node_modules/ffmpeg-static/**/*"
   ],

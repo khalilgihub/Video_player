@@ -62,7 +62,9 @@ class Toast {
       const actionBtn = document.createElement('button');
       actionBtn.type = 'button';
       actionBtn.className = 'btn-toast-update';
-      actionBtn.innerHTML = `<span>${actionLabel}</span>`;
+      const span = document.createElement('span');
+      span.textContent = actionLabel;
+      actionBtn.appendChild(span);
       actionBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         try { onClick(); } catch (_) {}
@@ -94,8 +96,11 @@ class Toast {
 
   showUpdatePrompt(info, onUpdate) {
     if (!info?.latestVersion) return;
-    const existing = this.container.querySelector('.toast-update-pill');
-    if (existing) existing.remove();
+    const existing = this.container.querySelector('.toast-update-pill:not(.toast-error)');
+    if (existing) {
+      existing.remove();
+      this._activeToasts = this._activeToasts.filter(t => t !== existing);
+    }
 
     const toast = document.createElement('div');
     toast.className = 'toast toast-update-pill';

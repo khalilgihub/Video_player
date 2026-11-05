@@ -1,8 +1,8 @@
 /**
  * Preload for the YouTube sign-in window ONLY.
  *
- * Runs in the page's main world (the auth window uses contextIsolation:false
- * with nodeIntegration:false — page scripts get no Node access) and patches
+ * Runs with contextIsolation:true and nodeIntegration:false; the patch is injected into
+ * the page's main world via webFrame.executeJavaScript (page scripts get no Node access) and patches
  * the browser-identity surface Google's login heuristics probe beyond the
  * User-Agent string: navigator.plugins/mimeTypes (empty in embedded engines)
  * and navigator.userAgentData (Client Hints brands/version).
@@ -11,7 +11,7 @@
  * block page appears the main process notifies the user to retry sign-in.
  */
 
-(function patchIdentity() {
+function patchIdentity() {
   try {
     const CHROME_VERSION = '132';
     const CHROME_FULL_VERSION = '132.0.6834.160';
@@ -112,4 +112,15 @@
   } catch (_) {
     // Never break page load over a cosmetic identity patch.
   }
-})();
+}
+
+try {
+  const { webFrame } = require('electron');
+  if (webFrame && typeof webFrame.executeJavaScript === 'function') {
+    webFrame.executeJavaScript(`(${patchIdentity.toString()})();`).catch(() => {});
+  } else {
+    patchIdentity();
+  }
+} catch (_) {
+  patchIdentity();
+}

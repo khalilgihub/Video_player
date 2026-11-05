@@ -436,6 +436,8 @@ export function initParticles(containerElement, customOptions = {}) {
   const resumeLoop = () => {
     if (destroyed || contextLost || isMotionPaused) return;
     if (isMainMount) {
+      const ws = document.getElementById('welcomeScreen');
+      if ((ws && ws.classList.contains('hidden')) || window.__hybridWelcomeEffectsState?.paused) return;
       const popover = document.getElementById('bgAccordionPopover');
       if (popover && !popover.hidden) return;
       const curBg = window.__hybridWelcomeEffectsState?.welcomeBackground || 'dither';

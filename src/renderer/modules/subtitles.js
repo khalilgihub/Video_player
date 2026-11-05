@@ -23,11 +23,13 @@ class HybridSubtitles {
     };
 
     this._bindEvents();
+    this._loadSavedPreferences();
 
     // Re-render track list whenever player reports track-list change
     if (typeof this.player.addTrackListListener === 'function') {
       this.player.addTrackListListener((trackList) => {
         this._updateTrackList(trackList);
+        if (this._hasCustomStyle()) this._applyMpvStyle();
       });
     } else {
       this.player.onTrackListChanged = (trackList) => {
@@ -86,16 +88,19 @@ class HybridSubtitles {
       fontSize.value = String(this.style.fontSize);
       if (fontSizeVal) fontSizeVal.textContent = fontSize.value + 'px';
       this._applyMpvStyle();
+      window.hybridAPI?.db?.setPreference?.('subFontSize', this.style.fontSize);
     });
 
     document.getElementById('subFontColor')?.addEventListener('input', (e) => {
       this.style.fontColor = e.target.value;
       this._applyMpvStyle();
+      window.hybridAPI?.db?.setPreference?.('subFontColor', this.style.fontColor);
     });
 
     document.getElementById('subBgColor')?.addEventListener('input', (e) => {
       this.style.bgColor = e.target.value;
       this._applyMpvStyle();
+      window.hybridAPI?.db?.setPreference?.('subBgColor', this.style.bgColor);
     });
 
     const bgOpacityInput = document.getElementById('subBgOpacity');
@@ -105,6 +110,7 @@ class HybridSubtitles {
       if (bgOpacityVal) bgOpacityVal.textContent = `${value}%`;
       this.style.bgOpacity = Number.isFinite(value) ? Math.max(0, Math.min(1, value / 100)) : this.style.bgOpacity;
       this._applyMpvStyle();
+      window.hybridAPI?.db?.setPreference?.('subBgOpacity', this.style.bgOpacity);
     });
 
     // "Off" button
@@ -184,8 +190,52 @@ class HybridSubtitles {
     this.player.subVisible = true;
   }
 
+  /** Restore persisted subtitle appearance settings and re-apply them to mpv */
+  async _loadSavedPreferences() {
+    try {
+      const prefs = await window.hybridAPI?.db?.getAllPreferences?.();
+      if (!prefs) return;
+      if (Number.isFinite(Number(prefs.subFontSize))) {
+        this.style.fontSize = Math.max(12, Math.min(96, Number(prefs.subFontSize)));
+        const fontSize = document.getElementById('subFontSize');
+        const fontSizeVal = document.getElementById('subFontSizeVal');
+        if (fontSize) fontSize.value = String(this.style.fontSize);
+        if (fontSizeVal) fontSizeVal.textContent = `${this.style.fontSize}px`;
+      }
+      if (typeof prefs.subFontColor === 'string' && /^#[0-9a-f]{6}$/i.test(prefs.subFontColor)) {
+        this.style.fontColor = prefs.subFontColor;
+        const el = document.getElementById('subFontColor');
+        if (el) el.value = this.style.fontColor;
+      }
+      if (typeof prefs.subBgColor === 'string' && /^#[0-9a-f]{6}$/i.test(prefs.subBgColor)) {
+        this.style.bgColor = prefs.subBgColor;
+        const el = document.getElementById('subBgColor');
+        if (el) el.value = this.style.bgColor;
+      }
+      if (Number.isFinite(Number(prefs.subBgOpacity))) {
+        this.style.bgOpacity = Math.max(0, Math.min(1, Number(prefs.subBgOpacity)));
+        const pct = Math.round(this.style.bgOpacity * 100);
+        const bgOpacityInput = document.getElementById('subBgOpacity');
+        const bgOpacityVal = document.getElementById('subBgOpacityVal');
+        if (bgOpacityInput) bgOpacityInput.value = String(pct);
+        if (bgOpacityVal) bgOpacityVal.textContent = `${pct}%`;
+      }
+      if (this._hasCustomStyle()) this._applyMpvStyle();
+    } catch (_) {}
+  }
+
+  /** True when the user changed any appearance setting away from the defaults. */
+  _hasCustomStyle() {
+    const s = this.style;
+    return s.fontSize !== 28 || String(s.fontColor).toLowerCase() !== '#ffffff' ||
+      String(s.bgColor).toLowerCase() !== '#000000' || Math.abs(Number(s.bgOpacity) - 0.6) > 0.001;
+  }
+
   /** Send subtitle appearance props to mpv */
   _applyMpvStyle() {
+    // Custom styling only takes effect on ASS/SSA subs when sub-ass-override is forced;
+    // leave the mpv default alone while the user is on the default style.
+    window.hybridAPI?.mpv?.setProperty?.('sub-ass-override', this._hasCustomStyle() ? 'force' : 'no')?.catch?.(() => {});
     window.hybridAPI.mpv.command('set_property', 'sub-font-size', this.style.fontSize);
     window.hybridAPI.mpv.command('set_property', 'sub-font', this.style.fontFamily);
     window.hybridAPI.mpv.command('set_property', 'sub-color', this._sanitizeHexColor(this.style.fontColor, '#ffffff'));

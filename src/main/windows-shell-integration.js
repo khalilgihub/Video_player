@@ -80,13 +80,13 @@ function registerShellMetadata(app) {
       execFile('reg.exe', ['add', ...entry], { windowsHide: true }, () => {});
     }
 
-    // 2. Ensure Start Menu shortcut exists so Windows 11 Shell Link resolver
-    // maps mpv.exe and the AUMID to the official app name and icon.
+    // 2. Ensure Start Menu shortcut exists in packaged builds so Windows 11 Shell Link
+    // resolver maps the AUMID to the official app executable, name, and icon.
     const appData = process.env.APPDATA;
-    if (appData) {
+    if (electronApp.isPackaged && appData) {
       const programsDir = path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs');
       if (fs.existsSync(programsDir)) {
-        const targetPath = fs.existsSync(mpvPath) ? mpvPath : process.execPath;
+        const targetPath = process.execPath;
         const shortcutPath = path.join(programsDir, `${APP_NAME}.lnk`);
 
         const psScript = [

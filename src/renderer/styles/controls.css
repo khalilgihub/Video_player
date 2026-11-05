@@ -691,6 +691,9 @@ body.playlist-open .controls-right #btnShuffle {
   .controls-right #btnShuffle,
   .controls-right #btnABLoop,
   .controls-right #btnLock,
+  .controls-right #btnAudioTrack,
+  .controls-right #btnStreamQuality,
+  .controls-right #bgSettingsToggle,
   .controls-right #btnPiP,
   .controls-right #btnRecordClip {
     display: none;
@@ -886,14 +889,16 @@ body.playlist-open .controls-right #btnShuffle {
   display: none;
 }
 
-.subtitle-options {
+.subtitle-options,
+.audio-options {
   padding: 14px 18px 20px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.subtitle-section {
+.subtitle-section,
+.audio-section {
   background: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 14px;
@@ -902,11 +907,13 @@ body.playlist-open .controls-right #btnShuffle {
   transition: border-color 0.2s ease;
 }
 
-.subtitle-section:hover {
+.subtitle-section:hover,
+.audio-section:hover {
   border-color: rgba(255, 255, 255, 0.08);
 }
 
-.subtitle-section h4 {
+.subtitle-section h4,
+.audio-section h4 {
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -916,7 +923,8 @@ body.playlist-open .controls-right #btnShuffle {
 }
 
 /* Track list */
-.subtitle-track-list {
+.subtitle-track-list,
+.audio-track-list {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -929,20 +937,24 @@ body.playlist-open .controls-right #btnShuffle {
   margin-bottom: 0;
 }
 
-.subtitle-track-list::-webkit-scrollbar {
+.subtitle-track-list::-webkit-scrollbar,
+.audio-track-list::-webkit-scrollbar {
   width: 5px;
 }
 
-.subtitle-track-list::-webkit-scrollbar-track {
+.subtitle-track-list::-webkit-scrollbar-track,
+.audio-track-list::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.subtitle-track-list::-webkit-scrollbar-thumb {
+.subtitle-track-list::-webkit-scrollbar-thumb,
+.audio-track-list::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.2);
   border-radius: 4px;
 }
 
-.subtitle-track-list::-webkit-scrollbar-thumb:hover {
+.subtitle-track-list::-webkit-scrollbar-thumb:hover,
+.audio-track-list::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.35);
 }
 
@@ -1157,7 +1169,9 @@ body.playlist-open .controls-right #btnShuffle {
 /* ─── Light Theme Overrides for Controls Modals ─── */
 [data-theme="light"] .speed-panel,
 [data-theme="light"] .subtitle-panel,
-[data-theme="light"] .equalizer-panel {
+[data-theme="light"] .audio-panel,
+[data-theme="light"] .equalizer-panel,
+[data-theme="light"] .modal-panel {
   background: var(--bg-glass-heavy);
   border: 1px solid var(--border-color);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0, 0, 0, 0.08) inset;
@@ -1165,13 +1179,17 @@ body.playlist-open .controls-right #btnShuffle {
 
 [data-theme="light"] .speed-panel .modal-header h3,
 [data-theme="light"] .subtitle-panel .modal-header h3,
-[data-theme="light"] .equalizer-panel .modal-header h3 {
+[data-theme="light"] .audio-panel .modal-header h3,
+[data-theme="light"] .equalizer-panel .modal-header h3,
+[data-theme="light"] .modal-panel .modal-header h3 {
   color: var(--text-primary);
 }
 
 [data-theme="light"] .speed-panel .modal-close,
 [data-theme="light"] .subtitle-panel .modal-close,
-[data-theme="light"] .equalizer-panel .modal-close {
+[data-theme="light"] .audio-panel .modal-close,
+[data-theme="light"] .equalizer-panel .modal-close,
+[data-theme="light"] .modal-panel .modal-close {
   color: var(--text-secondary);
 }
 
@@ -1248,7 +1266,7 @@ body.playlist-open .controls-right #btnShuffle {
 }
 
 [data-theme="light"] .sync-slider-limit {
-  color: var(--text-muted);
+  color: var(--text-tertiary);
 }
 
 [data-theme="light"] .subtitle-sync-actions .btn-small {
@@ -1274,7 +1292,7 @@ body.playlist-open .controls-right #btnShuffle {
 }
 
 [data-theme="light"] .subtitle-sync-hint {
-  color: var(--text-muted);
+  color: var(--text-tertiary);
 }
 
 [data-theme="light"] .subtitle-section .setting-row:not(:last-child) {
@@ -1292,4 +1310,96 @@ body.playlist-open .controls-right #btnShuffle {
 
 [data-theme="light"] .color-input {
   border-color: var(--border-color);
+}
+
+/* ─── Audio & Voice modal (#audioModal) ─── */
+.audio-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px 20px;
+}
+
+.audio-section {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 14px;
+  padding: 11px 14px;
+}
+
+.audio-track-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.subtitle-sync {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.subtitle-sync .btn-small {
+  flex: 1;
+  padding: 6px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.subtitle-sync .btn-small:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.subtitle-sync #audioSyncValue {
+  flex: 1;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-dim);
+  padding: 5px 10px;
+  border-radius: 6px;
+}
+
+.empty-track-msg {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  padding: 8px 12px;
+  font-style: italic;
+}
+
+[data-theme="light"] .audio-section {
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid var(--border-color);
+}
+
+[data-theme="light"] .subtitle-sync .btn-small {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .subtitle-sync .btn-small:hover {
+  background: rgba(0, 0, 0, 0.08);
+  border-color: rgba(0, 0, 0, 0.18);
+}
+
+[data-theme="light"] .empty-track-msg {
+  color: var(--text-tertiary);
 }

@@ -220,6 +220,10 @@ class HybridPlaylist {
     this._playedShuffleIndices.add(index);
     this._renderList(filter);
     try {
+      if ((targetItem.isYoutube || window.HybridApp?._isYoutubeUrl?.(targetItem.path)) && window.HybridApp?._loadMediaReplace) {
+        await window.HybridApp._loadMediaReplace(targetItem.path);
+        return true;
+      }
       const loaded = await this.player.loadFile(targetItem.path, { allowResume });
       if (!loaded && requestId === this._playRequestId) {
         this.currentIndex = -1;
@@ -393,6 +397,8 @@ class HybridPlaylist {
       this.player.isPlaying = false;
       this.player.onPlayStateChanged?.(false);
     }
+
+    window.HybridApp?.resetToIdleState?.();
 
     const welcomeScreen = document.getElementById('welcomeScreen');
     const titlebarText = document.getElementById('titlebarText');

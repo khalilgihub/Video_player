@@ -762,7 +762,7 @@ body[data-welcome-background] .bg-settings-panel {
   text-transform: uppercase;
   color: var(--bgp-fg-dim);
   flex-shrink: 0;
-  min-width: 56px;
+  min-width: 64px;
   padding-top: 8px;
 }
 
@@ -2264,3 +2264,19 @@ body[data-welcome-background='gridmotion'] .bg-settings-panel {
   color: var(--text-primary);
 }
 
+body.playlist-open .bg-settings-panel {
+  right: 340px !important;
+}
+
+[data-theme="light"] .bg-settings-panel,
+[data-theme="light"] body[data-welcome-background] .bg-settings-panel,
+[data-theme="light"] .bg-accordion-popover {
+  --bgp-fg: var(--text-primary, #11131a);
+  --bgp-fg-dim: var(--text-secondary, #4a4f62);
+  --bgp-row-fg: var(--text-secondary, #4a4f62);
+  --bgp-value-fg: var(--text-primary, #11131a);
+  --bgp-track: rgba(0, 0, 0, 0.14);
+  background: rgba(248, 249, 252, 0.94) !important;
+  border-color: rgba(0, 0, 0, 0.12) !important;
+  color: var(--text-primary, #11131a) !important;
+}

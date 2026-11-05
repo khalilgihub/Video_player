@@ -327,7 +327,11 @@ class LibmpvContext extends EventEmitter {
     }
     if (this.handle) {
       try {
-        this.funcs.destroy(this.handle);
+        if (this.funcs.terminate_destroy) {
+          this.funcs.terminate_destroy(this.handle);
+        } else {
+          this.funcs.destroy(this.handle);
+        }
       } catch {}
       this.handle = null;
     }

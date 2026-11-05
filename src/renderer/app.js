@@ -1183,10 +1183,12 @@ class HybridApp {
       this.player._singleScreenshotStack = [];
       this.player._deletedScreenshotStack = [];
       this.player._sessionScreenshots = [];
+      this.player._screenshotSessionGen = (this.player._screenshotSessionGen || 0) + 1;
       this.player.closeScreenshotCarousel?.();
       this.player.clearABLoop?.({ notify: false });
       this.player.currentTime = 0;
       this.player.duration = 0;
+      this.player.isLive = false;
       this.player.currentFilePath = filePathOrUrl;
       this.player.isPlaying = true;
       this.player.onPlayStateChanged?.(true);
@@ -1211,10 +1213,14 @@ class HybridApp {
       // (see _scheduleYoutubeProbe).
       const videoId = this._extractYoutubeId(filePathOrUrl);
       if (this._youtubeHeightsVideoId && this._youtubeHeightsVideoId !== videoId) {
+        const hadManualQuality = this.currentStreamQuality && this.currentStreamQuality !== 'auto';
         this.youtubeQualityHeights = [];
         this.currentStreamQuality = 'auto';
         this.currentYoutubeInfo = null;
         this._youtubeHeightsVideoId = null;
+        if (hadManualQuality) {
+          window.hybridAPI?.mpv?.setProperty?.('ytdl-format', this._buildYtdlFormat('auto'))?.catch?.(() => {});
+        }
       }
       this._renderControlBarQualityMenu(this.youtubeQualityHeights, this.currentStreamQuality);
       this._scheduleYoutubeProbe(filePathOrUrl);
@@ -1225,9 +1231,13 @@ class HybridApp {
       this._cancelScheduledYoutubeProbe();
       this._setYoutubeLiveBadge(false);
       this._lastYoutubeLoadUrl = null;
+      const hadManualQuality = this.currentStreamQuality && this.currentStreamQuality !== 'auto';
       this.youtubeQualityHeights = [];
       this.currentStreamQuality = 'auto';
       this.currentYoutubeInfo = null;
+      if (hadManualQuality) {
+        window.hybridAPI?.mpv?.setProperty?.('ytdl-format', this._buildYtdlFormat('auto'))?.catch?.(() => {});
+      }
       this._renderControlBarQualityMenu([], 'auto');
     }
 
@@ -1410,6 +1420,7 @@ class HybridApp {
     const overlay = this._pausedFrameOverlayEl;
     if (!overlay) return;
     overlay.classList.remove('visible');
+    overlay.removeAttribute('src');
     this._debugRendererPlayback('paused-frame-hidden', { reason });
   }
 
@@ -1542,6 +1553,9 @@ class HybridApp {
   _closeSettingsModal() {
     const settingsModal = document.getElementById('settingsModal');
     if (settingsModal) {
+      if (!settingsModal.hidden && this.settingsModule?._closeModal) {
+        this.settingsModule._closeModal(settingsModal);
+      }
       settingsModal.hidden = true;
     }
   }
@@ -1783,6 +1797,9 @@ class HybridApp {
         titleEl.textContent = `${parts.join(' — ')} — Hybrid Player`;
       }
     }
+    if (this.player) {
+      this.player.isLive = info.isLive === true;
+    }
     this._setYoutubeLiveBadge(info.isLive === true);
   }
 
@@ -1812,13 +1829,14 @@ class HybridApp {
       path: entry.url,
       name: entry.title || entry.id,
       duration: entry.duration || null,
+      isYoutube: true,
     }));
     if (items.length === 0) return;
 
     // Keep the manually opened video in the queue even if yt-dlp's listing
     // doesn't include it (e.g. private/unlisted first entry).
     if (currentVideoId && !items.some((item) => this._extractYoutubeId(item.path) === currentVideoId)) {
-      items.unshift({ path: url, name: currentVideoId, duration: null });
+      items.unshift({ path: url, name: currentVideoId, duration: null, isYoutube: true });
     }
 
     const currentIndex = currentVideoId

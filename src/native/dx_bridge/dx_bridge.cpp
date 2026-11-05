@@ -158,7 +158,7 @@ public:
     std::vector<RetiredBuffer> retired_buffers;
     int current_width = 1280;
     int current_height = 720;
-    int flip_y = 1;
+    int flip_y = 0;
     bool buffers_allocated = false;
     std::atomic<uint64_t> current_generation{1};
 
@@ -212,11 +212,23 @@ public:
         pfd.iLayerType = PFD_MAIN_PLANE;
 
         int format = ChoosePixelFormat(dummy_hdc, &pfd);
-        if (!format) return false;
+        if (!format) {
+            ReleaseDC(dummy_hwnd, dummy_hdc);
+            dummy_hdc = nullptr;
+            DestroyWindow(dummy_hwnd);
+            dummy_hwnd = nullptr;
+            return false;
+        }
         SetPixelFormat(dummy_hdc, format, &pfd);
 
         HGLRC tempContext = wglCreateContext(dummy_hdc);
-        if (!tempContext) return false;
+        if (!tempContext) {
+            ReleaseDC(dummy_hwnd, dummy_hdc);
+            dummy_hdc = nullptr;
+            DestroyWindow(dummy_hwnd);
+            dummy_hwnd = nullptr;
+            return false;
+        }
         wglMakeCurrent(dummy_hdc, tempContext);
 
         wglCreateContextAttribsARB = (PFNWGLCREATECONTEXTATTRIBSARBPROC)wglGetProcAddress("wglCreateContextAttribsARB");
@@ -692,6 +704,7 @@ public:
     void renderLoop() {
         wglMakeCurrent(dummy_hdc, dummy_hglrc);
 
+        int consecutive_recover_failures = 0;
         while (running.load(std::memory_order_relaxed)) {
             DWORD waitRes = WaitForSingleObject(hWakeEvent, 16);
             if (!running.load(std::memory_order_relaxed)) break;
@@ -702,9 +715,15 @@ public:
                 if (FAILED(removedReason)) {
                     printf("[dx_bridge] Device removed detected: 0x%08X\n", (unsigned int)removedReason);
                     if (!recoverDevice()) {
+                        if (++consecutive_recover_failures >= 10) {
+                            printf("[dx_bridge] Exceeded max device recovery attempts (10); stopping render loop.\n");
+                            running.store(false, std::memory_order_release);
+                            break;
+                        }
                         Sleep(50);
                         continue;
                     }
+                    consecutive_recover_failures = 0;
                 }
             }
 
