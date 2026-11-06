@@ -1,8 +1,8 @@
 version: 12.6.0
 files:
   - url: Hybrid-Player-Setup-12.6.0.exe
-    sha512: uCiuTHH2p9vHUZyBXm84IMcN3rgIYIerd0hDGH83Ht2ONxRuG7sY06QOP7Y02kIAvL5fN+OkujhvxSfiFXFykw==
-    size: 198593684
+    sha512: bK8CENQfWX3RImY2q4tVd3Xi4BO8zqjCdxNozsBHbTbp3UBMiUkSpZFU0jpp3peUYYEJEhNF3QHW4Xk5Cg4cZw==
+    size: 204812027
 path: Hybrid-Player-Setup-12.6.0.exe
-sha512: uCiuTHH2p9vHUZyBXm84IMcN3rgIYIerd0hDGH83Ht2ONxRuG7sY06QOP7Y02kIAvL5fN+OkujhvxSfiFXFykw==
-releaseDate: '2026-10-08T07:37:30.410Z'
+sha512: bK8CENQfWX3RImY2q4tVd3Xi4BO8zqjCdxNozsBHbTbp3UBMiUkSpZFU0jpp3peUYYEJEhNF3QHW4Xk5Cg4cZw==
+releaseDate: '2026-11-06T12:34:17.187Z'

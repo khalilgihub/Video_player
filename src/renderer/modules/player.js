@@ -759,11 +759,11 @@ class HybridPlayer {
 
   // ── Volume ─────────────────────────────────────────────
   setVolume(value, options = false) {
-    // value: fractional (0 < v < 1) or integer percentage (0–100, or up to 200 when volume boost enabled)
+    // Canonical unit: mpv percent 0-200. DB stores 0-2 (1.0 = 100%).
+    // Callers may pass DB-scale (0-2, e.g. 1.0) or percent (50, 150).
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return;
-    const isFractional = (numeric > 0 && numeric < 1) || (numeric > 1 && numeric <= 2 && numeric % 1 !== 0);
-    const target = isFractional ? numeric * 100 : numeric;
+    const target = numeric <= 2 ? numeric * 100 : numeric; // 1 -> 100, 0.5 -> 50, 50 -> 50, 150 -> 150
     const allowBoost = (typeof options === 'boolean' && options) ||
                        (typeof options === 'object' && options?.allowBoost) ||
                        Boolean(this.volumeBoostEnabled);

@@ -263,12 +263,12 @@ function scheduleNativeDwmWindowStyles(win, delays = [0, 80, 200, 350]) {
   if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
   for (const delay of delays) {
     if (delay === 0) {
-      if (!win.__hybridIsResizing) {
+      if (!win.__hybridIsResizing && !win.isFullScreen() && !win.__hybridFullscreenState) {
         applyNativeDwmWindowStyles(win);
       }
     } else {
       setTimeout(() => {
-        if (!win || win.isDestroyed() || win.__hybridIsResizing) return;
+        if (!win || win.isDestroyed() || win.__hybridIsResizing || win.isFullScreen() || win.__hybridFullscreenState) return;
         applyNativeDwmWindowStyles(win);
       }, delay);
     }

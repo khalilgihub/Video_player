@@ -1114,11 +1114,17 @@ function openSignInWindow({ onSuccess, onBlocked, mode = 'auto', switchAccount =
     webPreferences: {
       partition: AUTH_PARTITION,
       contextIsolation: true,
-      sandbox: false,
+      sandbox: true,
       nodeIntegration: false,
       preload: path.join(__dirname, 'youtube-auth-preload.js'),
       spellcheck: false,
     },
+  });
+  signInWindow.webContents.on('will-navigate', (event, url) => {
+    try {
+      const u = new URL(url);
+      if (!/(^|\.)(google\.com|youtube\.com|gstatic\.com)$/i.test(u.hostname) && u.hostname !== 'accounts.google.com') event.preventDefault();
+    } catch { event.preventDefault(); }
   });
 
   getAuthSession().setUserAgent(ua);

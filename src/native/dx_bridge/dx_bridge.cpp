@@ -414,11 +414,13 @@ public:
             wglDXUnregisterObjectNV(gl_hDevice, b.gl_registered_obj);
             b.gl_registered_obj = nullptr;
         }
-        if (b.gl_fbo && glDeleteFramebuffers) {
+        bool _glCtxCurrent = false;
+        if (gl_hdc && dummy_hglrc) { _glCtxCurrent = (wglGetCurrentContext() == dummy_hglrc); if (!_glCtxCurrent) { _glCtxCurrent = (wglMakeCurrent(gl_hdc, dummy_hglrc) != 0); } }
+        if (b.gl_fbo && glDeleteFramebuffers && _glCtxCurrent) {
             glDeleteFramebuffers(1, &b.gl_fbo);
             b.gl_fbo = 0;
         }
-        if (b.gl_texture) {
+        if (b.gl_texture && glDeleteTextures && _glCtxCurrent) {
             glDeleteTextures(1, &b.gl_texture);
             b.gl_texture = 0;
         }
@@ -435,6 +437,10 @@ public:
                 b.dxgi_resource1,
                 b.nt_handle
             });
+            if (retired_buffers.size() > 16) {
+              cleanupRetiredBuffer(retired_buffers.front());
+              retired_buffers.erase(retired_buffers.begin());
+            }
             b.d3d_shared_texture = nullptr;
             b.dxgi_resource1 = nullptr;
             b.nt_handle = nullptr;

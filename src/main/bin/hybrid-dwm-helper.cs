@@ -39,18 +39,24 @@ public class Program {
     [DllImport("dwmapi.dll")]
     public static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref MARGINS pMarInset);
 
+    [DllImport("user32.dll")]
+    static extern bool IsWindow(IntPtr hWnd);
+
     public static int Main(string[] args) {
         if (args == null || args.Length < 1) return 1;
 
         long hwndVal = 0;
         string hwndStr = args[0].Trim();
-        if (hwndStr.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) {
-            hwndVal = Convert.ToInt64(hwndStr.Substring(2), 16);
-        } else {
+        try {
+          if (hwndStr.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) {
+            hwndVal = unchecked((long)Convert.ToUInt64(hwndStr.Substring(2), 16));
+          } else {
             hwndVal = Convert.ToInt64(hwndStr);
-        }
+          }
+        } catch { return 1; }
 
         IntPtr hwnd = new IntPtr(hwndVal);
+        if (!IsWindow(hwnd)) return 1;
 
         long WS_CAPTION = 0x00C00000L;
         long WS_THICKFRAME = 0x00040000L;

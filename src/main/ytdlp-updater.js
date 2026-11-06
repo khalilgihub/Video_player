@@ -59,7 +59,13 @@ async function getLatestYtDlpReleaseTag() {
   return null;
 }
 
+let _checkPromise = null;
 async function checkForYtDlpUpdate() {
+  if (_checkPromise) return _checkPromise;
+  _checkPromise = checkForYtDlpUpdateInner();
+  try { return await _checkPromise; } finally { _checkPromise = null; }
+}
+async function checkForYtDlpUpdateInner() {
   const binary = getYtDlpPath();
   if (!binary) {
     return {

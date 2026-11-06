@@ -379,16 +379,17 @@ export function initParticles(containerElement, customOptions = {}) {
     if (destroyed || contextLost) return;
     if (isMotionPaused) {
       isPaused = true;
-      rafId = 0;
+      rafId = requestAnimationFrame(update);
       return;
     }
     if (options.pauseWhenUnfocused && !isAppInteractive()) {
       isPaused = true;
-      rafId = 0;
+      rafId = requestAnimationFrame(update);
       return;
     }
     isPaused = false;
     rafId = requestAnimationFrame(update);
+    if (gl.canvas.offsetParent === null) return; // gallery hidden
 
     if (fpsInterval > 0) {
       const now = performance.now();
@@ -547,9 +548,9 @@ export function initParticles(containerElement, customOptions = {}) {
     if (containerElement.contains(gl.canvas)) {
       containerElement.removeChild(gl.canvas);
     }
-    try {
-      gl.getExtension('WEBGL_lose_context')?.loseContext();
-    } catch {}
+    try { geometry?.dispose?.(); } catch {}
+    try { program?.dispose?.(); } catch {}
+    try { gl.getExtension('WEBGL_lose_context')?.loseContext(); } catch {}
     containerElement.style.background = '';
 
     particlesdbg(`${LOG_TAG} destroy`, {

@@ -1883,7 +1883,8 @@ class HybridControls {
     }
 
     // Media-only modals cannot be accessed when no media is loaded
-    const mediaModals = ['subtitleModal', 'audioModal', 'speedModal', 'equalizerModal'];
+    // (Equalizer is global — bands persist regardless of media, so excluded).
+    const mediaModals = ['subtitleModal', 'audioModal', 'speedModal'];
     if (mediaModals.includes(modalId) && !isMediaActive) {
       const modal = document.getElementById(modalId);
       if (modal) modal.hidden = true;

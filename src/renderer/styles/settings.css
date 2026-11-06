@@ -1563,11 +1563,11 @@ body[data-welcome-background='gridmotion'] .bg-settings-panel {
 /* ─── Left-Side Accordion Gallery Drawer / Popover ─── */
 .bg-accordion-popover {
   position: absolute !important;
-  right: calc(20px + min(92vw, 360px) + 14px) !important;
+  right: calc(var(--bgp-right, 20px) + min(92vw, 360px) + 14px) !important;
   left: auto !important;
   bottom: 80px !important;
-  width: min(92vw, 860px) !important;
-  max-width: calc(100vw - 410px) !important;
+  width: min(92vw, 860px, calc(100vw - 32px)) !important;
+  max-width: min(calc(100vw - 410px), calc(100vw - 32px)) !important;
   background: var(--welcome-picker-panel-bg, var(--bg-glass-heavy));
   border: var(--welcome-picker-panel-border, var(--glass-border));
   box-shadow: var(--welcome-picker-panel-shadow, var(--shadow-md));
@@ -2265,7 +2265,14 @@ body[data-welcome-background='gridmotion'] .bg-settings-panel {
 }
 
 body.playlist-open .bg-settings-panel {
+  --bgp-right: 340px;
   right: 340px !important;
+}
+@media (max-width: 640px) {
+  .bg-accordion-gallery { flex-direction: column; height: auto; }
+  .bg-accordion-item { min-height: 64px; flex-direction: row; }
+  .sidebar-playlist { width: min(320px, 100vw); }
+  body.playlist-open .time-display, body.playlist-open .volume-value { display: none; }
 }
 
 [data-theme="light"] .bg-settings-panel,

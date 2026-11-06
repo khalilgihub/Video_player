@@ -159,13 +159,16 @@ class DxBridgeManager {
   resize(width, height) {
     if (!this.initialized || !this.addon) return false;
     if (width <= 0 || height <= 0) return false;
-    this.currentWidth = width;
-    this.currentHeight = height;
-    return this.addon.resize(width, height);
+    const ok = this.addon.resize(width, height);
+    if (ok) { this.currentWidth = width; this.currentHeight = height; }
+    return !!ok;
   }
 
-  destroy() {
+  async destroy() {
     this.rendererReady = false;
+    if (this._inFlightImports && this._inFlightImports.size) {
+      try { await Promise.race([...this._inFlightImports, new Promise(r=>setTimeout(r,1500))]); } catch {}
+    }
     this.targetWindow = null;
     if (this.initialized && this.addon) {
       try {

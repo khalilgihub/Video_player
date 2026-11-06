@@ -216,7 +216,8 @@ class MpvProcess extends EventEmitter {
           const tryDxBridge = allowDxBridge && dxBridgeManager.isSupported() && opts.attachWindow !== false;
           if (tryDxBridge) {
             ctx.setOptionString('vo', 'libmpv');
-            ctx.setOptionString('hwdec', 'd3d11va');
+            ctx.setOptionString('hwdec', 'd3d11va-zero-copy');
+            ctx.setOptionString('hwdec-codecs', 'h264,h265,vp9,av1');
           } else if (opts.attachWindow !== false && hwnd) {
             ctx.setOptionString('wid', hwnd);
             ctx.setOptionString('vo', 'gpu');
@@ -412,6 +413,7 @@ class MpvProcess extends EventEmitter {
       throw new Error('mpv binary not found');
     }
 
+    const safeUserAgent = String(effectiveUserAgent || '').replace(/[\r\n,]/g, ' ').slice(0, 512);
     const args = [
       '--idle=yes',
       '--keep-open=yes',
@@ -421,7 +423,7 @@ class MpvProcess extends EventEmitter {
       '--no-osd-bar',
       '--osd-level=0',
       `--input-ipc-server=${this.pipeName}`,
-      `--hwdec=${opts.hwdec || (process.platform === 'win32' ? 'd3d11va' : 'auto-safe')}`,
+      `--hwdec=${opts.hwdec || (process.platform === 'win32' ? 'd3d11va-zero-copy' : 'auto-safe')}`,
       opts.attachWindow === false ? '--vo=null' : '--vo=gpu',
       '--ytdl=yes',
       // Subtitle defaults & rock-solid multi-speaker synchronization
@@ -453,12 +455,12 @@ class MpvProcess extends EventEmitter {
       '--hr-seek-framedrop=yes',
       '--volume-max=200',
       '--sub-codepage=auto',
-      `--user-agent=${effectiveUserAgent}`,
+      `--user-agent=${safeUserAgent}`,
       ...(isMuteAudioRequested ? ['--ao=null'] : []),
     ];
 
     if (ytDlpPath) {
-      const normalizedYtDlpPath = ytDlpPath.replace(/\\/g, '/');
+      const normalizedYtDlpPath = ytDlpPath.replace(/\\/g, '/').replace(/,/g, '\\,');
       args.push(`--script-opts=ytdl_hook-ytdl_path=${normalizedYtDlpPath}`);
       fsdbg('resolved yt-dlp path for mpv', { ytDlpPath, normalizedYtDlpPath });
     } else {
@@ -551,6 +553,10 @@ class MpvProcess extends EventEmitter {
       mpverr('mpv exited with code', code);
     }
     this.ready = false;
+    if (this._pending && typeof this._pending.forEach === 'function') {
+      this._pending.forEach((p) => { try { clearTimeout(p.timer); p.reject(new Error('mpv terminated')); } catch {} });
+      if (typeof this._pending.clear === 'function') this._pending.clear();
+    }
     this.socket = null;
     this.process = null;
     this.emit('exit', code);
@@ -585,6 +591,7 @@ class MpvProcess extends EventEmitter {
     sock.on('data', (chunk) => this._onData(chunk));
 
     sock.on('error', (err) => {
+      try { sock.destroy(); } catch {}
       if (this.destroyed || this._terminationEmitted || !this.process) return;
       if (retries > 0) {
         this._reconnectTimer = setTimeout(() => this._connectSocket(retries - 1), 200);
@@ -594,13 +601,21 @@ class MpvProcess extends EventEmitter {
     });
 
     sock.on('close', () => {
+      if (this.socket !== sock) return;
       this.socket = null;
       this.ready = false;
+      if (this._pending && typeof this._pending.forEach === 'function') {
+        this._pending.forEach((p) => { try { clearTimeout(p.timer); p.reject(new Error('mpv socket closed')); } catch {} });
+        if (typeof this._pending.clear === 'function') this._pending.clear();
+      }
     });
   }
 
   _onData(chunk) {
-    this._recvBuf += chunk.toString('utf-8');
+    const { StringDecoder } = require('string_decoder');
+    if (!this._decoder) this._decoder = new StringDecoder('utf8');
+    this._recvBuf += this._decoder.write(chunk);
+    if (this._recvBuf.length > 1048576) this._recvBuf = this._recvBuf.slice(-8192);
     const lines = this._recvBuf.split('\n');
     this._recvBuf = lines.pop(); // keep incomplete last line
 
@@ -890,32 +905,25 @@ class MpvProcess extends EventEmitter {
   pause() { return this.setProperty('pause', true);  }
 
   async togglePause() {
-    const paused = !!(await this.getProperty('pause'));
-    if (paused) {
-      const eof = await this.getProperty('eof-reached').catch(() => false);
-      if (eof) {
-        await this.seek(0, 'absolute').catch(() => {});
-      }
-    }
-    const nextPaused = !paused;
-    await this.setProperty('pause', nextPaused);
-    return nextPaused;
+    // Atomic cycle avoids read-modify-write TOCTOU on rapid clicks.
+    await this.command('cycle', 'pause');
+    return this.getProperty('pause').catch(() => false);
   }
 
   stop() {
     return this.command('stop');
   }
 
-  seek(seconds, flags = 'absolute') {
+  seek(seconds, flags = 'absolute+exact') {
     return this.command('seek', seconds, flags);
   }
 
   seekRelative(seconds) {
-    return this.command('seek', seconds, 'relative');
+    return this.command('seek', seconds, 'relative+exact');
   }
 
   seekPercent(pct) {
-    return this.command('seek', pct, 'absolute-percent');
+    return this.command('seek', pct, 'absolute-percent+exact');
   }
 
   setVolume(vol)  { return this.setProperty('volume', vol); }
@@ -1247,9 +1255,9 @@ class MpvProcess extends EventEmitter {
       }
       if (this.process && !this.process.inProcess) {
         const pid = this.process.pid;
-        if (process.platform === 'win32' && pid) {
+        if (process.platform === 'win32' && Number.isInteger(pid) && pid > 0) {
           try {
-            require('child_process').execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
+            require('child_process').execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore' });
           } catch {}
         } else {
           try { this.process.kill('SIGTERM'); } catch {}

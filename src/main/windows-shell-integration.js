@@ -83,7 +83,7 @@ function registerShellMetadata(app) {
     // 2. Ensure Start Menu shortcut exists in packaged builds so Windows 11 Shell Link
     // resolver maps the AUMID to the official app executable, name, and icon.
     const appData = process.env.APPDATA;
-    if (electronApp.isPackaged && appData) {
+    if (app?.isPackaged && appData) {
       const programsDir = path.join(appData, 'Microsoft', 'Windows', 'Start Menu', 'Programs');
       if (fs.existsSync(programsDir)) {
         const targetPath = process.execPath;

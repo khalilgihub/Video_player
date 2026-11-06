@@ -122,11 +122,16 @@ async function collectFolderMediaFiles(folderPath) {
   if (!root) return [];
 
   const mediaFiles = [];
+  const seenDirs = new Set();
   let visitedDirs = 0;
 
   async function walk(dirPath, depth) {
     if (mediaFiles.length >= FOLDER_SCAN_MAX_FILES) return;
     if (depth > FOLDER_SCAN_MAX_DEPTH) return;
+    let real = dirPath;
+    try { real = fs.realpathSync(dirPath); } catch {}
+    if (seenDirs.has(real)) return;
+    seenDirs.add(real);
     visitedDirs += 1;
     if (visitedDirs > FOLDER_SCAN_MAX_DIRS) return;
 
@@ -139,17 +144,18 @@ async function collectFolderMediaFiles(folderPath) {
 
     entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
+    const dirs = [];
     for (const entry of entries) {
       if (mediaFiles.length >= FOLDER_SCAN_MAX_FILES || visitedDirs > FOLDER_SCAN_MAX_DIRS) return;
       const entryPath = path.join(dirPath, entry.name);
       if (entry.isSymbolicLink()) continue;
-      if (entry.isDirectory()) {
-        await walk(entryPath, depth + 1);
-        continue;
-      }
+      if (entry.isDirectory()) { dirs.push(entryPath); continue; }
       if (entry.isFile() && MEDIA_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
         mediaFiles.push(entryPath);
       }
+    }
+    for (let i = 0; i < dirs.length; i += 8) {
+      await Promise.all(dirs.slice(i, i + 8).map((d) => walk(d, depth + 1)));
     }
   }
 
@@ -161,6 +167,7 @@ function resolveExistingLocalDirectory(dirPath) {
   if (typeof dirPath !== 'string') return null;
   const source = dirPath.trim();
   if (!source || source.length > 4096 || source.includes('\0')) return null;
+  if (/^\\\\/.test(source)) return null; // block UNC/SMB
 
   try {
     const resolved = path.resolve(source);
@@ -268,7 +275,7 @@ function resolveExistingLocalFile(filePath, allowedExtensions = null) {
   if (typeof filePath !== 'string') return null;
   const source = filePath.trim();
   if (!source || source.length > 4096 || source.includes('\0')) return null;
-
+  if (/^\\\\/.test(source)) return null; // block UNC/SMB
   try {
     const resolved = path.resolve(source);
     const stat = fs.statSync(resolved);
@@ -539,7 +546,7 @@ async function getYoutubeVideoInfo(url) {
   const payload = await runYtDlpJson(args);
   if (!payload || !Array.isArray(payload.formats)) {
     ytdbg('extract info failed: no formats in payload');
-    return null;
+    return { error: 'Video unavailable or sign-in required', code: 'YT_EXTRACT_FAILED', heights: [], title: null, uploader: null, duration: null, isLive: false, liveStatus: null, thumbnail: null, webpageUrl: target, videoId: videoId || null };
   }
 
   ytdbg('yt-dlp payload parsed', {
@@ -1363,6 +1370,7 @@ async function flushDatabaseAsync() {
     await fs.promises.writeFile(tmpPath, serialized, 'utf-8');
     if (generation !== dbSaveGeneration || pendingDb) {
       await fs.promises.unlink(tmpPath).catch(() => {});
+      if (pendingDb) return flushDatabaseAsync();
       return;
     }
     try {
@@ -1879,6 +1887,8 @@ function createMainWindow() {
         logFs('before-input-event:escape_prevented_by_ui');
         return;
       }
+      // Let globalShortcut be the single dispatcher (avoids double close+exit).
+      if (globalShortcut.isRegistered('Escape')) return;
       if (getTrackedFullscreen(mainWindow)) {
         logFs('before-input-event:escape_exit_fullscreen');
         event.preventDefault();

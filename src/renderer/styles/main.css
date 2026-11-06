@@ -772,11 +772,13 @@ body.force-hide-cursor * {
   border-right: 1px solid rgba(255, 255, 255, 0.15) !important;
   border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
   background: rgba(10, 12, 18, 0.92) !important;
-  backdrop-filter: blur(24px) saturate(190%) !important;
-  -webkit-backdrop-filter: blur(24px) saturate(190%) !important;
+  backdrop-filter: blur(12px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(150%) !important;
   box-shadow: 0 6px 20px -2px rgba(0, 0, 0, 0.7) !important;
   padding: 0 !important;
-  z-index: 2500 !important;
+  z-index: 2000 !important;
+  contain: layout paint;
+  isolation: isolate;
   -webkit-app-region: no-drag !important;
   pointer-events: auto !important;
 }
@@ -1100,7 +1102,7 @@ body.is-locked .sidebar-playlist {
   width: 260px;
   max-width: 32vw;
   cursor: pointer;
-  z-index: 10000;
+  z-index: 1500;
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.18);
@@ -2757,10 +2759,9 @@ button.modal-close:focus-visible {
   outline-offset: 0;
 }
 
-button:focus,
 button:focus-visible {
-  outline: none !important;
-  box-shadow: none !important;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* ─── Input Styles ─── */

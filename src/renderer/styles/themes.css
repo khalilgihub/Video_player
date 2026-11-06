@@ -80,8 +80,8 @@
   --bg-titlebar: linear-gradient(to bottom, rgba(0, 0, 0, 0.8) 0%, transparent 100%);
   
   --text-primary: #f0f0f5;
-  --text-secondary: #a0a0b0;
-  --text-tertiary: #606070;
+  --text-secondary: #b8b8cc;
+  --text-tertiary: #8a8aa0;
   
   --border-color: rgba(255, 255, 255, 0.08);
   --border-focus: rgba(255, 255, 255, 0.2);
@@ -124,8 +124,8 @@
   --bg-titlebar: linear-gradient(to bottom, rgba(0, 0, 0, 0.9) 0%, transparent 100%);
   
   --text-primary: #e8e8ed;
-  --text-secondary: #888890;
-  --text-tertiary: #444448;
+  --text-secondary: #a8a8b2;
+  --text-tertiary: #7a7a82;
   
   --border-color: rgba(255, 255, 255, 0.12);
   --border-focus: rgba(255, 255, 255, 0.15);
@@ -168,8 +168,8 @@
   --bg-titlebar: linear-gradient(to bottom, rgba(255, 255, 255, 0.9) 0%, transparent 100%);
   
   --text-primary: #1a1a2e;
-  --text-secondary: #5a5a70;
-  --text-tertiary: #9a9ab0;
+  --text-secondary: #4e4e64;
+  --text-tertiary: #6e6e86;
   
   --border-color: rgba(0, 0, 0, 0.08);
   --border-focus: rgba(0, 0, 0, 0.2);

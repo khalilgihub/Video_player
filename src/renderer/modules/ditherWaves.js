@@ -353,11 +353,8 @@ export function initDitherWaves(containerElement, customOptions = {}) {
   let resizeRafId = 0;
   const onResize = () => {
     if (destroyed) return;
-    if (resizeRafId) {
-      window.cancelAnimationFrame(resizeRafId);
-      resizeRafId = 0;
-    }
-    updateSize(true);
+    if (resizeRafId) return;
+    resizeRafId = window.requestAnimationFrame(() => { resizeRafId = 0; updateSize(); });
   };
 
   const isMainMount = containerElement.id === 'ditherMount' ||
@@ -389,11 +386,12 @@ export function initDitherWaves(containerElement, customOptions = {}) {
     }
     if (options.pauseWhenUnfocused && !isAppInteractive()) {
       isPaused = true;
-      rafId = 0;
+      rafId = window.requestAnimationFrame(renderLoop);
       return;
     }
     isPaused = false;
     rafId = window.requestAnimationFrame(renderLoop);
+    if (gl.canvas.offsetParent === null) return; // gallery hidden / display:none — skip GPU work
 
     if (fpsInterval > 0) {
       const now = performance.now();

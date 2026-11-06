@@ -183,15 +183,11 @@ class HybridPlaylist {
       }
     });
 
-    // Send mpv loop commands
+    // Repeat-one is renderer-driven (handleTrackEnded). Do not set mpv loop-file=inf:
+    // it would double-restart when both mpv loop and renderer seek fire.
     try {
-      if (this.repeat === 'one') {
-        window.hybridAPI?.mpv?.command?.('set_property', 'loop-file', 'inf');
-        window.hybridAPI?.mpv?.command?.('set_property', 'loop-playlist', 'no');
-      } else {
-        window.hybridAPI?.mpv?.command?.('set_property', 'loop-file', 'no');
-        window.hybridAPI?.mpv?.command?.('set_property', 'loop-playlist', 'no');
-      }
+      window.hybridAPI?.mpv?.command?.('set_property', 'loop-file', 'no');
+      window.hybridAPI?.mpv?.command?.('set_property', 'loop-playlist', this.repeat === 'all' ? 'inf' : 'no');
     } catch (_) {}
   }
 

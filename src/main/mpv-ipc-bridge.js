@@ -176,11 +176,8 @@ function setupMpvIpc(win, mpv, options = {}) {
   });
 
   const seekPreviewFrame = async (time) => {
-    const frameReady = waitForMpvEvent(previewMpv, 'playback-restart', 1200).catch(() => null);
-    await Promise.all([
-      previewMpv.command('seek', time, 'absolute'),
-      frameReady,
-    ]);
+    await previewMpv.command('seek', time, 'absolute');
+    await waitForMpvEvent(previewMpv, 'playback-restart', 400).catch(() => new Promise(r => setTimeout(r, 80)));
   };
 
   const stagedUndoMap = new Map();
@@ -818,9 +815,6 @@ function setupMpvIpc(win, mpv, options = {}) {
       /* ── Mouse click (instant when dblclick disabled, debounced when enabled) */
       case 'hybrid-mouse-click': {
         fsdbg('action mouse click');
-        if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
-          win.webContents.focus();
-        }
         const dblClickEnabled = global.__hybridDb?.preferences?.doubleClickFullscreen !== false;
         if (!dblClickEnabled) {
           if (_clickTimer) { clearTimeout(_clickTimer); _clickTimer = null; }
@@ -829,7 +823,7 @@ function setupMpvIpc(win, mpv, options = {}) {
         }
         if (_clickTimer) clearTimeout(_clickTimer);
         _clickTimer = setTimeout(() => {
-          if (mpv.ready) mpv.togglePause();
+          if (win && !win.isDestroyed() && mpv.ready) mpv.togglePause();
           _clickTimer = null;
         }, 160);
         break;
@@ -901,10 +895,9 @@ function setupMpvIpc(win, mpv, options = {}) {
         break;
     }
 
-    // After handling mpv-relayed input, pull keyboard focus back to
-    // the Electron/Chromium layer so subsequent keydown events reach
-    // the renderer's document listeners.
-    if (win && !win.isDestroyed()) {
+    // Focus restore only for fullscreen/play toggles (avoid stealing from mpv VO on seek/volume).
+    const _focusCmds = new Set(['hybrid-toggle-fullscreen', 'hybrid-exit-fullscreen', 'hybrid-toggle-play']);
+    if (_focusCmds.has(cmd) && win && !win.isDestroyed()) {
       fsdbg('focus restore to browser window');
       win.focus();
       win.webContents.focus();
@@ -974,16 +967,24 @@ function setupMpvIpc(win, mpv, options = {}) {
     return result !== false;
   });
 
-  // ── Playback ───────────────────────────────────────────
+  // ── Playback (seek coalesced to 50ms) ──
+  let _pendingSeek = null;
+  let _seekTimer = null;
   registerHandler('mpv:play', async () => withReady(() => mpv.play(), false));
   registerHandler('mpv:pause', async () => withReady(() => mpv.pause(), false));
-  registerHandler('mpv:toggle-pause', async () => withReady(() => mpv.togglePause(), false));
+  registerHandler('mpv:toggle-pause', async () => withReady(() => mpv.command('cycle', 'pause'), false));
   registerHandler('mpv:stop', async () => withReady(() => mpv.stop(), false));
   registerHandler('mpv:seek', async (_, time, flags) => {
     const safeTime = sanitizeNumber(time, 0, 30 * 24 * 60 * 60, null);
-    const safeFlags = seekFlagsAllowlist.has(flags) ? flags : 'absolute';
+    const safeFlags = seekFlagsAllowlist.has(flags) ? flags : 'absolute+exact';
     if (safeTime === null) return false;
-    return withReady(() => mpv.seek(safeTime, safeFlags), false);
+    _pendingSeek = { time: safeTime, flags: safeFlags };
+    if (_seekTimer) return true;
+    _seekTimer = setTimeout(() => {
+      const s = _pendingSeek; _pendingSeek = null; _seekTimer = null;
+      if (s) void withReady(() => mpv.seek(s.time, s.flags), false);
+    }, 50);
+    return true;
   });
   registerHandler('mpv:seek-relative', async (_, sec) => {
     const safeSeconds = sanitizeNumber(sec, -24 * 60 * 60, 24 * 60 * 60, null);
@@ -1358,14 +1359,17 @@ function setupMpvIpc(win, mpv, options = {}) {
           await previewMpv.command('screenshot-to-file', thumbPath, 'video').catch(() => null);
 
           let retries = 15;
-          while (!fs.existsSync(thumbPath) && retries-- > 0) {
+          while (retries-- > 0) {
+            try { if (fs.statSync(thumbPath).size > 0) break; } catch {}
             await new Promise((r) => setTimeout(r, 20));
           }
         } else {
-          seekdbg('reuse file', { rounded });
+          try { if (fs.statSync(thumbPath).size === 0) fs.unlinkSync(thumbPath); } catch {}
         }
 
-        if (!fs.existsSync(thumbPath)) {
+        let sizeOk = false;
+        try { sizeOk = fs.statSync(thumbPath).size > 0; } catch {}
+        if (!fs.existsSync(thumbPath) || !sizeOk) {
           seekdbg('capture file missing after screenshot', { thumbPath });
           return null;
         }

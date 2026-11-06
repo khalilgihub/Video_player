@@ -93,9 +93,11 @@ body.playlist-open .progress-bar-container {
 .progress-hover-thumb {
   position: absolute;
   bottom: 22px;
-  width: 192px;
-  height: 108px;
+  width: min(192px, 60vw);
+  height: auto;
+  aspect-ratio: 16 / 9;
   transform: translateX(-50%);
+  max-height: 108px;
   background: #08090b;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 10px;

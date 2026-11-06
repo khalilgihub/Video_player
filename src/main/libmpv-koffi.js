@@ -149,7 +149,11 @@ class LibmpvContext extends EventEmitter {
     const strArgs = cmdArgs.map((a) => (a === null || a === undefined ? '' : String(a)));
     strArgs.push(null);
     if (isAsync && typeof this.funcs.command_async === 'function') {
-      return this.funcs.command_async(this.handle, 0n, strArgs);
+      this._nextUserdata = (this._nextUserdata || 0) + 1;
+      const userdata = BigInt(this._nextUserdata);
+      if (!this._asyncPending) this._asyncPending = new Map();
+      this._asyncPending.set(Number(userdata), { args: cmdArgs, ts: Date.now() });
+      return this.funcs.command_async(this.handle, userdata, strArgs);
     }
     return this.funcs.command(this.handle, strArgs);
   }
@@ -226,8 +230,10 @@ class LibmpvContext extends EventEmitter {
         if (ev.data) {
           const prop = koffi.decode(ev.data, this.types.mpv_event_property);
           let rawVal = null;
-          if (prop.data) {
+          if (prop.data && prop.format === 1) {
             rawVal = koffi.decode(prop.data, 'str');
+          } else if (prop.data && prop.format === 5) {
+            try { rawVal = JSON.stringify(koffi.decode(prop.data, this.types.mpv_node)); } catch {}
           }
           let parsedVal = rawVal;
           if (rawVal === 'yes') parsedVal = true;
